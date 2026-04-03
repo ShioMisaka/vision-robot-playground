@@ -13,6 +13,8 @@ from src.config import (
     ALL_JOINTS, ACTIVE_JOINTS, TOPIC_JOINT_COMMAND,
     TOPIC_JOINT_STATES, SAFE_HOME,
 )
+import time as _time
+
 from src.ik_solver import IKSolver
 
 
@@ -42,11 +44,28 @@ class RobotController(Node):
 
         self.get_logger().info("RobotController 已启动")
 
+    def wait_for_ready(self, timeout: float = 5.0):
+        """阻塞等待直到收到第一条 /joint_states 消息"""
+        start = self.get_clock().now().nanoseconds
+        while self._latest_joint_msg is None:
+            rclpy.spin_once(self, timeout_sec=0.1)
+            elapsed = (self.get_clock().now().nanoseconds - start) / 1e9
+            if elapsed > timeout:
+                raise TimeoutError(f"等待 /joint_states 超时 ({timeout}s)")
+        # 同步一次状态
+        name_to_pos = dict(
+            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+        )
+        self._current_arm = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
+        self._current_finger = float(name_to_pos.get("panda_finger_joint1", 0.0))
+
     # ---- 内部回调 ----
 
     def _on_joint_states(self, msg: JointState):
-        """接收 /joint_states 并缓存最新数据"""
+        """接收 /joint_states 并同步当前手臂关节角（夹爪只由指令控制）"""
         self._latest_joint_msg = msg
+        name_to_pos = dict(zip(msg.name, msg.position))
+        self._current_arm = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
 
     # ---- 状态读取 ----
 
@@ -94,6 +113,14 @@ class RobotController(Node):
             "rpy_rad": result["rpy"],
             "rpy_deg": [math.degrees(r) for r in result["rpy"]],
         }
+
+    # ---- 工具 ----
+
+    def sleep(self, seconds: float):
+        """等待指定秒数，期间保持 ROS2 回调处理"""
+        end = _time.time() + seconds
+        while _time.time() < end:
+            rclpy.spin_once(self, timeout_sec=0.1)
 
     # ---- 底层：直接发 9 个关节值（私有）----
 
