@@ -1,23 +1,25 @@
 """项目常量：路径、关节名、话题名、预设姿态"""
 
+from typing import Final
+
 # ---- 文件路径 ----
-URDF_PATH = "urdf/panda.urdf"
-BASE_LINK = "panda_link0"
+URDF_PATH: Final[str] = "urdf/panda.urdf"
+BASE_LINK: Final[str] = "panda_link0"
 
 # ---- 关节名 ----
-ACTIVE_JOINTS = [f"panda_joint{i}" for i in range(1, 8)]
-ALL_JOINTS = ACTIVE_JOINTS + ["panda_finger_joint1", "panda_finger_joint2"]
+ACTIVE_JOINTS: Final[list[str]] = [f"panda_joint{i}" for i in range(1, 8)]
+ALL_JOINTS: Final[list[str]] = ACTIVE_JOINTS + ["panda_finger_joint1", "panda_finger_joint2"]
 
 # ---- ROS2 话题 ----
-TOPIC_JOINT_COMMAND = "/joint_command"
-TOPIC_JOINT_STATES = "/joint_states"
-TOPIC_CAMERA_IMAGE = "/camera/image_raw"
+TOPIC_JOINT_COMMAND: Final[str] = "/joint_command"
+TOPIC_JOINT_STATES: Final[str] = "/joint_states"
+TOPIC_CAMERA_IMAGE: Final[str] = "/camera/image_raw"
 
 # ---- 预设姿态（9个值：7关节 + 2夹爪）----
-SAFE_HOME = [0.0, 0.0, 0.0, -1.57, 0.0, 1.57, 0.0, 0.4, 0.4]
+SAFE_HOME: Final[list[float]] = [0.0, 0.0, 0.0, -1.57, 0.0, 1.57, 0.0, 0.4, 0.4]
 
 # ---- IK 默认初始猜测（弯肘翻腕，避免奇异点）----
-IK_DEFAULT_GUESS = {
+IK_DEFAULT_GUESS: Final[dict[str, float]] = {
     "panda_joint4": -1.57,
     "panda_joint6": 1.57,
 }

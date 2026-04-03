@@ -1,6 +1,9 @@
 """ROS2 机器人控制节点：发送关节指令、读取状态、IK 位姿控制"""
 
+from __future__ import annotations
+
 import math
+from typing import Optional
 
 import rclpy
 from rclpy.node import Node
@@ -16,9 +19,8 @@ from src.ik_solver import IKSolver
 class RobotController(Node):
     """Franka Panda ROS2 控制节点"""
 
-    # 记住当前关节状态，保证 open/close_gripper 只改夹爪
-    _current_arm = [0.0] * 7
-    _current_finger = 0.04
+    _current_arm: list[float]
+    _current_finger: float
 
     def __init__(self):
         super().__init__("franka_controller")
@@ -27,57 +29,65 @@ class RobotController(Node):
         self.publisher_ = self.create_publisher(JointState, TOPIC_JOINT_COMMAND, 10)
 
         # 订阅机器人实时关节状态
-        self._joint_names_index = {name: i for i, name in enumerate(ALL_JOINTS)}
-        self._latest_joint_msg = None
+        self._latest_joint_msg: JointState | None = None
         self._joint_sub = self.create_subscription(
             JointState, TOPIC_JOINT_STATES, self._on_joint_states, 10
         )
 
-        self.ik = IKSolver()
+        self.ik: IKSolver = IKSolver()
+
+        # 记住当前关节状态，保证 open/close_gripper 只改夹爪
+        self._current_arm = [0.0] * 7
+        self._current_finger = 0.04
+
         self.get_logger().info("RobotController 已启动")
 
     # ---- 内部回调 ----
 
-    def _on_joint_states(self, msg):
+    def _on_joint_states(self, msg: JointState):
         """接收 /joint_states 并缓存最新数据"""
         self._latest_joint_msg = msg
 
     # ---- 状态读取 ----
 
-    def get_joint_angles(self):
+    def get_joint_angles(self) -> list[float]:
         """
         获取机器人当前 7 个手臂关节角度（来自仿真反馈，非指令值）
 
         Returns:
-            list[float]: panda_joint1~7 的当前角度（弧度）
+            panda_joint1~7 的当前角度（弧度）
         """
         if self._latest_joint_msg is None:
             self.get_logger().warn("尚未收到 /joint_states 消息，返回默认值 0")
             return [0.0] * 7
 
-        name_to_pos = dict(zip(self._latest_joint_msg.name, self._latest_joint_msg.position))
-        return [name_to_pos.get(j, 0.0) for j in ACTIVE_JOINTS]
+        name_to_pos = dict(
+            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+        )
+        return [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
 
-    def get_finger_width(self):
+    def get_finger_width(self) -> float:
         """
         获取夹爪当前开合程度
 
         Returns:
-            float: 0.0=闭合, 0.04=全开
+            0.0=闭合, 0.04=全开
         """
         if self._latest_joint_msg is None:
             return 0.0
-        name_to_pos = dict(zip(self._latest_joint_msg.name, self._latest_joint_msg.position))
-        return name_to_pos.get("panda_finger_joint1", 0.0)
+        name_to_pos = dict(
+            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+        )
+        return float(name_to_pos.get("panda_finger_joint1", 0.0))
 
-    def get_end_effector_pose(self):
+    def get_end_effector_pose(self) -> dict[str, list[float]]:
         """
         获取当前末端执行器的位姿（通过 FK 从实际关节角计算）
 
         Returns:
-            dict: {"pos": [x,y,z], "rpy_deg": [r,p,y](角度制), "rpy_rad": [r,p,y](弧度制)}
+            {"pos": [x,y,z], "rpy_rad": [r,p,y], "rpy_deg": [r,p,y]}
         """
-        current_angles = self.get_joint_angles()
+        current_angles: list[float] = self.get_joint_angles()
         result = self.ik.forward(current_angles)
         return {
             "pos": result["pos"],
@@ -87,7 +97,7 @@ class RobotController(Node):
 
     # ---- 底层：直接发 9 个关节值（私有）----
 
-    def _send(self, arm_angles, finger):
+    def _send(self, arm_angles: list[float], finger: float):
         """发送完整关节指令（内部使用）"""
         self._current_arm = list(arm_angles)
         self._current_finger = finger
@@ -98,7 +108,7 @@ class RobotController(Node):
 
     # ---- 中层：传入关节角 / 夹爪控制 ----
 
-    def set_arm(self, angles):
+    def set_arm(self, angles: list[float]):
         """
         直接设置 7 个手臂关节角度
 
@@ -109,7 +119,7 @@ class RobotController(Node):
             raise ValueError(f"需要 7 个关节角度，收到 {len(angles)} 个")
         self._send(angles, self._current_finger)
 
-    def set_gripper(self, width):
+    def set_gripper(self, width: float):
         """
         设置夹爪开合程度
 
@@ -126,7 +136,12 @@ class RobotController(Node):
 
     # ---- 高层：IK 位姿控制 ----
 
-    def move_to_pose(self, xyz, rpy=None, finger=None):
+    def move_to_pose(
+        self,
+        xyz: list[float],
+        rpy: Optional[list[float]] = None,
+        finger: Optional[float] = None,
+    ):
         """
         IK 求解并移动到指定位姿
 
@@ -135,11 +150,11 @@ class RobotController(Node):
             rpy: [roll, pitch, yaw] 目标姿态（弧度），None=不约束朝向
             finger: 夹爪开合，None=保持当前状态
         """
-        angles = self.ik.solve(xyz, rpy)
+        angles: list[float] = self.ik.solve(xyz, rpy)
         result = self.ik.forward(angles)
-        pos = result["pos"]
-        actual_rpy = result["rpy"]
-        pos_error = math.dist(xyz, pos)
+        pos: list[float] = result["pos"]
+        actual_rpy: list[float] = result["rpy"]
+        pos_error: float = math.dist(xyz, pos)
 
         log = (
             f"目标 pos=({xyz[0]:.3f}, {xyz[1]:.3f}, {xyz[2]:.3f})  "
@@ -147,12 +162,13 @@ class RobotController(Node):
             f"误差={pos_error*1000:.1f}mm"
         )
         if rpy is not None:
-            rpy_err = math.dist(rpy, actual_rpy)
+            rpy_err: float = math.dist(rpy, actual_rpy)
             log += (
                 f"\n  目标 rpy=({math.degrees(rpy[0]):.1f}, "
                 f"{math.degrees(rpy[1]):.1f}, {math.degrees(rpy[2]):.1f})  "
                 f"实际 rpy=({math.degrees(actual_rpy[0]):.1f}, "
-                f"{math.degrees(actual_rpy[1]):.1f}, {math.degrees(actual_rpy[2]):.1f})  "
+                f"{math.degrees(actual_rpy[1]):.1f}, "
+                f"{math.degrees(actual_rpy[2]):.1f})  "
                 f"误差={math.degrees(rpy_err):.2f}deg"
             )
         self.get_logger().info(log)
