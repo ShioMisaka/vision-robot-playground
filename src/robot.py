@@ -15,6 +15,8 @@ from src.config import (
 )
 import time as _time
 
+from scipy.spatial.transform import Rotation
+
 from src.ik_solver import IKSolver
 
 
@@ -203,6 +205,48 @@ class RobotController(Node):
         if finger is None:
             finger = self._current_finger
         self._send(angles, finger)
+
+    def move_linear(
+        self,
+        delta: list[float],
+        frame: str = "base",
+        finger: Optional[float] = None,
+    ):
+        """
+        沿基座或末端坐标系进行相对平移
+
+        Args:
+            delta: [dx, dy, dz] 平移量（米），正值方向取决于 frame
+            frame: "base"=基座坐标系, "end_effector"=末端执行器坐标系
+            finger: 夹爪开合，None=保持当前状态
+        """
+        current = self.get_end_effector_pose()
+        pos: list[float] = current["pos"]
+
+        rpy: list[float] = current["rpy_rad"]
+
+        if frame == "end_effector":
+            rot = Rotation.from_euler("xyz", rpy)
+            offset = rot.apply(delta)
+            target = [p + o for p, o in zip(pos, offset)]
+        else:
+            target = [p + d for p, d in zip(pos, delta)]
+
+        self.move_to_pose(target, rpy=rpy, finger=finger)
+
+    def rotate_joint(self, index: int, delta_angle: float):
+        """
+        旋转指定关节
+
+        Args:
+            index: 关节索引（0-6），对应 panda_joint1~7
+            delta_angle: 旋转增量（弧度），正=正方向
+        """
+        if not 0 <= index <= 6:
+            raise ValueError(f"关节索引范围为 0-6，收到 {index}")
+        angles = self.get_joint_angles()
+        angles[index] += delta_angle
+        self.set_arm(angles)
 
     def go_home(self):
         """回到安全零位"""

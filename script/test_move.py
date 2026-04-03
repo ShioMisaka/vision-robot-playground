@@ -26,12 +26,13 @@ def main():
     robot.close_gripper()
     robot.sleep(1.0)
 
-    robot.move_to_pose([0.526, 0.0, 0.5], rpy=[0.0, math.radians(-180), math.radians(-180)])
-    robot.sleep(3.0)
+    robot.move_linear([0, 0, 0.2])
+    robot.sleep(1.0)
 
-    now_joint = robot.get_joint_angles()
-    now_joint[0] += math.radians(90)
-    robot.set_arm(now_joint)
+    robot.rotate_joint(0, math.radians(90))
+    robot.sleep(1.0)
+
+    robot.rotate_joint(3, math.radians(90))
     robot.sleep(3.0)
 
     robot.get_logger().info("完成！")
