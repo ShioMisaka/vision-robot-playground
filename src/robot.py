@@ -1,109 +1,251 @@
-"""ROS2 机器人控制节点：发送关节指令、读取状态、IK 位姿控制"""
+"""ROS2 机器人控制节点：发送关节指令、读取状态、IK 位姿控制
+
+架构说明：
+    本节点使用 MultiThreadedExecutor 在后台线程中处理 ROS2 回调，
+    业务逻辑（阻塞式调用）在主线程中执行，二者通过 threading.Event
+    和线程安全的数据结构进行同步，完全避免了 spin_once 滥用。
+
+使用方式：
+    rclpy.init()
+    robot = RobotController()
+    executor = MultiThreadedExecutor()
+    executor.add_node(robot)
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
+    spin_thread.start()
+
+    robot.wait_for_ready()  # 阻塞等待，不使用 spin_once
+    robot.open_gripper()
+    time.sleep(1.0)         # 普通 sleep，回调由 executor 线程处理
+
+扩展预留：
+    - Action Server: 后续可通过 control_msgs/action/FollowJointTrajectory
+      实现轨迹级别的控制，替代当前的即时位置指令
+    - TF2: 已初始化 TransformBroadcaster 和 Buffer，
+      用于发布末端执行器和相机的坐标变换
+"""
 
 from __future__ import annotations
 
 import math
+import threading
 from typing import Optional
 
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-
-from src.config import (
-    ALL_JOINTS, ACTIVE_JOINTS, TOPIC_JOINT_COMMAND,
-    TOPIC_JOINT_STATES, SAFE_HOME,
-)
-import time as _time
+from tf2_ros import TransformBroadcaster, Buffer, TransformListener
 
 from scipy.spatial.transform import Rotation
 
+from src.config import (
+    ALL_JOINTS,
+    ACTIVE_JOINTS,
+    TOPIC_JOINT_COMMAND,
+    TOPIC_JOINT_STATES,
+    SAFE_HOME,
+    FRAME_BASE,
+    FRAME_END_EFFECTOR,
+)
 from src.ik_solver import IKSolver
 
 
 class RobotController(Node):
-    """Franka Panda ROS2 控制节点"""
+    """Franka Panda ROS2 控制节点
 
-    _current_arm: list[float]
-    _current_finger: float
+    通过发布 JointState 指令控制 Isaac Sim 中的 Franka 机械臂，
+    订阅 /joint_states 获取实时关节反馈。
 
-    def __init__(self):
+    注意：本节点必须在 MultiThreadedExecutor 中运行，
+    否则回调将无法在阻塞式业务逻辑期间被处理。
+
+    扩展预留：
+        后续可基于 control_msgs/action/FollowJointTrajectory 实现
+        Action Server，提供轨迹级别的插值运动控制，
+        替代当前单次位置指令的即时跳变模式。
+    """
+
+    def __init__(self) -> None:
         super().__init__("franka_controller")
 
-        # 发布关节指令
-        self.publisher_ = self.create_publisher(JointState, TOPIC_JOINT_COMMAND, 10)
+        # ---- 回调组划分 ----
+        # MutuallyExclusiveCallbackGroup: 保证关节状态回调不会重入，
+        # 避免在处理一条消息时被同组回调打断导致数据竞争
+        self._state_cbg = MutuallyExclusiveCallbackGroup()
+        # ReentrantCallbackGroup: 发布和 TF 广播可并行执行，
+        # 不需要互斥保护
+        self._pub_cbg = ReentrantCallbackGroup()
 
-        # 订阅机器人实时关节状态
-        self._latest_joint_msg: JointState | None = None
-        self._joint_sub = self.create_subscription(
-            JointState, TOPIC_JOINT_STATES, self._on_joint_states, 10
+        # 发布关节指令（使用可重入回调组）
+        self.publisher_ = self.create_publisher(
+            JointState, TOPIC_JOINT_COMMAND, 10,
+            callback_group=self._pub_cbg,
         )
+
+        # 订阅机器人实时关节状态（使用互斥回调组）
+        self._latest_joint_msg: JointState | None = None
+        self._joint_state_lock = threading.Lock()
+        self._joint_sub = self.create_subscription(
+            JointState, TOPIC_JOINT_STATES, self._on_joint_states, 10,
+            callback_group=self._state_cbg,
+        )
+
+        # 就绪事件：第一条 /joint_states 到达后置位，
+        # 替代旧的 spin_once 轮询等待
+        self._ready_event = threading.Event()
 
         self.ik: IKSolver = IKSolver()
 
         # 记住当前关节状态，保证 open/close_gripper 只改夹爪
-        self._current_arm = [0.0] * 7
-        self._current_finger = 0.04
+        self._current_arm: list[float] = [0.0] * 7
+        self._current_finger: float = 0.04
+
+        # ---- TF2 初始化 ----
+        # TransformBroadcaster: 在关节状态回调中持续发布末端执行器 TF
+        self._tf_broadcaster = TransformBroadcaster(self)
+        # Buffer + Listener: 用于查询外部 TF（如相机坐标系变换）
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
 
         self.get_logger().info("RobotController 已启动")
 
-    def wait_for_ready(self, timeout: float = 5.0):
-        """阻塞等待直到收到第一条 /joint_states 消息"""
-        start = self.get_clock().now().nanoseconds
-        while self._latest_joint_msg is None:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            elapsed = (self.get_clock().now().nanoseconds - start) / 1e9
-            if elapsed > timeout:
-                raise TimeoutError(f"等待 /joint_states 超时 ({timeout}s)")
-        # 同步一次状态
-        name_to_pos = dict(
-            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
-        )
-        self._current_arm = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
-        self._current_finger = float(name_to_pos.get("panda_finger_joint1", 0.0))
+    # ---- 同步等待 ----
+
+    def wait_for_ready(self, timeout: float = 5.0) -> None:
+        """阻塞等待直到收到第一条 /joint_states 消息
+
+        使用 threading.Event 替代 spin_once 轮询。
+        需要节点在 MultiThreadedExecutor 中运行，回调才能在等待期间被处理。
+
+        Args:
+            timeout: 超时时间（秒）
+
+        Raises:
+            TimeoutError: 超时未收到关节状态
+        """
+        if not self._ready_event.wait(timeout=timeout):
+            raise TimeoutError(f"等待 /joint_states 超时 ({timeout}s)")
+
+        with self._joint_state_lock:
+            if self._latest_joint_msg is not None:
+                name_to_pos = dict(
+                    zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+                )
+                self._current_arm = [
+                    float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS
+                ]
+                self._current_finger = float(
+                    name_to_pos.get("panda_finger_joint1", 0.0)
+                )
 
     # ---- 内部回调 ----
 
-    def _on_joint_states(self, msg: JointState):
+    def _on_joint_states(self, msg: JointState) -> None:
         """接收 /joint_states 并同步当前手臂关节角（夹爪只由指令控制）"""
-        self._latest_joint_msg = msg
+        with self._joint_state_lock:
+            self._latest_joint_msg = msg
+            name_to_pos = dict(zip(msg.name, msg.position))
+            self._current_arm = [
+                float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS
+            ]
+
+        # 发布末端执行器 TF（不阻塞关节状态更新）
+        self._publish_ee_tf(msg)
+
+        # 首次收到消息时触发就绪事件，唤醒 wait_for_ready
+        if not self._ready_event.is_set():
+            self._ready_event.set()
+
+    def _publish_ee_tf(self, msg: JointState) -> None:
+        """根据当前关节角计算并发布末端执行器的 TF 变换"""
         name_to_pos = dict(zip(msg.name, msg.position))
-        self._current_arm = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
+        arm_angles = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
+
+        try:
+            result = self.ik.forward(arm_angles)
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = FRAME_BASE
+            t.child_frame_id = FRAME_END_EFFECTOR
+            t.transform.translation.x = float(result["pos"][0])
+            t.transform.translation.y = float(result["pos"][1])
+            t.transform.translation.z = float(result["pos"][2])
+
+            rot = Rotation.from_euler("xyz", result["rpy"]).as_quat()
+            t.transform.rotation.x = float(rot[0])
+            t.transform.rotation.y = float(rot[1])
+            t.transform.rotation.z = float(rot[2])
+            t.transform.rotation.w = float(rot[3])
+
+            self._tf_broadcaster.sendTransform(t)
+        except Exception:
+            pass  # FK 失败不影响主流程
+
+    # ---- TF2 查询 ----
+
+    def lookup_transform(
+        self,
+        target_frame: str,
+        source_frame: str,
+        timeout: float = 1.0,
+    ) -> Optional[TransformStamped]:
+        """查询 TF 变换
+
+        Args:
+            target_frame: 目标坐标系
+            source_frame: 源坐标系
+            timeout: 超时时间（秒）
+
+        Returns:
+            TransformStamped 或 None（查询失败时）
+        """
+        try:
+            return self._tf_buffer.lookup_transform(
+                target_frame, source_frame,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=timeout),
+            )
+        except Exception:
+            self.get_logger().warning(
+                f"TF 查询失败: {source_frame} -> {target_frame}"
+            )
+            return None
 
     # ---- 状态读取 ----
 
     def get_joint_angles(self) -> list[float]:
-        """
-        获取机器人当前 7 个手臂关节角度（来自仿真反馈，非指令值）
+        """获取机器人当前 7 个手臂关节角度（来自仿真反馈）
 
         Returns:
             panda_joint1~7 的当前角度（弧度）
         """
-        if self._latest_joint_msg is None:
-            self.get_logger().warn("尚未收到 /joint_states 消息，返回默认值 0")
-            return [0.0] * 7
+        with self._joint_state_lock:
+            if self._latest_joint_msg is None:
+                self.get_logger().warn("尚未收到 /joint_states 消息，返回默认值 0")
+                return [0.0] * 7
 
-        name_to_pos = dict(
-            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
-        )
-        return [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
+            name_to_pos = dict(
+                zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+            )
+            return [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
 
     def get_finger_width(self) -> float:
-        """
-        获取夹爪当前开合程度
+        """获取夹爪当前开合程度
 
         Returns:
             0.0=闭合, 0.04=全开
         """
-        if self._latest_joint_msg is None:
-            return 0.0
-        name_to_pos = dict(
-            zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
-        )
-        return float(name_to_pos.get("panda_finger_joint1", 0.0))
+        with self._joint_state_lock:
+            if self._latest_joint_msg is None:
+                return 0.0
+            name_to_pos = dict(
+                zip(self._latest_joint_msg.name, self._latest_joint_msg.position)
+            )
+            return float(name_to_pos.get("panda_finger_joint1", 0.0))
 
     def get_end_effector_pose(self) -> dict[str, list[float]]:
-        """
-        获取当前末端执行器的位姿（通过 FK 从实际关节角计算）
+        """获取当前末端执行器的位姿（通过 FK 从实际关节角计算）
 
         Returns:
             {"pos": [x,y,z], "rpy_rad": [r,p,y], "rpy_deg": [r,p,y]}
@@ -116,17 +258,9 @@ class RobotController(Node):
             "rpy_deg": [math.degrees(r) for r in result["rpy"]],
         }
 
-    # ---- 工具 ----
-
-    def sleep(self, seconds: float):
-        """等待指定秒数，期间保持 ROS2 回调处理"""
-        end = _time.time() + seconds
-        while _time.time() < end:
-            rclpy.spin_once(self, timeout_sec=0.1)
-
     # ---- 底层：直接发 9 个关节值（私有）----
 
-    def _send(self, arm_angles: list[float], finger: float):
+    def _send(self, arm_angles: list[float], finger: float) -> None:
         """发送完整关节指令（内部使用）"""
         self._current_arm = list(arm_angles)
         self._current_finger = finger
@@ -137,9 +271,8 @@ class RobotController(Node):
 
     # ---- 中层：传入关节角 / 夹爪控制 ----
 
-    def set_arm(self, angles: list[float]):
-        """
-        直接设置 7 个手臂关节角度
+    def set_arm(self, angles: list[float]) -> None:
+        """直接设置 7 个手臂关节角度
 
         Args:
             angles: 7 个关节角度（弧度），顺序对应 panda_joint1~7
@@ -148,19 +281,20 @@ class RobotController(Node):
             raise ValueError(f"需要 7 个关节角度，收到 {len(angles)} 个")
         self._send(angles, self._current_finger)
 
-    def set_gripper(self, width: float):
-        """
-        设置夹爪开合程度
+    def set_gripper(self, width: float) -> None:
+        """设置夹爪开合程度
 
         Args:
             width: 0.0=闭合, 0.04=全开
         """
         self._send(self._current_arm, width)
 
-    def open_gripper(self):
+    def open_gripper(self) -> None:
+        """张开夹爪"""
         self.set_gripper(0.04)
 
-    def close_gripper(self):
+    def close_gripper(self) -> None:
+        """闭合夹爪"""
         self.set_gripper(0.0)
 
     # ---- 高层：IK 位姿控制 ----
@@ -170,9 +304,8 @@ class RobotController(Node):
         xyz: list[float],
         rpy: Optional[list[float]] = None,
         finger: Optional[float] = None,
-    ):
-        """
-        IK 求解并移动到指定位姿
+    ) -> None:
+        """IK 求解并移动到指定位姿
 
         Args:
             xyz: [x, y, z] 目标位置（米）
@@ -188,7 +321,7 @@ class RobotController(Node):
         log = (
             f"目标 pos=({xyz[0]:.3f}, {xyz[1]:.3f}, {xyz[2]:.3f})  "
             f"实际 pos=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})  "
-            f"误差={pos_error*1000:.1f}mm"
+            f"误差={pos_error * 1000:.1f}mm"
         )
         if rpy is not None:
             rpy_err: float = math.dist(rpy, actual_rpy)
@@ -211,9 +344,8 @@ class RobotController(Node):
         delta: list[float],
         frame: str = "base",
         finger: Optional[float] = None,
-    ):
-        """
-        沿基座或末端坐标系进行相对平移
+    ) -> None:
+        """沿基座或末端坐标系进行相对平移
 
         Args:
             delta: [dx, dy, dz] 平移量（米），正值方向取决于 frame
@@ -222,7 +354,6 @@ class RobotController(Node):
         """
         current = self.get_end_effector_pose()
         pos: list[float] = current["pos"]
-
         rpy: list[float] = current["rpy_rad"]
 
         if frame == "end_effector":
@@ -234,9 +365,8 @@ class RobotController(Node):
 
         self.move_to_pose(target, rpy=rpy, finger=finger)
 
-    def rotate_joint(self, index: int, delta_angle: float):
-        """
-        旋转指定关节
+    def rotate_joint(self, index: int, delta_angle: float) -> None:
+        """旋转指定关节
 
         Args:
             index: 关节索引（0-6），对应 panda_joint1~7
@@ -248,6 +378,6 @@ class RobotController(Node):
         angles[index] += delta_angle
         self.set_arm(angles)
 
-    def go_home(self):
+    def go_home(self) -> None:
         """回到安全零位"""
         self._send(SAFE_HOME[:7], SAFE_HOME[7])

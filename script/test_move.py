@@ -1,41 +1,62 @@
-"""演示：IK 位姿控制 — 移动到指定位置和姿态"""
+"""演示：IK 位姿控制 — 移动到指定位置和姿态
+
+使用 MultiThreadedExecutor 在后台线程处理回调，
+主线程中执行阻塞式业务逻辑。
+"""
 
 import math
+import threading
+import time
 
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
+
 from src.robot import RobotController
 
 
-def main():
+def main() -> None:
     rclpy.init()
     robot = RobotController()
 
-    robot.get_logger().info("等待 2 秒，建立与 Isaac Sim 的连接...")
-    robot.wait_for_ready()
+    # MultiThreadedExecutor: 允许回调在独立线程中执行，
+    # 主线程的阻塞调用（time.sleep 等）不会卡死回调处理
+    executor = MultiThreadedExecutor()
+    executor.add_node(robot)
+
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
+    spin_thread.start()
+
+    robot.get_logger().info("等待与 Isaac Sim 建立连接...")
+    robot.wait_for_ready()  # 通过 threading.Event 阻塞等待，不使用 spin_once
 
     robot.get_logger().info("--- 张开夹爪 ---")
     robot.open_gripper()
-    robot.sleep(1.0)
+    time.sleep(1.0)
 
     # 位置 + 姿态（夹爪朝下，适合抓取）
-    robot.move_to_pose([0.526, 0.0, 0.18], rpy=[0.0, math.radians(-180), math.radians(-180)])
-    robot.sleep(2.0)
+    robot.move_to_pose(
+        [0.526, 0.0, 0.18],
+        rpy=[0.0, math.radians(-180), math.radians(-180)],
+    )
+    time.sleep(2.0)
 
     # 闭合夹爪
     robot.get_logger().info("--- 闭合夹爪 ---")
     robot.close_gripper()
-    robot.sleep(1.0)
+    time.sleep(1.0)
 
     robot.move_linear([0, 0, 0.2])
-    robot.sleep(1.0)
+    time.sleep(1.0)
 
     robot.rotate_joint(0, math.radians(90))
-    robot.sleep(1.0)
+    time.sleep(3.0)
 
     robot.rotate_joint(3, math.radians(90))
-    robot.sleep(3.0)
+    time.sleep(3.0)
 
-    robot.get_logger().info("完成！")
+    robot.get_logger().info("完成!")
+
+    executor.shutdown()
     robot.destroy_node()
     rclpy.shutdown()
 
