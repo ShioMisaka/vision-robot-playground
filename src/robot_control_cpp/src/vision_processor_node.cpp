@@ -5,10 +5,21 @@
 
 namespace robot_control {
 
+std::shared_ptr<VisionProcessorNode> VisionProcessorNode::create(
+    std::shared_ptr<CameraInterface> processor, const TopicConfig& topics) {
+  auto node = std::shared_ptr<VisionProcessorNode>(
+      new VisionProcessorNode(std::move(processor), topics));
+  node->init(topics);
+  return node;
+}
+
 VisionProcessorNode::VisionProcessorNode(
-    std::shared_ptr<CameraInterface> processor, const TopicConfig& topics)
+    std::shared_ptr<CameraInterface> processor, const TopicConfig& /*topics*/)
     : Node("vision_processor_node"), processor_(std::move(processor)) {
-  // 使用 SensorDataQoS（BestEffort + KeepLast(5)）匹配相机驱动
+  // init() will be called by create() after shared_from_this() is safe
+}
+
+void VisionProcessorNode::init(const TopicConfig& topics) {
   auto qos_profile = rclcpp::SensorDataQoS();
 
   left_sub_ =

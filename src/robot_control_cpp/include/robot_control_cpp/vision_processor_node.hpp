@@ -22,11 +22,10 @@ namespace robot_control {
 /// 通过 message_filters 同步订阅 RGB + 深度图像
 class VisionProcessorNode : public rclcpp::Node, public IVisionProcessor {
 public:
-  /// @brief 构造视觉处理节点
-  /// @param processor 图像处理算法（如 ColorDetector）
-  /// @param topics 话题配置
-  VisionProcessorNode(std::shared_ptr<CameraInterface> processor,
-                      const TopicConfig& topics);
+  /// @brief 工厂方法：创建视觉处理节点
+  static std::shared_ptr<VisionProcessorNode> create(
+      std::shared_ptr<CameraInterface> processor,
+      const TopicConfig& topics);
 
   // IVisionProcessor 接口
   std::optional<DetectionResult> get_latest_result() const override;
@@ -34,6 +33,10 @@ public:
       double timeout = 10.0) override;
 
 private:
+  VisionProcessorNode(std::shared_ptr<CameraInterface> processor,
+                      const TopicConfig& topics);
+  void init(const TopicConfig& topics);
+
   void on_synced_image(
       const sensor_msgs::msg::Image::ConstSharedPtr& left,
       const sensor_msgs::msg::Image::ConstSharedPtr& depth);

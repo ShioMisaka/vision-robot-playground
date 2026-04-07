@@ -4,24 +4,27 @@
 基于 ROS2 + Isaac Sim 的机械臂视觉引导抓取系统（多机器人可扩展架构）。
 使用 ZEN_X_Mini 双目深度相机的左目 + 深度通道进行目标检测与 3D 定位。
 核心逻辑已用 C++ 重写，通过分层架构实现 ROS 无关的核心库与 ROS2 节点解耦。
+Python 脚本通过 pybind11 调用 C++ 后端。
 
 ## 技术栈
-- **语言**: C++17（核心库 + ROS2 节点）, Python 3.10+（测试脚本、上层算法）
+- **语言**: C++17（核心库 + ROS2 节点）, Python 3.12（脚本，通过 pybind11 调用 C++）
 - **ROS2**: Jazzy
 - **仿真**: NVIDIA Isaac Sim（通过 ROS2 bridge 通信）
 - **机器人**: Franka Panda 7-DOF + 二指夹爪（架构支持扩展新机器人）
 - **相机**: ZEN_X_Mini（左目 RGB + 深度）
 - **C++ 核心依赖**: rclcpp, Eigen3, Orocos KDL, OpenCV, tf2_ros, cv_bridge, message_filters
+- **Python 绑定**: pybind11 2.11
 
 ## 分层架构
 ```
-Layer 3: Python Binding (pybind11)           ← 待实现：script/ 代码无缝迁移
+Layer 3: Python Binding (pybind11)           ← script/ 通过 C++ 后端控制机器人
 Layer 2: ROS 2 C++ Wrapper Nodes            ← rclcpp 节点（通信适配层）
 Layer 1: Pure C++ Core Library (无 ROS 依赖) ← IK、运动控制、颜色检测、状态机
 ```
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦，ROS2 节点实现该接口
 - 新增机器人只需定义 `RobotProfile`，核心库无需修改
+- Python 脚本使用 `rclcpp`（通过 pybind11），不能同时使用 `rclpy`
 
 ## 项目结构
 ```
@@ -54,6 +57,14 @@ src/
     CMakeLists.txt                # 导出 robot_control_cpp::robot_control_core/nodes
     package.xml
 
+  # === pybind11 Python 绑定包 ===
+  robot_control_cpp_py/
+    src/bindings.cpp              # pybind11 绑定代码
+    robot_control_cpp_py/
+      __init__.py                 # Python 包，导入 _core 并重新导出
+    CMakeLists.txt
+    package.xml
+
   # === C++ 测试与演示包 ===
   robot_control_test/
     test/
@@ -65,18 +76,21 @@ src/
     package.xml                   # depend on robot_control_cpp
 
 script/
-  test_move.py         # Python 演示：IK 位姿控制
-  test_vision.py       # Python 演示：视觉伺服引导抓取（红色物块）
+  test_move.py         # Python 演示（纯 Python 后端）：IK 位姿控制
+  test_vision.py       # Python 演示（纯 Python 后端）：视觉伺服引导抓取
+  test_grasp_tcp.py    # Python 演示（纯 Python 后端）：TCP 抓取
+  test_move_cpp.py     # Python 演示（C++ 后端）：IK 位姿控制
+  test_vision_cpp.py   # Python 演示（C++ 后端）：视觉伺服引导抓取
+  test_grasp_tcp_cpp.py # Python 演示（C++ 后端）：TCP 抓取
   test_joint_state.py  # Python 演示：关节状态读取
   test_camera.py       # Python 演示：相机图像显示
-  test_grasp_tcp.py    # Python 演示：TCP 抓取
 urdf/
   panda.urdf           # Franka Panda URDF 模型
 ```
 
 ## 编码规范 — Python
 - 遵循 PEP8，完整 Type Hints + 中文 Docstring
-- 所有 ROS2 节点通过 MultiThreadedExecutor 运行，禁止使用 `rclpy.spin_once`
+- C++ 后端脚本使用 `rclcpp_init()` / `rclcpp_shutdown()`，禁止使用 `rclpy.init()`
 - 线程同步使用 `threading.Event`（就绪等待）和 `threading.Lock`（共享数据保护）
 
 ## 编码规范 — C++
@@ -87,6 +101,7 @@ urdf/
 - 异常处理：C++ 层捕获通信/超时异常，通过 pybind11 抛出到 Python
 - 线程同步：`std::mutex` + `std::condition_variable`
 - 回调组：状态订阅用 `MutuallyExclusiveCallbackGroup`，发布/TF 用 `ReentrantCallbackGroup`
+- 节点构造使用工厂模式（`create()` 静态方法 + 两阶段初始化），避免 `shared_from_this()` 问题
 
 ## ROS2 话题
 | 话题 | 类型 | 方向 | 说明 |
@@ -101,25 +116,55 @@ urdf/
 # 编译 C++ 核心库
 colcon build --base-paths src --packages-select robot_control_cpp
 
-# 编译测试与演示（需先编译核心库并 source）
-source install/setup.bash
+# 编译 pybind11 绑定包（需先编译核心库）
+source install/setup.zsh
+colcon build --base-paths src --packages-select robot_control_cpp_py
+
+# 编译测试与演示
 colcon build --base-paths src --packages-select robot_control_test
 
 # 一键编译全部
-colcon build --base-paths src --packages-up-to robot_control_test
+colcon build --base-paths src --packages-up-to robot_control_cpp_py
 
-# 运行 IK 独立测试（无需 Isaac Sim）
-ros2 run robot_control_test test_ik_solver
-
-# 运行抓取演示（需要 Isaac Sim）
+# 运行 C++ 演示（需要 Isaac Sim）
 ros2 run robot_control_test demo_grasp_tcp
 
-# 运行 Python 演示
+# 运行 Python 演示（C++ 后端，需要 Isaac Sim）
+python3 script/test_move_cpp.py
+python3 script/test_grasp_tcp_cpp.py
+python3 script/test_vision_cpp.py
+
+# 运行 Python 演示（纯 Python 后端）
 python3 script/test_move.py
 python3 script/test_vision.py
 
 # 查看 ROS2 话题
 ros2 topic list
+```
+
+## Python 绑定使用模式
+```python
+import threading
+import robot_control_cpp_py as rc
+
+rc.rclcpp_init()
+
+robot = rc.RobotControllerNode.create(
+    rc.profiles.panda(), rc.profiles.panda_gripper(), rc.TopicConfig())
+
+executor = rc.MultiThreadedExecutor()
+executor.add_node(robot)
+spin_thread = threading.Thread(target=executor.spin, daemon=True)
+spin_thread.start()
+
+robot.wait_for_ready()
+ctrl = robot.get_controller()
+ctrl.open_gripper()
+ctrl.move_to_pose([0.5, 0, 0.3], [0, -3.14, -3.14])
+
+executor.cancel()
+spin_thread.join()
+rc.rclcpp_shutdown()
 ```
 
 ## 架构约定
@@ -128,3 +173,5 @@ ros2 topic list
 - 视觉伺服参数定义在 script 中，非节点级参数
 - TF2: RobotControllerNode 自动发布 base → hand → tcp 变换链
 - 新增机器人：在 `include/robot_control_cpp/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
+- pybind11 绑定中所有阻塞方法必须释放 GIL（`py::call_guard<py::gil_scoped_release>()`）
+- Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy
