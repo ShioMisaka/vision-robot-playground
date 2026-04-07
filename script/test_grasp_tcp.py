@@ -15,7 +15,7 @@ import threading
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
-from src.robot import RobotController
+from src.robot_control_py.robot import RobotController
 
 # ---- 目标参数 ----
 TARGET_XYZ = [0.52699, 0.0, 0.0]

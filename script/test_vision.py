@@ -17,9 +17,9 @@ import math
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
-from src.robot import RobotController
-from src.vision import RED_DETECTOR
-from src.vision_processor import VisionProcessor
+from src.robot_control_py.robot import RobotController
+from src.robot_control_py.vision import RED_DETECTOR
+from src.robot_control_py.vision_processor import VisionProcessor
 
 
 # ---- 视觉伺服参数（需根据实际相机安装方向校准）----

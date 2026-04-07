@@ -8,7 +8,7 @@ import ikpy.chain
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from src.config import URDF_PATH, BASE_LINK, ACTIVE_JOINTS, IK_DEFAULT_GUESS
+from src.robot_control_py.config import URDF_PATH, BASE_LINK, ACTIVE_JOINTS, IK_DEFAULT_GUESS
 
 
 class IKSolver:

@@ -41,7 +41,7 @@ from tf2_ros import TransformBroadcaster, Buffer, TransformListener
 
 from scipy.spatial.transform import Rotation
 
-from src.config import (
+from src.robot_control_py.config import (
     ALL_JOINTS,
     ACTIVE_JOINTS,
     TOPIC_JOINT_COMMAND,
@@ -52,7 +52,7 @@ from src.config import (
     TCP_FRAMES,
     DEFAULT_TCP,
 )
-from src.ik_solver import IKSolver
+from src.robot_control_py.ik_solver import IKSolver
 
 
 class RobotController(Node):

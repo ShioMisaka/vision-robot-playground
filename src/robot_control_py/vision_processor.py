@@ -24,7 +24,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 
-from src.config import TOPIC_CAMERA_LEFT, TOPIC_CAMERA_DEPTH
+from src.robot_control_py.config import TOPIC_CAMERA_LEFT, TOPIC_CAMERA_DEPTH
 
 
 class VisionProcessor(Node):

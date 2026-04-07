@@ -10,7 +10,7 @@ import threading
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
-from src.robot import RobotController
+from src.robot_control_py.robot import RobotController
 
 
 def main() -> None:

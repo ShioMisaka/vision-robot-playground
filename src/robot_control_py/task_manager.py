@@ -42,9 +42,9 @@ from typing import Optional
 
 from scipy.spatial.transform import Rotation
 
-from src.config import FRAME_BASE, FRAME_CAMERA
-from src.robot import RobotController
-from src.vision_processor import VisionProcessor
+from src.robot_control_py.config import FRAME_BASE, FRAME_CAMERA
+from src.robot_control_py.robot import RobotController
+from src.robot_control_py.vision_processor import VisionProcessor
 
 
 class GraspState(enum.Enum):
