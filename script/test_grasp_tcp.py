@@ -11,7 +11,6 @@
 
 import math
 import threading
-import time
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -44,11 +43,9 @@ def main() -> None:
 
     # 切换到指尖坐标系
     robot.set_tcp("grasptarget")
-    time.sleep(0.5)
 
     # 张开夹爪
     robot.open_gripper()
-    time.sleep(1.0)
 
     # 移动到目标上方
     robot.get_logger().info("--- 移动到目标上方 ---")
@@ -58,12 +55,10 @@ def main() -> None:
     # 下降到目标位置
     robot.get_logger().info("--- 下降到目标 ---")
     robot.move_to_pose(TARGET_XYZ, rpy=GRIPPER_DOWN_RPY, steps=INTERP_STEPS, step_time=STEP_TIME)
-    time.sleep(2.0)
 
     # 闭合夹爪
     robot.get_logger().info("--- 闭合夹爪 ---")
     robot.close_gripper()
-    time.sleep(1.0)
 
     # 提起
     robot.get_logger().info("--- 提起 ---")
@@ -90,7 +85,6 @@ def main2():
 
     # 切换到指尖坐标系
     robot.set_tcp("grasptarget")
-    time.sleep(0.5)
 
     robot.get_logger().info("--- 下降到目标 ---")
     robot.move_to_pose(TARGET_XYZ, rpy=GRIPPER_DOWN_RPY, steps=INTERP_STEPS, step_time=STEP_TIME)

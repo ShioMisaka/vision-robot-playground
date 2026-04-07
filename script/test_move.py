@@ -6,7 +6,6 @@
 
 import math
 import threading
-import time
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -19,7 +18,7 @@ def main() -> None:
     robot = RobotController()
 
     # MultiThreadedExecutor: 允许回调在独立线程中执行，
-    # 主线程的阻塞调用（time.sleep 等）不会卡死回调处理
+    # 主线程的阻塞式运动指令不会卡死回调处理
     executor = MultiThreadedExecutor()
     executor.add_node(robot)
 
@@ -31,28 +30,22 @@ def main() -> None:
 
     robot.get_logger().info("--- 张开夹爪 ---")
     robot.open_gripper()
-    time.sleep(1.0)
 
     # 位置 + 姿态（夹爪朝下，适合抓取）
     robot.move_to_pose(
         [0.526, 0.0, 0.18],
         rpy=[0.0, math.radians(-180), math.radians(-180)],
     )
-    time.sleep(2.0)
 
     # 闭合夹爪
     robot.get_logger().info("--- 闭合夹爪 ---")
     robot.close_gripper()
-    time.sleep(1.0)
 
     robot.move_linear([0, 0, 0.2])
-    time.sleep(1.0)
 
     robot.rotate_joint(0, math.radians(90))
-    time.sleep(3.0)
 
     robot.rotate_joint(3, math.radians(90))
-    time.sleep(3.0)
 
     robot.get_logger().info("完成!")
 

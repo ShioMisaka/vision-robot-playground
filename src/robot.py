@@ -104,6 +104,7 @@ class RobotController(Node):
         # 记住当前关节状态，保证 open/close_gripper 只改夹爪
         self._current_arm: list[float] = [0.0] * 7
         self._current_finger: float = 0.04
+        self._grasping: bool = False  # 夹取物体标志，跳过夹爪到位检查
 
         # ---- TF2 初始化 ----
         # TransformBroadcaster: 在关节状态回调中持续发布末端执行器 TF
@@ -336,12 +337,85 @@ class RobotController(Node):
         msg.position = self._current_arm + [finger, finger]
         self.publisher_.publish(msg)
 
+    def _wait_for_motion(
+        self,
+        arm_angles: list[float],
+        finger: float,
+        joint_tol: float = 0.05,
+        finger_tol: float = 0.002,
+        timeout: float = 10.0,
+        poll_interval: float = 0.02,
+        check_finger: Optional[bool] = None,
+        settle_time: float = 0.2,
+    ) -> None:
+        """阻塞等待机器人到达目标关节角
+
+        通过持续对比 /joint_states 反馈与指令角度，
+        当所有关节偏差均小于阈值时返回。
+
+        Args:
+            arm_angles: 7 个目标关节角度
+            finger: 目标夹爪开合
+            joint_tol: 关节角容差（弧度），默认 0.05 rad ≈ 2.9°
+            finger_tol: 夹爪容差（米），默认 0.002 m
+            timeout: 超时时间（秒）
+            poll_interval: 轮询间隔（秒）
+            check_finger: 是否检查夹爪到位，夹取物体时夹爪无法完全闭合，
+                应设为 False
+
+        Raises:
+            TimeoutError: 超时未到达目标位置
+        """
+        # 夹取物体后夹爪无法完全闭合，默认跳过 finger 检查
+        if check_finger is None:
+            check_finger = not self._grasping
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._joint_state_lock:
+                if self._latest_joint_msg is not None:
+                    name_to_pos = dict(
+                        zip(
+                            self._latest_joint_msg.name,
+                            self._latest_joint_msg.position,
+                        )
+                    )
+                    feedback_arm = [
+                        float(name_to_pos.get(j, float("inf")))
+                        for j in ACTIVE_JOINTS
+                    ]
+                    feedback_finger = float(
+                        name_to_pos.get("panda_finger_joint1", float("inf"))
+                    )
+
+            arm_ok = all(
+                abs(t - f) < joint_tol
+                for t, f in zip(arm_angles, feedback_arm)
+            )
+            finger_ok = not check_finger or abs(
+                finger - feedback_finger
+            ) < finger_tol
+
+            if arm_ok and finger_ok:
+                # 到位后再等待一段时间，让机械臂充分稳定
+                time.sleep(settle_time)
+                return
+
+            time.sleep(poll_interval)
+
+        raise TimeoutError(
+            f"运动超时 ({timeout}s)："
+            f"目标 arm={[round(a, 3) for a in arm_angles]}, "
+            f"实际 arm={[round(a, 3) for a in feedback_arm]}"
+        )
+
     def _interpolate_to(
         self,
         target_angles: list[float],
         finger: float,
         steps: int = 10,
         step_time: float = 0.08,
+        block: bool = True,
     ) -> None:
         """在关节空间线性插值到目标角度，避免瞬间跳变引起的震荡
 
@@ -350,6 +424,7 @@ class RobotController(Node):
             finger: 最终夹爪开合（仅最后一步生效）
             steps: 插值步数
             step_time: 每步间隔（秒）
+            block: True=等待最后一步到位后再返回
         """
         current = self.get_joint_angles()
         for i in range(1, steps + 1):
@@ -361,33 +436,85 @@ class RobotController(Node):
             self._send(interp, finger if i == steps else self._current_finger)
             time.sleep(step_time)
 
+        if block:
+            self._wait_for_motion(target_angles, finger)
+
     # ---- 中层：传入关节角 / 夹爪控制 ----
 
-    def set_arm(self, angles: list[float]) -> None:
+    def set_arm(self, angles: list[float], block: bool = True) -> None:
         """直接设置 7 个手臂关节角度
 
         Args:
             angles: 7 个关节角度（弧度），顺序对应 panda_joint1~7
+            block: True=等待到位后再返回
         """
         if len(angles) != 7:
             raise ValueError(f"需要 7 个关节角度，收到 {len(angles)} 个")
         self._send(angles, self._current_finger)
+        if block:
+            self._wait_for_motion(angles, self._current_finger)
 
-    def set_gripper(self, width: float) -> None:
+    def set_gripper(self, width: float, block: bool = True) -> None:
         """设置夹爪开合程度
 
         Args:
             width: 0.0=闭合, 0.04=全开
+            block: True=等待到位后再返回
         """
+        self._grasping = False
         self._send(self._current_arm, width)
+        if block:
+            self._wait_for_motion(self._current_arm, width)
 
-    def open_gripper(self) -> None:
+    def open_gripper(self, block: bool = True) -> None:
         """张开夹爪"""
-        self.set_gripper(0.04)
+        self.set_gripper(0.04, block=block)
 
-    def close_gripper(self) -> None:
-        """闭合夹爪"""
-        self.set_gripper(0.0)
+    def close_gripper(self, block: bool = True) -> None:
+        """闭合夹爪
+
+        夹取物体时夹爪可能无法完全闭合，阻塞模式下会等待夹爪
+        稳定（位置不再变化），然后设置 grasping 标志。
+        _current_finger 保持 0.0，确保 PD 控制器持续施加闭合力。
+        """
+        self._send(self._current_arm, 0.0)
+        if block:
+            self._wait_for_finger_settle()
+        self._grasping = True
+
+    def _wait_for_finger_settle(
+        self,
+        stable_count: int = 5,
+        tol: float = 0.001,
+        poll_interval: float = 0.05,
+        timeout: float = 5.0,
+    ) -> None:
+        """等待夹爪运动停止
+
+        持续读取夹爪反馈，当连续 stable_count 次读数变化均小于 tol 时
+        认为夹爪已稳定。不修改 _current_finger，保持 finger=0.0 指令
+        以维持夹紧力。
+
+        Args:
+            stable_count: 连续稳定读数次数
+            tol: 稳定判定容差（米）
+            poll_interval: 轮询间隔（秒）
+            timeout: 超时时间（秒）
+        """
+        deadline = time.monotonic() + timeout
+        count = 0
+        last = self.get_finger_width()
+
+        while time.monotonic() < deadline:
+            time.sleep(poll_interval)
+            curr = self.get_finger_width()
+            if abs(curr - last) < tol:
+                count += 1
+                if count >= stable_count:
+                    return
+            else:
+                count = 0
+                last = curr
 
     # ---- 高层：IK 位姿控制 ----
 
@@ -398,6 +525,7 @@ class RobotController(Node):
         finger: Optional[float] = None,
         steps: int = 0,
         step_time: float = 0.08,
+        block: bool = True,
     ) -> None:
         """IK 求解并移动到指定位姿（目标为当前 TCP 位姿）
 
@@ -409,6 +537,7 @@ class RobotController(Node):
             finger: 夹爪开合，None=保持当前状态
             steps: 插值步数，0=瞬间跳变，>0=关节空间平滑插值
             step_time: 插值每步间隔（秒）
+            block: True=等待到位后再返回
         """
         tcp_offset = self._tcp_transform_matrix()
 
@@ -469,15 +598,18 @@ class RobotController(Node):
             finger = self._current_finger
 
         if steps > 0:
-            self._interpolate_to(angles, finger, steps, step_time)
+            self._interpolate_to(angles, finger, steps, step_time, block=block)
         else:
             self._send(angles, finger)
+            if block:
+                self._wait_for_motion(angles, finger)
 
     def move_linear(
         self,
         delta: list[float],
         frame: str = "base",
         finger: Optional[float] = None,
+        block: bool = True,
     ) -> None:
         """沿基座或末端坐标系进行相对平移
 
@@ -485,6 +617,7 @@ class RobotController(Node):
             delta: [dx, dy, dz] 平移量（米），正值方向取决于 frame
             frame: "base"=基座坐标系, "end_effector"=末端执行器坐标系
             finger: 夹爪开合，None=保持当前状态
+            block: True=等待到位后再返回
         """
         current = self.get_end_effector_pose()
         pos: list[float] = current["pos"]
@@ -497,21 +630,24 @@ class RobotController(Node):
         else:
             target = [p + d for p, d in zip(pos, delta)]
 
-        self.move_to_pose(target, rpy=rpy, finger=finger)
+        self.move_to_pose(target, rpy=rpy, finger=finger, block=block)
 
-    def rotate_joint(self, index: int, delta_angle: float) -> None:
+    def rotate_joint(self, index: int, delta_angle: float, block: bool = True) -> None:
         """旋转指定关节
 
         Args:
             index: 关节索引（0-6），对应 panda_joint1~7
             delta_angle: 旋转增量（弧度），正=正方向
+            block: True=等待到位后再返回
         """
         if not 0 <= index <= 6:
             raise ValueError(f"关节索引范围为 0-6，收到 {index}")
         angles = self.get_joint_angles()
         angles[index] += delta_angle
-        self.set_arm(angles)
+        self.set_arm(angles, block=block)
 
-    def go_home(self) -> None:
+    def go_home(self, block: bool = True) -> None:
         """回到安全零位"""
         self._send(SAFE_HOME[:7], SAFE_HOME[7])
+        if block:
+            self._wait_for_motion(SAFE_HOME[:7], SAFE_HOME[7])

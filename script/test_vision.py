@@ -126,14 +126,12 @@ def main() -> None:
     robot.get_logger().info("等待机器人就绪...")
     robot.wait_for_ready()
     robot.open_gripper()
-    time.sleep(1.0)
 
     # 移动到观察位（俯视桌面）
     robot.move_to_pose(
         [0.526, 0.0, 0.4],
         rpy=[0.0, math.radians(-180), math.radians(-180)],
     )
-    time.sleep(2.0)
 
     state = VisionState.OBSERVE
     lock_count = 0
@@ -189,7 +187,6 @@ def main() -> None:
                     dx = DIRECTION_X * ex * MOVE_STEP * 2
                     dy = DIRECTION_Y * ey * MOVE_STEP * 2
                     robot.move_linear([dx, dy, 0])
-                    time.sleep(1.0)
 
             # ---- DESCENDING: 下探到目标 ----
             elif state == VisionState.DESCENDING:
@@ -197,14 +194,12 @@ def main() -> None:
                     f"下探 {DESCEND_DISTANCE:.2f}m..."
                 )
                 robot.move_linear([0, 0, -DESCEND_DISTANCE])
-                time.sleep(2.0)
                 state = VisionState.GRASPING
 
             # ---- GRASPING: 闭合夹爪 ----
             elif state == VisionState.GRASPING:
                 robot.get_logger().info("闭合夹爪...")
                 robot.close_gripper()
-                time.sleep(1.0)
                 state = VisionState.LIFTING
 
             # ---- LIFTING: 提起物体 ----
@@ -213,7 +208,6 @@ def main() -> None:
                     f"提起物体 {LIFT_DISTANCE:.2f}m..."
                 )
                 robot.move_linear([0, 0, LIFT_DISTANCE])
-                time.sleep(2.0)
                 robot.get_logger().info("抓取完成!")
                 state = VisionState.DONE
 
