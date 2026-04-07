@@ -1,47 +1,86 @@
-# Franka Vision Grasp
+# Robot Vision Grasp
 
-基于 ROS2 + Isaac Sim 的 Franka Panda 机械臂视觉引导抓取系统。
+基于 ROS2 + Isaac Sim 的机械臂视觉引导抓取系统，采用 C++ 核心库 + Python 上层脚本的多语言分层架构，支持多机器人扩展。
 
 ## 功能
 
-- **机械臂控制**: 关节角度指令、IK 位姿控制、相对平移/旋转
+- **机械臂控制**: 关节角度指令、IK 位姿控制、相对平移/旋转、TCP 工具坐标系
 - **视觉处理**: 双目深度相机左目+深度同步订阅，HSV 颜色目标检测
 - **视觉伺服抓取**: 图像反馈闭环 — 检测 → 居中 → 下探 → 夹取 → 提起
-- **TF2 集成**: 自动发布末端执行器 TF，支持坐标系变换查询
+- **TF2 集成**: 自动发布末端执行器 TF 变换链，支持坐标系变换查询
+- **多机器人扩展**: 通过 `RobotProfile` 配置驱动，核心库无需修改
 
 ## 环境要求
 
 - Python 3.10+
-- ROS2 Humble
+- ROS2 Jazzy
+- C++17 编译器（GCC 9+ / Clang 10+）
 - NVIDIA Isaac Sim（提供 `/joint_states` 和相机话题）
 - ZEN_X_Mini 双目深度相机
 
 ## 依赖安装
 
+### Python 依赖
+
 ```bash
-pip install ikpy scipy opencv-python cv-bridge
+pip install ikpy scipy opencv-python
+```
+
+### C++ 依赖（ROS2 包，通过 apt 安装）
+
+```bash
+sudo apt install ros-jazzy-rclcpp ros-jazzy-sensor-msgs ros-jazzy-geometry-msgs \
+  ros-jazzy-tf2-ros ros-jazzy-cv-bridge ros-jazzy-message-filters \
+  ros-jazzy-orocos-kdl ros-jazzy-urdfdom ros-jazzy-kdl-parser \
+  ros-jazzy-eigen ros-jazzy-image-transport
 ```
 
 ## 项目结构
 
 ```
 src/
+  # Python 原始模块
   config.py            # 话题名、关节名、TF Frame、预设姿态
   ik_solver.py         # IK/FK 求解器（基于 URDF + ikpy）
   vision.py            # HSV 颜色检测器
   robot.py             # 机械臂控制节点
   vision_processor.py  # 相机同步节点（左目 + 深度）
   task_manager.py      # 抓取任务状态机
+
+  # C++ 核心包（ament_cmake）
+  robot_control_cpp/
+    include/robot_control_cpp/
+      config.hpp                  # 话题配置 + 通用常量
+      robot_profile.hpp           # 机器人/夹爪/TCP 参数描述
+      i_robot_controller.hpp      # 运动控制抽象接口
+      i_vision_processor.hpp      # 视觉处理抽象接口
+      ik_solver.hpp               # KDL IK/FK 求解器
+      color_detector.hpp          # OpenCV HSV 检测器
+      robot_motion_controller.hpp # 通用运动控制器
+      grasp_task_manager.hpp      # 抓取状态机
+      robot_controller_node.hpp   # ROS2 机器人控制节点
+      vision_processor_node.hpp   # ROS2 视觉处理节点
+      panda_profile.hpp           # Franka Panda 配置
+    src/  *.cpp
+    CMakeLists.txt / package.xml
+
 script/
-  test_move.py         # 位姿控制演示
-  test_vision.py       # 视觉引导抓取演示（红色物块）
+  test_move.py / test_vision.py / test_joint_state.py / test_camera.py / test_grasp_tcp.py
 urdf/
-  panda.urdf           # Franka Panda URDF
+  panda.urdf
 ```
 
 ## 快速开始
 
-### 1. 启动 Isaac Sim
+### 1. 编译 C++ 包
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src --packages-select robot_control_cpp
+source install/setup.bash
+```
+
+### 2. 启动 Isaac Sim
 
 在 Isaac Sim 中加载 Franka Panda 场景，确保 ROS2 bridge 已启动，以下话题可用：
 
@@ -52,71 +91,63 @@ urdf/
 /camera/image_raw/depth# 深度图
 ```
 
-### 2. 运行位姿控制演示
+### 3. 运行 Python 演示
 
 ```bash
+# 位姿控制
 python3 script/test_move.py
-```
 
-机械臂将依次执行：张开夹爪 → 移动到指定位姿 → 闭合夹爪 → 平移 → 旋转关节。
-
-### 3. 运行视觉引导抓取
-
-```bash
+# 视觉引导抓取（红色物块）
 python3 script/test_vision.py
 ```
 
-流程：
-1. 机械臂移动到观察位（俯视桌面）
-2. 检测红色物块，连续锁定 15 帧后确认
-3. 视觉伺服居中：根据像素偏移调整机械臂 XY，使目标移到画面中心
-4. 居中后下探 → 闭合夹爪 → 提起
+## 架构说明
 
-按 `q` 键可随时退出。
+### 分层设计
 
-## 视觉伺服参数调参
-
-`script/test_vision.py` 顶部的常量控制伺服行为：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `DIRECTION_X` | -1.0 | 图像右偏时机器人 X 移动方向（-1 或 1） |
-| `DIRECTION_Y` | 1.0 | 图像下偏时机器人 Y 移动方向（-1 或 1） |
-| `MOVE_STEP` | 0.02 | 每次居中调整步长（米） |
-| `CENTER_THRESHOLD` | 0.03 | 居中判定阈值（归一化偏移） |
-| `DESCEND_DISTANCE` | 0.15 | 下探距离（米） |
-| `LIFT_DISTANCE` | 0.25 | 提起距离（米） |
-
-## 扩展指南
-
-### 接入自定义检测网络
-
-继承 `VisionProcessor`，重写 `process_image()` 方法：
-
-```python
-from src.vision_processor import VisionProcessor
-
-class MyDetector(VisionProcessor):
-    def process_image(self, rgb_image, depth_image):
-        # 你的检测逻辑
-        results = my_model(rgb_image)
-        return {
-            "detected": True,
-            "xyz": [x, y, z],
-            "uv": [u, v],
-            "confidence": 0.95,
-            "grasp_pose": None,
-        }
+```
+┌─────────────────────────────────────────────┐
+│  Layer 3: Python Binding (pybind11)         │  ← 待实现
+├─────────────────────────────────────────────┤
+│  Layer 2: ROS 2 C++ Wrapper Nodes          │  ← rclcpp 通信适配
+│  ├─ RobotControllerNode                     │
+│  └─ VisionProcessorNode                     │
+├─────────────────────────────────────────────┤
+│  Layer 1: Pure C++ Core (无 ROS 依赖)       │  ← 可独立编译测试
+│  ├─ IKSolver (KDL)                          │
+│  ├─ ColorDetector (OpenCV)                  │
+│  ├─ RobotMotionController                   │
+│  └─ GraspTaskManager                        │
+└─────────────────────────────────────────────┘
 ```
 
-### 使用 GraspTaskManager
+### 接口隔离
 
-```python
-from src.task_manager import GraspTaskManager
+- `MotionIOBridge`: 抽离运动控制逻辑与底层通信，ROS 节点实现该接口
+- `IRobotController` / `IVisionProcessor`: 上层编排只依赖接口
+- `CameraInterface`: 图像处理算法基类，子类接入 YOLO/GraspNet 等
 
-task_mgr = GraspTaskManager(robot, vision, approach_height=0.15)
-success = task_mgr.run(timeout=30.0)
+### 扩展新机器人
+
+只需添加一个 `xxx_profile.hpp` 定义 `RobotProfile`：
+
+```cpp
+// include/robot_control_cpp/my_robot_profile.hpp
+namespace robot_control::profiles {
+
+inline RobotProfile my_robot() {
+  RobotProfile p;
+  p.name = "my_robot";
+  p.urdf_path = "urdf/my_robot.urdf";
+  p.dof = 6;
+  // ... 关节名、限位、home 位等
+  return p;
+}
+
+}  // namespace robot_control::profiles
 ```
+
+核心库（IKSolver、RobotMotionController、GraspTaskManager）无需任何修改。
 
 ## ROS2 话题一览
 
@@ -127,25 +158,15 @@ success = task_mgr.run(timeout=30.0)
 | `/camera/image_raw/left` | sensor_msgs/Image | 订阅 | 左目 RGB 图像 |
 | `/camera/image_raw/depth` | sensor_msgs/Image | 订阅 | 深度图 |
 
-## 架构说明
+## 视觉伺服参数调参
 
-所有 ROS2 节点通过 `MultiThreadedExecutor` 运行，回调在后台线程处理，主线程执行阻塞式业务逻辑，完全避免 `spin_once` 滥用。
+`script/test_vision.py` 顶部的常量控制伺服行为：
 
-```
-                    ┌──────────────┐
-                    │ GraspTask    │  状态机编排
-                    │ Manager      │
-                    └──┬───────┬───┘
-                       │       │
-              ┌────────▼┐  ┌──▼───────────┐
-              │  Robot  │  │   Vision     │
-              │Controller│  │  Processor   │
-              └───┬─────┘  └──┬───────────┘
-                  │           │
-           ┌──────▼──────┐  ┌─▼──────────────┐
-           │ /joint_     │  │ ApproximateTime │
-           │ command     │  │ Synchronizer    │
-           │ /joint_     │  │ (left + depth)  │
-           │ states      │  └────────────────┘
-           └─────────────┘
-```
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `DIRECTION_X` | -1.0 | 图像右偏时机器人 X 移动方向 |
+| `DIRECTION_Y` | 1.0 | 图像下偏时机器人 Y 移动方向 |
+| `MOVE_STEP` | 0.02 | 每次居中调整步长（米） |
+| `CENTER_THRESHOLD` | 0.03 | 居中判定阈值（归一化偏移） |
+| `DESCEND_DISTANCE` | 0.15 | 下探距离（米） |
+| `LIFT_DISTANCE` | 0.25 | 提起距离（米） |

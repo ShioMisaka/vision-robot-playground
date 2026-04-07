@@ -70,28 +70,5 @@ def main() -> None:
     robot.destroy_node()
     rclpy.shutdown()
 
-def main2():
-    rclpy.init()
-    robot = RobotController()
-
-    executor = MultiThreadedExecutor()
-    executor.add_node(robot)
-
-    spin_thread = threading.Thread(target=executor.spin, daemon=True)
-    spin_thread.start()
-
-    robot.get_logger().info("等待与 Isaac Sim 建立连接...")
-    robot.wait_for_ready()
-
-    # 切换到指尖坐标系
-    robot.set_tcp("grasptarget")
-
-    robot.get_logger().info("--- 下降到目标 ---")
-    robot.move_to_pose(TARGET_XYZ, rpy=GRIPPER_DOWN_RPY, steps=INTERP_STEPS, step_time=STEP_TIME)
-
-    executor.shutdown()
-    robot.destroy_node()
-    rclpy.shutdown()
-
 if __name__ == "__main__":
     main()
