@@ -37,3 +37,19 @@ IK_DEFAULT_GUESS: Final[dict[str, float]] = {
 # ---- 夹爪参数 ----
 GRIPPER_MAX_WIDTH: Final[float] = 0.04
 GRIPPER_MIN_WIDTH: Final[float] = 0.0
+
+# ---- TCP 工具坐标系配置 ----
+# 每个 TCP 定义相对 panda_hand 的静态偏移（xyz + rpy）
+# IK 求解器始终计算到 panda_hand，通过偏移映射得到实际 TCP 位姿
+TCP_FRAMES: Final[dict[str, dict[str, list[float]]]] = {
+    "hand": {
+        "offset_xyz": [0.0, 0.0, 0.0],
+        "offset_rpy": [0.0, 0.0, 0.0],
+    },
+    "grasptarget": {
+        "offset_xyz": [0.0, 0.0, 0.1],
+        "offset_rpy": [0.0, 0.0, 0.0],
+    },
+}
+
+DEFAULT_TCP: Final[str] = "hand"

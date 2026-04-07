@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from typing import Optional
 
+import numpy as np
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from geometry_msgs.msg import TransformStamped
@@ -47,6 +49,8 @@ from src.config import (
     SAFE_HOME,
     FRAME_BASE,
     FRAME_END_EFFECTOR,
+    TCP_FRAMES,
+    DEFAULT_TCP,
 )
 from src.ik_solver import IKSolver
 
@@ -108,6 +112,12 @@ class RobotController(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
+        # ---- TCP 工具坐标系 ----
+        self._current_tcp_name: str = DEFAULT_TCP
+        tcp_cfg = TCP_FRAMES[self._current_tcp_name]
+        self._tcp_offset_xyz: list[float] = list(tcp_cfg["offset_xyz"])
+        self._tcp_offset_rpy: list[float] = list(tcp_cfg["offset_rpy"])
+
         self.get_logger().info("RobotController 已启动")
 
     # ---- 同步等待 ----
@@ -158,14 +168,17 @@ class RobotController(Node):
             self._ready_event.set()
 
     def _publish_ee_tf(self, msg: JointState) -> None:
-        """根据当前关节角计算并发布末端执行器的 TF 变换"""
+        """根据当前关节角计算并发布末端执行器和 TCP 的 TF 变换"""
         name_to_pos = dict(zip(msg.name, msg.position))
         arm_angles = [float(name_to_pos.get(j, 0.0)) for j in ACTIVE_JOINTS]
 
         try:
             result = self.ik.forward(arm_angles)
+            stamp = self.get_clock().now().to_msg()
+
+            # 发布 panda_link0 -> panda_hand
             t = TransformStamped()
-            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.stamp = stamp
             t.header.frame_id = FRAME_BASE
             t.child_frame_id = FRAME_END_EFFECTOR
             t.transform.translation.x = float(result["pos"][0])
@@ -179,6 +192,24 @@ class RobotController(Node):
             t.transform.rotation.w = float(rot[3])
 
             self._tf_broadcaster.sendTransform(t)
+
+            # 发布 panda_hand -> <tcp_name>
+            if self._current_tcp_name != "hand":
+                t_tcp = TransformStamped()
+                t_tcp.header.stamp = stamp
+                t_tcp.header.frame_id = FRAME_END_EFFECTOR
+                t_tcp.child_frame_id = self._current_tcp_name
+                t_tcp.transform.translation.x = self._tcp_offset_xyz[0]
+                t_tcp.transform.translation.y = self._tcp_offset_xyz[1]
+                t_tcp.transform.translation.z = self._tcp_offset_xyz[2]
+                rot_tcp = Rotation.from_euler(
+                    "xyz", self._tcp_offset_rpy
+                ).as_quat()
+                t_tcp.transform.rotation.x = float(rot_tcp[0])
+                t_tcp.transform.rotation.y = float(rot_tcp[1])
+                t_tcp.transform.rotation.z = float(rot_tcp[2])
+                t_tcp.transform.rotation.w = float(rot_tcp[3])
+                self._tf_broadcaster.sendTransform(t_tcp)
         except Exception:
             pass  # FK 失败不影响主流程
 
@@ -211,6 +242,37 @@ class RobotController(Node):
                 f"TF 查询失败: {source_frame} -> {target_frame}"
             )
             return None
+
+    # ---- TCP 工具坐标系 ----
+
+    def set_tcp(self, name: str) -> None:
+        """切换当前工具坐标系
+
+        Args:
+            name: TCP 名称，对应 TCP_FRAMES 中的 key
+
+        Raises:
+            ValueError: 未知 TCP 名称
+        """
+        if name not in TCP_FRAMES:
+            raise ValueError(
+                f"未知 TCP: {name}，可选: {list(TCP_FRAMES.keys())}"
+            )
+        self._current_tcp_name = name
+        self._tcp_offset_xyz = list(TCP_FRAMES[name]["offset_xyz"])
+        self._tcp_offset_rpy = list(TCP_FRAMES[name]["offset_rpy"])
+        self.get_logger().info(f"已切换 TCP: {name}")
+
+    def _tcp_transform_matrix(self) -> np.ndarray:
+        """计算 TCP 相对 panda_hand 的 4x4 齐次变换矩阵
+
+        Returns:
+            4x4 numpy 齐次变换矩阵
+        """
+        T = np.eye(4)
+        T[:3, :3] = Rotation.from_euler("xyz", self._tcp_offset_rpy).as_matrix()
+        T[:3, 3] = self._tcp_offset_xyz
+        return T
 
     # ---- 状态读取 ----
 
@@ -245,17 +307,22 @@ class RobotController(Node):
             return float(name_to_pos.get("panda_finger_joint1", 0.0))
 
     def get_end_effector_pose(self) -> dict[str, list[float]]:
-        """获取当前末端执行器的位姿（通过 FK 从实际关节角计算）
+        """获取当前 TCP 位姿（通过 FK + 偏移计算）
 
         Returns:
             {"pos": [x,y,z], "rpy_rad": [r,p,y], "rpy_deg": [r,p,y]}
         """
         current_angles: list[float] = self.get_joint_angles()
-        result = self.ik.forward(current_angles)
+        hand_matrix: np.ndarray = self.ik.forward(current_angles)["matrix"]
+        tcp_matrix: np.ndarray = hand_matrix @ self._tcp_transform_matrix()
+        tcp_pos: list[float] = tcp_matrix[:3, 3].tolist()
+        tcp_rpy: list[float] = Rotation.from_matrix(
+            tcp_matrix[:3, :3]
+        ).as_euler("xyz").tolist()
         return {
-            "pos": result["pos"],
-            "rpy_rad": result["rpy"],
-            "rpy_deg": [math.degrees(r) for r in result["rpy"]],
+            "pos": tcp_pos,
+            "rpy_rad": tcp_rpy,
+            "rpy_deg": [math.degrees(r) for r in tcp_rpy],
         }
 
     # ---- 底层：直接发 9 个关节值（私有）----
@@ -268,6 +335,31 @@ class RobotController(Node):
         msg.name = ALL_JOINTS
         msg.position = self._current_arm + [finger, finger]
         self.publisher_.publish(msg)
+
+    def _interpolate_to(
+        self,
+        target_angles: list[float],
+        finger: float,
+        steps: int = 10,
+        step_time: float = 0.08,
+    ) -> None:
+        """在关节空间线性插值到目标角度，避免瞬间跳变引起的震荡
+
+        Args:
+            target_angles: 7 个目标关节角度
+            finger: 最终夹爪开合（仅最后一步生效）
+            steps: 插值步数
+            step_time: 每步间隔（秒）
+        """
+        current = self.get_joint_angles()
+        for i in range(1, steps + 1):
+            t = i / steps
+            interp = [
+                c + t * (tgt - c)
+                for c, tgt in zip(current, target_angles)
+            ]
+            self._send(interp, finger if i == steps else self._current_finger)
+            time.sleep(step_time)
 
     # ---- 中层：传入关节角 / 夹爪控制 ----
 
@@ -304,40 +396,82 @@ class RobotController(Node):
         xyz: list[float],
         rpy: Optional[list[float]] = None,
         finger: Optional[float] = None,
+        steps: int = 0,
+        step_time: float = 0.08,
     ) -> None:
-        """IK 求解并移动到指定位姿
+        """IK 求解并移动到指定位姿（目标为当前 TCP 位姿）
+
+        内部自动将 TCP 目标转换为 panda_hand 目标后求解 IK。
 
         Args:
-            xyz: [x, y, z] 目标位置（米）
-            rpy: [roll, pitch, yaw] 目标姿态（弧度），None=不约束朝向
+            xyz: [x, y, z] 目标 TCP 位置（米）
+            rpy: [roll, pitch, yaw] 目标 TCP 姿态（弧度），None=不约束朝向
             finger: 夹爪开合，None=保持当前状态
+            steps: 插值步数，0=瞬间跳变，>0=关节空间平滑插值
+            step_time: 插值每步间隔（秒）
         """
-        angles: list[float] = self.ik.solve(xyz, rpy)
+        tcp_offset = self._tcp_transform_matrix()
+
+        if rpy is not None:
+            # 完整位姿约束：T_hand = T_tcp_target @ inv(T_tcp_in_hand)
+            target = np.eye(4)
+            target[:3, :3] = Rotation.from_euler("xyz", rpy).as_matrix()
+            target[:3, 3] = xyz
+            hand_target = target @ np.linalg.inv(tcp_offset)
+            hand_xyz = hand_target[:3, 3].tolist()
+            hand_rpy = (
+                Rotation.from_matrix(hand_target[:3, :3])
+                .as_euler("xyz")
+                .tolist()
+            )
+            angles: list[float] = self.ik.solve(hand_xyz, hand_rpy)
+        else:
+            # 仅位置约束：用当前 hand 姿态近似计算偏移方向
+            hand_matrix = self.ik.forward(self.get_joint_angles())["matrix"]
+            R_hand = hand_matrix[:3, :3]
+            hand_xyz = (
+                np.array(xyz) - R_hand @ np.array(self._tcp_offset_xyz)
+            ).tolist()
+            angles = self.ik.solve(hand_xyz)
+
+        # 验证：用实际 TCP 位姿对比目标
         result = self.ik.forward(angles)
-        pos: list[float] = result["pos"]
-        actual_rpy: list[float] = result["rpy"]
-        pos_error: float = math.dist(xyz, pos)
+        actual_tcp = result["matrix"] @ tcp_offset
+        actual_tcp_pos: list[float] = actual_tcp[:3, 3].tolist()
+        pos_error: float = math.dist(xyz, actual_tcp_pos)
 
         log = (
+            f"[TCP:{self._current_tcp_name}] "
             f"目标 pos=({xyz[0]:.3f}, {xyz[1]:.3f}, {xyz[2]:.3f})  "
-            f"实际 pos=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})  "
+            f"实际 pos=({actual_tcp_pos[0]:.3f}, {actual_tcp_pos[1]:.3f}, "
+            f"{actual_tcp_pos[2]:.3f})  "
             f"误差={pos_error * 1000:.1f}mm"
         )
         if rpy is not None:
-            rpy_err: float = math.dist(rpy, actual_rpy)
+            actual_tcp_rpy: list[float] = (
+                Rotation.from_matrix(actual_tcp[:3, :3])
+                .as_euler("xyz")
+                .tolist()
+            )
+            rpy_err: float = math.dist(rpy, actual_tcp_rpy)
             log += (
                 f"\n  目标 rpy=({math.degrees(rpy[0]):.1f}, "
-                f"{math.degrees(rpy[1]):.1f}, {math.degrees(rpy[2]):.1f})  "
-                f"实际 rpy=({math.degrees(actual_rpy[0]):.1f}, "
-                f"{math.degrees(actual_rpy[1]):.1f}, "
-                f"{math.degrees(actual_rpy[2]):.1f})  "
+                f"{math.degrees(rpy[1]):.1f}, "
+                f"{math.degrees(rpy[2]):.1f})  "
+                f"实际 rpy=({math.degrees(actual_tcp_rpy[0]):.1f}, "
+                f"{math.degrees(actual_tcp_rpy[1]):.1f}, "
+                f"{math.degrees(actual_tcp_rpy[2]):.1f})  "
                 f"误差={math.degrees(rpy_err):.2f}deg"
             )
         self.get_logger().info(log)
 
         if finger is None:
             finger = self._current_finger
-        self._send(angles, finger)
+
+        if steps > 0:
+            self._interpolate_to(angles, finger, steps, step_time)
+        else:
+            self._send(angles, finger)
 
     def move_linear(
         self,
