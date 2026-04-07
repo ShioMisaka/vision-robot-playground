@@ -37,8 +37,14 @@ void RobotMotionController::interpolate_to(
     for (int j = 0; j < dof; ++j) {
       interp[j] = current[j] + t * (target[j] - current[j]);
     }
-    // 仅最后一步发送目标夹爪宽度，其余步保持当前夹爪
-    double step_finger = (i == steps) ? finger : bridge_->get_current_finger();
+    // 抓取状态下始终发送目标夹爪宽度以维持夹持力，
+    // 非抓取时中间步保持当前夹爪避免误动
+    double step_finger;
+    if (grasping_) {
+      step_finger = finger;
+    } else {
+      step_finger = (i == steps) ? finger : bridge_->get_current_finger();
+    }
     bridge_->publish_command(interp, step_finger);
     std::this_thread::sleep_for(
         std::chrono::duration<double>(step_time));
@@ -159,9 +165,14 @@ void RobotMotionController::move_to_pose(
     angles = *result;
   }
 
-  // 实际 finger：-1 表示保持当前
-  double actual_finger =
-      (finger < 0) ? bridge_->get_current_finger() : finger;
+  // 实际 finger：-1 表示保持当前（抓取时保持目标值而非反馈值）
+  double actual_finger;
+  if (finger < 0) {
+    actual_finger = grasping_ ? gripper_.min_width
+                              : bridge_->get_current_finger();
+  } else {
+    actual_finger = finger;
+  }
 
   if (steps > 0) {
     interpolate_to(angles, actual_finger, steps, step_time, block);

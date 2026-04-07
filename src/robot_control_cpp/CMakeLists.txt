@@ -80,29 +80,30 @@ install(DIRECTORY include/
 )
 
 install(TARGETS robot_control_core robot_control_nodes
+  EXPORT robot_control_cpp_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
-# ===== 测试 =====
-# 独立 IK 测试（无 ROS 依赖，可离线运行）
-add_executable(test_ik_solver
-  test/test_ik_solver.cpp
-)
-target_link_libraries(test_ik_solver robot_control_core)
-install(TARGETS test_ik_solver
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-
-# 集成测试（需要 Isaac Sim 运行中）
-add_executable(test_robot_node
-  test/test_robot_node.cpp
-)
-target_link_libraries(test_robot_node robot_control_nodes)
-ament_target_dependencies(test_robot_node rclcpp)
-install(TARGETS test_robot_node
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+# ===== 导出（供下游包 find_package 使用）=====
+ament_export_targets(robot_control_cpp_export HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  tf2_ros
+  tf2
+  tf2_geometry_msgs
+  cv_bridge
+  message_filters
+  image_transport
+  orocos_kdl
+  urdfdom
+  urdf
+  kdl_parser
+  Eigen3
+  OpenCV
 )
 
 ament_package()

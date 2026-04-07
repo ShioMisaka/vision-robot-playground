@@ -255,28 +255,43 @@ void RosMotionBridge::publish_ee_tf(
 
 // ===== RobotControllerNode =====
 
+std::shared_ptr<RobotControllerNode> RobotControllerNode::create(
+    const RobotProfile& profile,
+    const GripperProfile& gripper,
+    const TopicConfig& topics) {
+  auto node = std::shared_ptr<RobotControllerNode>(
+      new RobotControllerNode(profile, gripper, topics));
+  node->init();
+  return node;
+}
+
 RobotControllerNode::RobotControllerNode(const RobotProfile& profile,
                                          const GripperProfile& gripper,
                                          const TopicConfig& topics)
-    : Node("robot_controller_node") {
+    : Node("robot_controller_node"),
+      profile_(profile),
+      gripper_(gripper),
+      topics_(topics) {
   state_cbg_ = create_callback_group(
       rclcpp::CallbackGroupType::MutuallyExclusive);
   pub_cbg_ = create_callback_group(
       rclcpp::CallbackGroupType::Reentrant);
 
-  auto ik = std::make_shared<IKSolver>(profile);
+  ik_ = std::make_shared<IKSolver>(profile);
+}
 
+void RobotControllerNode::init() {
   bridge_ = std::make_shared<RosMotionBridge>(
-      shared_from_this(), topics, ik, profile);
+      shared_from_this(), topics_, ik_, profile_);
 
   controller_ = std::make_shared<RobotMotionController>(
-      ik, profile, gripper, bridge_);
+      ik_, profile_, gripper_, bridge_);
 
   rclcpp::SubscriptionOptions sub_opts;
   sub_opts.callback_group = state_cbg_;
 
   joint_sub_ = create_subscription<sensor_msgs::msg::JointState>(
-      topics.joint_state, 10,
+      topics_.joint_state, 10,
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
         bridge_->update_joint_state(msg);
 

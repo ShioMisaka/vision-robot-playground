@@ -77,15 +77,17 @@ private:
 };
 
 /// ROS 2 机器人控制节点
+/// 使用 create() 工厂方法构造（内部需要 shared_from_this）
 class RobotControllerNode : public rclcpp::Node {
 public:
-  /// @brief 构造控制节点
+  /// @brief 工厂方法：创建控制节点
   /// @param profile 机器人参数
   /// @param gripper 夹爪参数
   /// @param topics 话题配置
-  RobotControllerNode(const RobotProfile& profile,
-                      const GripperProfile& gripper,
-                      const TopicConfig& topics);
+  static std::shared_ptr<RobotControllerNode> create(
+      const RobotProfile& profile,
+      const GripperProfile& gripper,
+      const TopicConfig& topics);
 
   /// @brief 阻塞等待首次关节状态接收
   bool wait_for_ready(double timeout = 5.0);
@@ -101,11 +103,20 @@ public:
   }
 
 private:
-  void on_joint_states(
-      const sensor_msgs::msg::JointState::SharedPtr msg);
+  RobotControllerNode(const RobotProfile& profile,
+                      const GripperProfile& gripper,
+                      const TopicConfig& topics);
+
+  /// shared_from_this() 安全后调用
+  void init();
 
   std::shared_ptr<RosMotionBridge> bridge_;
   std::shared_ptr<RobotMotionController> controller_;
+  std::shared_ptr<IKSolver> ik_;
+
+  RobotProfile profile_;
+  GripperProfile gripper_;
+  TopicConfig topics_;
 
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::CallbackGroup::SharedPtr state_cbg_;

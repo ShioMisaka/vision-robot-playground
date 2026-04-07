@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
   auto gripper = robot_control::profiles::panda_gripper();
   robot_control::TopicConfig topics;
 
-  auto robot_node = std::make_shared<robot_control::RobotControllerNode>(
+  auto robot_node = robot_control::RobotControllerNode::create(
       profile, gripper, topics);
 
   // 创建 executor 并在后台 spin

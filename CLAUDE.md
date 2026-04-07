@@ -34,7 +34,7 @@ src/
   vision_processor.py  # Python VisionProcessor 节点
   task_manager.py      # Python GraspTaskManager
 
-  # === C++ 核心包 ===
+  # === C++ 核心库包（纯库，无可执行文件）===
   robot_control_cpp/
     include/robot_control_cpp/
       config.hpp                  # 话题配置 TopicConfig + 通用常量 ControlConstants
@@ -51,8 +51,18 @@ src/
     src/
       ik_solver.cpp / color_detector.cpp / robot_motion_controller.cpp
       grasp_task_manager.cpp / robot_controller_node.cpp / vision_processor_node.cpp
-    CMakeLists.txt
+    CMakeLists.txt                # 导出 robot_control_cpp::robot_control_core/nodes
     package.xml
+
+  # === C++ 测试与演示包 ===
+  robot_control_test/
+    test/
+      test_ik_solver.cpp          # 独立 IK 测试（离线可运行）
+      test_robot_node.cpp         # 集成测试（需 Isaac Sim）
+    demo/
+      demo_grasp_tcp.cpp          # TCP 抓取演示
+    CMakeLists.txt                # find_package(robot_control_cpp) 链接库
+    package.xml                   # depend on robot_control_cpp
 
 script/
   test_move.py         # Python 演示：IK 位姿控制
@@ -88,13 +98,24 @@ urdf/
 
 ## 常用命令
 ```bash
-# 编译 C++ 包
-source /opt/ros/jazzy/setup.bash && colcon build --base-paths src --packages-select robot_control_cpp
+# 编译 C++ 核心库
+colcon build --base-paths src --packages-select robot_control_cpp
 
-# 运行 Python 位姿控制演示
+# 编译测试与演示（需先编译核心库并 source）
+source install/setup.bash
+colcon build --base-paths src --packages-select robot_control_test
+
+# 一键编译全部
+colcon build --base-paths src --packages-up-to robot_control_test
+
+# 运行 IK 独立测试（无需 Isaac Sim）
+ros2 run robot_control_test test_ik_solver
+
+# 运行抓取演示（需要 Isaac Sim）
+ros2 run robot_control_test demo_grasp_tcp
+
+# 运行 Python 演示
 python3 script/test_move.py
-
-# 运行 Python 视觉引导抓取演示
 python3 script/test_vision.py
 
 # 查看 ROS2 话题
