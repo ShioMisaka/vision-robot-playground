@@ -108,6 +108,12 @@ int main(int argc, char* argv[]) {
   ctrl->move_to_pose(lift_pos, kGripperDownRpy,
                       gripper.min_width, kInterpSteps, kStepTime, true);
 
+  RCLCPP_INFO(robot_node->get_logger(), "--- 转一圈 ---");
+  ctrl->rotate_joint(0, 1.5708, true);
+
+  RCLCPP_INFO(robot_node->get_logger(), "--- 抬起大臂 ---");
+  ctrl->rotate_joint(3, 1.5708, true);
+
   RCLCPP_INFO(robot_node->get_logger(), "完成!");
 
   // 清理

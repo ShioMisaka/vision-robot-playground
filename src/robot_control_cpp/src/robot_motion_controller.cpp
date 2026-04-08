@@ -69,7 +69,10 @@ void RobotMotionController::set_arm(const std::vector<double>& angles,
         "set_arm: expected " + std::to_string(profile_.dof) +
         " joint angles, got " + std::to_string(angles.size()));
   }
-  double finger = bridge_->get_current_finger();
+  // 抓取状态下发送 min_width 以持续施加夹持力，
+  // 非抓取时保持当前夹爪位置避免误动
+  double finger = grasping_ ? gripper_.min_width
+                            : bridge_->get_current_finger();
   bridge_->publish_command(angles, finger);
   if (block) {
     bridge_->wait_for_motion(
@@ -237,7 +240,9 @@ void RobotMotionController::go_home(bool block) {
   }
   std::vector<double> arm(profile_.home_joints.begin(),
                           profile_.home_joints.begin() + profile_.dof);
-  double finger = profile_.home_joints[profile_.dof];
+  // 抓取状态下持续施加夹持力，非抓取时使用 home 默认夹爪宽度
+  double finger = grasping_ ? gripper_.min_width
+                            : profile_.home_joints[profile_.dof];
   bridge_->publish_command(arm, finger);
   if (block) {
     bridge_->wait_for_motion(
@@ -247,7 +252,7 @@ void RobotMotionController::go_home(bool block) {
         ControlConstants::kMotionTimeout,
         ControlConstants::kPollInterval,
         ControlConstants::kSettleTime,
-        true);
+        !grasping_);
   }
 }
 
