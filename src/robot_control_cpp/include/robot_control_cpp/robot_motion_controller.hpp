@@ -100,6 +100,9 @@ public:
   // 新增 S 曲线运动接口
   void moveJ(const std::vector<double>& target_angles,
              bool block = true) override;
+  void moveJ(const std::array<double, 3>& xyz,
+             const std::optional<std::array<double, 3>>& rpy = std::nullopt,
+             double finger = -1.0, bool block = true) override;
   void moveL(const std::array<double, 3>& xyz,
              const std::optional<std::array<double, 3>>& rpy = std::nullopt,
              double finger = -1.0, bool block = true) override;

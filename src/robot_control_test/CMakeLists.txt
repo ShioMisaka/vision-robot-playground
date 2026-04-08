@@ -23,6 +23,15 @@ install(TARGETS test_trajectory_planner
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+# 独立运动控制器测试（无 ROS 依赖，可离线运行）
+add_executable(test_motion_controller
+  test/test_motion_controller.cpp
+)
+target_link_libraries(test_motion_controller robot_control_cpp::robot_control_core)
+install(TARGETS test_motion_controller
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # 独立 IK 测试（无 ROS 依赖，可离线运行）
 add_executable(test_ik_solver
   test/test_ik_solver.cpp

@@ -34,15 +34,15 @@ constexpr double kTargetX = 0.52699;
 constexpr double kTargetY = 0.0;
 constexpr double kTargetZ = 0.04026;
 constexpr double kApproachHeight = 0.10;   // 目标上方 10cm
-constexpr double kLiftHeight = 0.15;       // 提起高度 15cm
+constexpr double kLiftHeight = 0.25;       // 提起高度 15cm
 
 // 夹爪朝下姿态
 const std::array<double, 3> kGripperDownRpy = {
     0.0, -M_PI, -M_PI};
 
 // ---- 运动参数 ----
-constexpr int kInterpSteps = 15;    // 插值步数
-constexpr double kStepTime = 0.06;  // 每步间隔（秒）
+constexpr double kMoveJSpeed = 60.0;  // 关节运动速度百分比
+constexpr double kMoveLSpeed = 40.0;  // 笛卡尔运动速度百分比
 
 int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
@@ -77,6 +77,10 @@ int main(int argc, char* argv[]) {
 
   auto ctrl = robot_node->get_controller();
 
+  // 设置运动速度
+  ctrl->set_speed(robot_control::MotionMode::kMoveJ, kMoveJSpeed);
+  ctrl->set_speed(robot_control::MotionMode::kMoveL, kMoveLSpeed);
+
   // 切换到指尖坐标系
   ctrl->set_tcp("grasptarget");
 
@@ -84,35 +88,37 @@ int main(int argc, char* argv[]) {
   RCLCPP_INFO(robot_node->get_logger(), "张开夹爪");
   ctrl->open_gripper(true);
 
-  // 移动到目标上方
-  RCLCPP_INFO(robot_node->get_logger(), "--- 移动到目标上方 ---");
+  // moveJ：移动到目标上方（关节空间快速定位）
+  RCLCPP_INFO(robot_node->get_logger(), "--- moveJ 到目标上方 ---");
   std::array<double, 3> approach_pos = {
       kTargetX, kTargetY, kTargetZ + kApproachHeight};
-  ctrl->move_to_pose(approach_pos, kGripperDownRpy,
-                      gripper.max_width, kInterpSteps, kStepTime, true);
+  ctrl->moveJ(approach_pos, kGripperDownRpy, gripper.max_width, true);
 
-  // 下降到目标位置
-  RCLCPP_INFO(robot_node->get_logger(), "--- 下降到目标 ---");
+  // moveL：直线下降到目标位置
+  RCLCPP_INFO(robot_node->get_logger(), "--- moveL 下降到目标 ---");
   std::array<double, 3> target_pos = {kTargetX, kTargetY, kTargetZ};
-  ctrl->move_to_pose(target_pos, kGripperDownRpy,
-                      gripper.max_width, kInterpSteps, kStepTime, true);
+  ctrl->moveL(target_pos, kGripperDownRpy, gripper.max_width, true);
 
   // 闭合夹爪
   RCLCPP_INFO(robot_node->get_logger(), "--- 闭合夹爪 ---");
   ctrl->close_gripper(true);
 
-  // 提起（保持夹爪闭合）
-  RCLCPP_INFO(robot_node->get_logger(), "--- 提起 ---");
+  // moveL：提起（保持夹爪闭合）
+  RCLCPP_INFO(robot_node->get_logger(), "--- moveL 提起 ---");
   std::array<double, 3> lift_pos = {
       kTargetX, kTargetY, kTargetZ + kLiftHeight};
-  ctrl->move_to_pose(lift_pos, kGripperDownRpy,
-                      gripper.min_width, kInterpSteps, kStepTime, true);
+  ctrl->moveL(lift_pos, kGripperDownRpy, gripper.min_width, true);
 
-  RCLCPP_INFO(robot_node->get_logger(), "--- 转一圈 ---");
-  ctrl->rotate_joint(0, 1.5708, true);
+  // moveJ：关节旋转展示
+  RCLCPP_INFO(robot_node->get_logger(), "--- moveJ 转90° ---");
+  auto angles = ctrl->get_joint_angles();
+  angles[0] += 1.5708;
+  ctrl->moveJ(angles, true);
 
-  RCLCPP_INFO(robot_node->get_logger(), "--- 抬起大臂 ---");
-  ctrl->rotate_joint(3, 1.5708, true);
+  RCLCPP_INFO(robot_node->get_logger(), "--- moveJ 抬起大臂 ---");
+  angles = ctrl->get_joint_angles();
+  angles[3] += 1.5708;
+  ctrl->moveJ(angles, true);
 
   RCLCPP_INFO(robot_node->get_logger(), "完成!");
 

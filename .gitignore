@@ -20,6 +20,8 @@ venv_ros/
 install/
 log/
 cache/
+CMakeFiles/
+CMakeCache.txt
 
 # Build artifacts
 *.so

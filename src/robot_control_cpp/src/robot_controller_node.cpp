@@ -100,7 +100,24 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
     if (arm_ok && finger_ok) {
       std::this_thread::sleep_for(
           std::chrono::duration<double>(settle_time));
-      return true;
+      // settle 后重新检查，防止振荡导致误判到位
+      {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        current = current_arm_;
+        current_finger = current_finger_;
+      }
+      arm_ok = true;
+      for (size_t i = 0; i < target_arm.size() && i < current.size(); ++i) {
+        if (std::abs(target_arm[i] - current[i]) > joint_tol) {
+          arm_ok = false;
+          break;
+        }
+      }
+      finger_ok =
+          !check_finger || std::abs(finger - current_finger) < finger_tol;
+      if (arm_ok && finger_ok) {
+        return true;
+      }
     }
 
     std::this_thread::sleep_for(

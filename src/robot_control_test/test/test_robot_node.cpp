@@ -237,6 +237,90 @@ int main(int argc, char* argv[]) {
     check(false, "TF 查询");
   }
 
+  // ---- 9. set_speed / get_speed ----
+  std::cout << "\n--- 9. set_speed / get_speed ---" << std::endl;
+  try {
+    controller->set_speed(robot_control::MotionMode::kMoveJ, 80.0);
+    double sj = controller->get_speed(robot_control::MotionMode::kMoveJ);
+    check(std::abs(sj - 80.0) < 0.01, "set/get moveJ speed = 80%");
+
+    controller->set_speed(robot_control::MotionMode::kMoveL, 30.0);
+    double sl = controller->get_speed(robot_control::MotionMode::kMoveL);
+    check(std::abs(sl - 30.0) < 0.01, "set/get moveL speed = 30%");
+
+    // 独立性
+    double sj2 = controller->get_speed(robot_control::MotionMode::kMoveJ);
+    check(std::abs(sj2 - 80.0) < 0.01, "moveJ 速度不受 moveL 影响");
+
+    // 恢复默认
+    controller->set_speed(robot_control::MotionMode::kMoveJ, 50.0);
+    controller->set_speed(robot_control::MotionMode::kMoveL, 50.0);
+  } catch (const std::exception& e) {
+    std::cout << "  [FAIL] speed 异常: " << e.what() << std::endl;
+    check(false, "set_speed / get_speed");
+  }
+
+  // ---- 10. moveJ 关节空间运动 ----
+  std::cout << "\n--- 10. moveJ 关节空间运动 ---" << std::endl;
+  try {
+    controller->open_gripper(true);
+    controller->go_home(true);
+
+    auto before = controller->get_joint_angles();
+    auto target = before;
+    target[0] += 0.2;
+
+    controller->set_speed(robot_control::MotionMode::kMoveJ, 50.0);
+    controller->moveJ(target, true);
+    check(true, "moveJ 执行成功");
+
+    auto after = controller->get_joint_angles();
+    double delta = after[0] - before[0];
+    std::cout << "  moveJ 关节1 增量: " << delta << " rad (预期 0.2)" << std::endl;
+    check(std::abs(delta - 0.2) < 0.05,
+          "moveJ 关节1 增量 ≈ 0.2 rad（容差 0.05）");
+
+    // 回 home
+    controller->go_home(true);
+  } catch (const std::exception& e) {
+    std::cout << "  [FAIL] moveJ 异常: " << e.what() << std::endl;
+    check(false, "moveJ");
+  }
+
+  // ---- 11. moveL 笛卡尔空间运动 ----
+  std::cout << "\n--- 11. moveL 笛卡尔空间运动 ---" << std::endl;
+  try {
+    controller->go_home(true);
+    auto pose = controller->get_end_effector_pose();
+    std::cout << "  当前 TCP: pos=(" << pose[0] << ", " << pose[1]
+              << ", " << pose[2] << ")" << std::endl;
+
+    // Z 方向抬升 5cm
+    std::array<double, 3> target_xyz = {pose[0], pose[1], pose[2] + 0.05};
+    std::array<double, 3> target_rpy = {pose[3], pose[4], pose[5]};
+
+    controller->set_speed(robot_control::MotionMode::kMoveL, 50.0);
+    controller->moveL(target_xyz, target_rpy, 0.04, true);
+    check(true, "moveL 执行成功");
+
+    auto pose_after = controller->get_end_effector_pose();
+    double dz = pose_after[2] - pose[2];
+    std::cout << "  moveL 后 TCP Z: " << pose_after[2]
+              << "  delta_Z=" << dz << "m" << std::endl;
+    check(std::abs(dz - 0.05) < 0.02,
+          "moveL Z 增量 ≈ 0.05m（容差 2cm）");
+
+    // 回原位
+    std::array<double, 3> back_xyz = {pose[0], pose[1], pose[2]};
+    controller->moveL(back_xyz, target_rpy, 0.04, true);
+    check(true, "moveL 回原位成功");
+
+    controller->go_home(true);
+  } catch (const std::exception& e) {
+    std::cout << "  [FAIL] moveL 异常: " << e.what() << std::endl;
+    check(false, "moveL");
+  }
+
   // ---- 汇总 ----
   std::cout << "\n=== 集成测试结果: " << pass_count << "/" << test_count
             << " 通过 ===" << std::endl;

@@ -360,6 +360,7 @@ void RobotMotionController::moveJ(
   double finger = grasping_ ? gripper_.min_width
                             : bridge_->get_current_finger();
 
+  // 发布轨迹，使用固定间隔避免消息突发
   for (size_t i = 1; i < trajectory.size(); ++i) {
     bridge_->publish_command(trajectory[i], finger);
     std::this_thread::sleep_for(
@@ -367,14 +368,118 @@ void RobotMotionController::moveJ(
   }
 
   if (block) {
-    bridge_->wait_for_motion(
+    // 重新发布最终目标确保被接收
+    bridge_->publish_command(target_angles, finger);
+    // 超时：至少给轨迹时长的 3 倍 + 固定 10s 缓冲
+    double traj_dur = trajectory.size() * ControlConstants::kTrajectoryDt;
+    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
+    bool reached = bridge_->wait_for_motion(
         target_angles, finger,
         ControlConstants::kJointTolerance,
         ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
+        timeout,
         ControlConstants::kPollInterval,
         ControlConstants::kSettleTime,
         !grasping_);
+    if (!reached) {
+      throw std::runtime_error("moveJ: motion timed out, target not reached");
+    }
+  }
+}
+
+void RobotMotionController::moveJ(
+    const std::array<double, 3>& xyz,
+    const std::optional<std::array<double, 3>>& rpy,
+    double finger, bool block) {
+  auto tcp_offset = tcp_transform_matrix();
+  std::vector<double> target_angles;
+
+  if (rpy.has_value()) {
+    Eigen::Matrix4d target = Eigen::Matrix4d::Identity();
+    Eigen::AngleAxisd roll_angle((*rpy)[0], Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitch_angle((*rpy)[1], Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yaw_angle((*rpy)[2], Eigen::Vector3d::UnitZ());
+    target.block<3, 3>(0, 0) =
+        (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
+    target(0, 3) = xyz[0];
+    target(1, 3) = xyz[1];
+    target(2, 3) = xyz[2];
+
+    Eigen::Matrix4d hand_target = target * tcp_offset.inverse();
+    Eigen::Vector3d hand_xyz = hand_target.block<3, 1>(0, 3);
+    Eigen::Vector3d hand_rpy = hand_target.block<3, 3>(0, 0).eulerAngles(0, 1, 2);
+
+    std::array<double, 3> h_xyz = {hand_xyz.x(), hand_xyz.y(), hand_xyz.z()};
+    std::array<double, 3> h_rpy = {hand_rpy.x(), hand_rpy.y(), hand_rpy.z()};
+    auto result = ik_->solve(h_xyz, h_rpy);
+    if (!result) {
+      throw std::runtime_error("moveJ(pose): IK solver failed for target pose");
+    }
+    target_angles = *result;
+  } else {
+    auto current = bridge_->get_current_arm();
+    Eigen::Matrix4d hand_matrix = ik_->forward_matrix(current);
+    Eigen::Matrix3d R_hand = hand_matrix.block<3, 3>(0, 0);
+    Eigen::Vector3d offset_xyz(current_tcp_config_.offset_xyz[0],
+                               current_tcp_config_.offset_xyz[1],
+                               current_tcp_config_.offset_xyz[2]);
+    Eigen::Vector3d hand_xyz =
+        Eigen::Vector3d(xyz[0], xyz[1], xyz[2]) - R_hand * offset_xyz;
+
+    std::array<double, 3> h_xyz = {hand_xyz.x(), hand_xyz.y(), hand_xyz.z()};
+    auto result = ik_->solve(h_xyz, std::nullopt);
+    if (!result) {
+      throw std::runtime_error("moveJ(pose): IK solver failed for target pose");
+    }
+    target_angles = *result;
+  }
+
+  // 求解 finger
+  double actual_finger;
+  if (finger < 0) {
+    actual_finger = grasping_ ? gripper_.min_width
+                              : bridge_->get_current_finger();
+  } else {
+    actual_finger = finger;
+  }
+
+  // 用关节空间 moveJ 执行
+  auto q_start = bridge_->get_current_arm();
+  double ratio = movej_speed_ / 100.0;
+
+  std::vector<SCurveConfig> configs(profile_.dof);
+  for (int i = 0; i < profile_.dof; ++i) {
+    configs[i] = {
+      profile_.joint_limits.max_vel * ratio,
+      profile_.joint_limits.max_acc * ratio,
+      profile_.joint_limits.max_jerk * ratio
+    };
+  }
+
+  auto trajectory = TrajectoryPlanner::plan_joint(
+      q_start, target_angles, configs, ControlConstants::kTrajectoryDt);
+
+  for (size_t i = 1; i < trajectory.size(); ++i) {
+    bridge_->publish_command(trajectory[i], actual_finger);
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
+  }
+
+  if (block) {
+    bridge_->publish_command(target_angles, actual_finger);
+    double traj_dur = trajectory.size() * ControlConstants::kTrajectoryDt;
+    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
+    bool reached = bridge_->wait_for_motion(
+        target_angles, actual_finger,
+        ControlConstants::kJointTolerance,
+        ControlConstants::kFingerTolerance,
+        timeout,
+        ControlConstants::kPollInterval,
+        ControlConstants::kSettleTime,
+        !grasping_);
+    if (!reached) {
+      throw std::runtime_error("moveJ(pose): motion timed out, target not reached");
+    }
   }
 }
 
@@ -428,7 +533,10 @@ void RobotMotionController::moveL(
   }
 
   auto tcp_offset = tcp_transform_matrix();
-  std::vector<double> final_angles;
+
+  // 阶段1：预计算所有 IK 解（避免发布时 IK 耗时导致抖动）
+  std::vector<std::vector<double>> joint_traj;
+  joint_traj.reserve(alpha_traj.size() - 1);
 
   for (size_t i = 1; i < alpha_traj.size(); ++i) {
     double alpha = alpha_traj[i].pos;
@@ -457,21 +565,33 @@ void RobotMotionController::moveL(
           ", alpha=" + std::to_string(alpha));
     }
 
-    final_angles = *ik_result;
-    bridge_->publish_command(final_angles, actual_finger);
+    joint_traj.push_back(*ik_result);
+  }
+
+  // 阶段2：固定间隔发布（避免消息突发）
+  for (size_t i = 0; i < joint_traj.size(); ++i) {
+    bridge_->publish_command(joint_traj[i], actual_finger);
     std::this_thread::sleep_for(
         std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
   }
 
-  if (block && !final_angles.empty()) {
-    bridge_->wait_for_motion(
+  if (block && !joint_traj.empty()) {
+    const auto& final_angles = joint_traj.back();
+    // 重新发布最终目标确保被接收
+    bridge_->publish_command(final_angles, actual_finger);
+    double traj_dur = joint_traj.size() * ControlConstants::kTrajectoryDt;
+    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
+    bool reached = bridge_->wait_for_motion(
         final_angles, actual_finger,
         ControlConstants::kJointTolerance,
         ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
+        timeout,
         ControlConstants::kPollInterval,
         ControlConstants::kSettleTime,
         !grasping_);
+    if (!reached) {
+      throw std::runtime_error("moveL: motion timed out, target not reached");
+    }
   }
 }
 

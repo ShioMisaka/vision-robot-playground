@@ -70,9 +70,14 @@ public:
       const std::string& source_frame,
       double timeout = 1.0) = 0;
 
-  /// 关节空间运动到目标角度
+  /// 关节空间运动到目标角度（S 曲线）
   virtual void moveJ(const std::vector<double>& target_angles,
                      bool block = true) = 0;
+
+  /// 关节空间运动到目标位姿（IK + S 曲线，适合大范围移动）
+  virtual void moveJ(const std::array<double, 3>& xyz,
+                     const std::optional<std::array<double, 3>>& rpy = std::nullopt,
+                     double finger = -1.0, bool block = true) = 0;
 
   /// 笛卡尔空间直线运动到目标位姿
   virtual void moveL(const std::array<double, 3>& xyz,

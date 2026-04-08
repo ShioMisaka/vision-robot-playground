@@ -49,14 +49,17 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
 
   double t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0;
 
-  if (abs_h >= d_full) {
-    // ---- 情况 1：完整七段 ----
-    t1 = a_max / j_max;
-    t3 = t1;
-    t5 = t1;
-    t7 = t1;
+  // 公共初始化：jerk 相时长和 jerk 相末速度
+  t1 = a_max / j_max;
+  t3 = t1;
+  t5 = t1;
+  t7 = t1;
+  double v1 = 0.5 * j_max * t1 * t1;
 
-    double v1 = 0.5 * j_max * t1 * t1;
+  // v_max 必须足以支撑恒定加速阶段（v_max >= 2*v1），
+  // 否则 t2 为负导致轨迹计算产生错误结果
+  if (abs_h >= d_full && v_max >= 2.0 * v1) {
+    // ---- 情况 1：完整七段 ----
     // v_max = 2*v1 + a_max * t2
     t2 = (v_max - 2.0 * v1) / a_max;
     t6 = t2;
@@ -74,19 +77,13 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     if (t4 < 0) t4 = 0;
 
   } else {
-    // ---- 情况 2 & 3：最大速度不可达（t4=0）----
+    // ---- 情况 2 & 3：最大速度不可达或 v_max 不足以支撑恒定加速阶段 ----
     t4 = 0;
-    t1 = a_max / j_max;
-    t3 = t1;
-    t5 = t1;
-    t7 = t1;
 
     // 解二次方程求 v_peak
     // v_peak^2 + 2*v_peak*a_max^2/j_max - h*a_max = 0
     double b_coeff = 2.0 * a_max * a_max / j_max;
     double v_peak = (-b_coeff + std::sqrt(b_coeff * b_coeff + 4.0 * abs_h * a_max)) / 2.0;
-
-    double v1 = 0.5 * j_max * t1 * t1;
 
     // 检查 t2 是否非负（即 a_max 确实达到）
     if (v_peak >= 2.0 * v1 - 1e-12) {
@@ -207,30 +204,10 @@ std::vector<std::vector<double>> TrajectoryPlanner::plan_joint(
     }
   }
 
-  // 步骤 2: 对较短轴仅降低 max_vel（保持 max_acc、max_jerk 不变）
-  // 使用二分搜索使轨迹时间逼近 T_max
-  for (size_t i = 0; i < n; ++i) {
-    double T_i = axis_trajectories[i].back().t;
-    if (T_i < T_max - dt * 0.5) {
-      SCurveConfig adjusted = configs[i];
-      double v_low = 0.0;
-      double v_high = configs[i].max_vel;
-
-      for (int iter = 0; iter < 30; ++iter) {
-        double v_mid = 0.5 * (v_low + v_high);
-        adjusted.max_vel = v_mid;
-        auto trial = SCurvePlanner::plan(q_start[i], q_end[i], adjusted, dt);
-        double T_trial = trial.empty() ? 0.0 : trial.back().t;
-        if (T_trial < T_max) {
-          v_high = v_mid;
-        } else {
-          v_low = v_mid;
-        }
-      }
-      adjusted.max_vel = 0.5 * (v_low + v_high);
-      axis_trajectories[i] = SCurvePlanner::plan(q_start[i], q_end[i], adjusted, dt);
-    }
-  }
+  // 步骤 2：短轨迹轴在重采样时自动保持目标位置（t > T_i 时
+  // idx+1 >= traj.size()，直接取 traj.back().pos），无需额外时间缩放。
+  // 注意：不能通过降低 max_vel 拉伸短轨迹，因为 max_vel → 0 时
+  // S 曲线规划器的七段公式会产生负的 t2，导致轨迹计算错误。
 
   // 步骤 3: 重采样所有轴到 T_max 对齐的均匀 dt 网格
   int num_steps = static_cast<int>(std::round(T_max / dt));

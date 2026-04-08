@@ -289,8 +289,18 @@ PYBIND11_MODULE(_core, m) {
            py::arg("target_frame"), py::arg("source_frame"),
            py::arg("timeout") = 1.0,
            py::call_guard<py::gil_scoped_release>())
-      .def("moveJ", &RobotMotionController::moveJ,
+      .def("moveJ", static_cast<void (RobotMotionController::*)(
+                         const std::vector<double>&, bool)>(
+                         &RobotMotionController::moveJ),
            py::arg("target_angles"), py::arg("block") = true,
+           py::call_guard<py::gil_scoped_release>())
+      .def("moveJ", static_cast<void (RobotMotionController::*)(
+                         const std::array<double, 3>&,
+                         const std::optional<std::array<double, 3>>&,
+                         double, bool)>(
+                         &RobotMotionController::moveJ),
+           py::arg("xyz"), py::arg("rpy") = py::none(),
+           py::arg("finger") = -1.0, py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
       .def("moveL", &RobotMotionController::moveL,
            py::arg("xyz"), py::arg("rpy") = py::none(),
