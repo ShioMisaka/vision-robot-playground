@@ -137,7 +137,9 @@ PYBIND11_MODULE(_core, m) {
       .def_readwrite("base_frame", &RobotProfile::base_frame)
       .def_readwrite("hand_frame", &RobotProfile::hand_frame)
       .def_readwrite("tcp_frames", &RobotProfile::tcp_frames)
-      .def_readwrite("default_tcp", &RobotProfile::default_tcp);
+      .def_readwrite("default_tcp", &RobotProfile::default_tcp)
+      .def_readwrite("joint_limits", &RobotProfile::joint_limits)
+      .def_readwrite("cartesian_limits", &RobotProfile::cartesian_limits);
 
   // GripperProfile
   py::class_<GripperProfile>(m, "GripperProfile")
@@ -146,6 +148,13 @@ PYBIND11_MODULE(_core, m) {
       .def_readwrite("min_width", &GripperProfile::min_width)
       .def_readwrite("max_width", &GripperProfile::max_width)
       .def_readwrite("dof", &GripperProfile::dof);
+
+  // MotionLimits
+  py::class_<MotionLimits>(m, "MotionLimits")
+      .def(py::init<>())
+      .def_readwrite("max_vel", &MotionLimits::max_vel)
+      .def_readwrite("max_acc", &MotionLimits::max_acc)
+      .def_readwrite("max_jerk", &MotionLimits::max_jerk);
 
   // DetectionResult（Eigen 类型转换为 Python 原生类型）
   py::class_<DetectionResult>(m, "DetectionResult")
@@ -173,6 +182,12 @@ PYBIND11_MODULE(_core, m) {
       .value("ERROR", GraspState::kError)
       .export_values();
 
+  // MotionMode 枚举
+  py::enum_<MotionMode>(m, "MotionMode")
+      .value("MOVE_J", MotionMode::kMoveJ)
+      .value("MOVE_L", MotionMode::kMoveL)
+      .export_values();
+
   // ControlConstants — 导出为模块级常量
   m.attr("JOINT_TOLERANCE") = ControlConstants::kJointTolerance;
   m.attr("FINGER_TOLERANCE") = ControlConstants::kFingerTolerance;
@@ -186,6 +201,7 @@ PYBIND11_MODULE(_core, m) {
   m.attr("FINGER_STABLE_COUNT") = ControlConstants::kFingerStableCount;
   m.attr("FINGER_STABLE_TOL") = ControlConstants::kFingerStableTol;
   m.attr("READY_TIMEOUT") = ControlConstants::kReadyTimeout;
+  m.attr("TRAJECTORY_DT") = ControlConstants::kTrajectoryDt;
 
   // ===== Layer 1 核心类 =====
 
@@ -272,7 +288,18 @@ PYBIND11_MODULE(_core, m) {
       .def("lookup_transform", &RobotMotionController::lookup_transform,
            py::arg("target_frame"), py::arg("source_frame"),
            py::arg("timeout") = 1.0,
-           py::call_guard<py::gil_scoped_release>());
+           py::call_guard<py::gil_scoped_release>())
+      .def("moveJ", &RobotMotionController::moveJ,
+           py::arg("target_angles"), py::arg("block") = true,
+           py::call_guard<py::gil_scoped_release>())
+      .def("moveL", &RobotMotionController::moveL,
+           py::arg("xyz"), py::arg("rpy") = py::none(),
+           py::arg("finger") = -1.0, py::arg("block") = true,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_speed", &RobotMotionController::set_speed,
+           py::arg("mode"), py::arg("percent"))
+      .def("get_speed", &RobotMotionController::get_speed,
+           py::arg("mode"));
 
   // IVisionProcessor（不可实例化基类）
   py::class_<IVisionProcessor, std::shared_ptr<IVisionProcessor>>(
