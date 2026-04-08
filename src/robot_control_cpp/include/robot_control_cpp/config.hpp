@@ -39,6 +39,8 @@ struct ControlConstants {
   static constexpr double kFingerStableTol = 0.001;
   /// 就绪等待超时（秒）
   static constexpr double kReadyTimeout = 5.0;
+  /// 轨迹规划时间步长（100 Hz）
+  static constexpr double kTrajectoryDt = 0.01;
 };
 
 }  // namespace robot_control

@@ -7,6 +7,9 @@
 
 namespace robot_control {
 
+/// 运动模式，用于 set_speed/get_speed
+enum class MotionMode { kMoveJ, kMoveL };
+
 /// 机器人运动控制抽象接口，不依赖任何 ROS 2 组件
 class IRobotController {
 public:
@@ -66,6 +69,21 @@ public:
       const std::string& target_frame,
       const std::string& source_frame,
       double timeout = 1.0) = 0;
+
+  /// 关节空间运动到目标角度
+  virtual void moveJ(const std::vector<double>& target_angles,
+                     bool block = true) = 0;
+
+  /// 笛卡尔空间直线运动到目标位姿
+  virtual void moveL(const std::array<double, 3>& xyz,
+                     const std::optional<std::array<double, 3>>& rpy = std::nullopt,
+                     double finger = -1.0, bool block = true) = 0;
+
+  /// 设置运动速度百分比（0-100）
+  virtual void set_speed(MotionMode mode, double percent) = 0;
+
+  /// 获取当前运动速度百分比
+  virtual double get_speed(MotionMode mode) const = 0;
 };
 
 }  // namespace robot_control

@@ -7,6 +7,13 @@
 
 namespace robot_control {
 
+/// 运动极限参数（速度/加速度/加加速度）
+struct MotionLimits {
+  double max_vel = 1.0;   ///< moveJ: rad/s, moveL: m/s
+  double max_acc = 1.0;   ///< moveJ: rad/s², moveL: m/s²
+  double max_jerk = 1.0;  ///< moveJ: rad/s³, moveL: m/s³
+};
+
 /// 机器人 TCP（工具中心点）配置
 struct TcpConfig {
   std::array<double, 3> offset_xyz = {0.0, 0.0, 0.0};
@@ -28,6 +35,8 @@ struct RobotProfile {
   std::string hand_frame;
   std::map<std::string, TcpConfig> tcp_frames;
   std::string default_tcp = "hand";
+  MotionLimits joint_limits;
+  MotionLimits cartesian_limits;
 };
 
 /// 夹爪参数描述
