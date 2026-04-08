@@ -17,6 +17,8 @@ from robot_control_cpp_py._core import (
     TcpConfig,
     DetectionResult,
     GraspState,
+    MotionMode,
+    MotionLimits,
     # Layer 1: Core
     IKSolver,
     CameraInterface,
@@ -44,6 +46,7 @@ from robot_control_cpp_py._core import (
     FINGER_STABLE_COUNT,
     FINGER_STABLE_TOL,
     READY_TIMEOUT,
+    TRAJECTORY_DT,
 )
 
 __all__ = [
@@ -57,6 +60,8 @@ __all__ = [
     "TcpConfig",
     "DetectionResult",
     "GraspState",
+    "MotionMode",
+    "MotionLimits",
     "IKSolver",
     "CameraInterface",
     "ColorDetector",
