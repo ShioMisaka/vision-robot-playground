@@ -45,6 +45,12 @@ inline RobotProfile panda() {
   };
   p.default_tcp = "hand";
 
+  // 关节空间运动极限（Franka Panda 典型值）
+  p.joint_limits = MotionLimits{1.0, 2.0, 10.0};  // rad/s, rad/s², rad/s³
+
+  // 笛卡尔空间运动极限
+  p.cartesian_limits = MotionLimits{0.5, 1.0, 5.0};  // m/s, m/s², m/s³
+
   return p;
 }
 
