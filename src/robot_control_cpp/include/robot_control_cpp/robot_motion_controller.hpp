@@ -9,6 +9,7 @@
 
 #include "robot_control_cpp/i_robot_controller.hpp"
 #include "robot_control_cpp/robot_profile.hpp"
+#include "robot_control_cpp/trajectory_planner.hpp"
 
 namespace robot_control {
 
@@ -96,6 +97,15 @@ public:
       const std::string& source_frame,
       double timeout = 1.0) override;
 
+  // 新增 S 曲线运动接口
+  void moveJ(const std::vector<double>& target_angles,
+             bool block = true) override;
+  void moveL(const std::array<double, 3>& xyz,
+             const std::optional<std::array<double, 3>>& rpy = std::nullopt,
+             double finger = -1.0, bool block = true) override;
+  void set_speed(MotionMode mode, double percent) override;
+  double get_speed(MotionMode mode) const override;
+
 private:
   /// 关节空间线性插值运动
   void interpolate_to(const std::vector<double>& target, double finger,
@@ -111,6 +121,8 @@ private:
   std::string current_tcp_;
   TcpConfig current_tcp_config_;
   bool grasping_ = false;  // 夹取物体标志
+  double movej_speed_ = 50.0;
+  double movel_speed_ = 50.0;
 };
 
 }  // namespace robot_control

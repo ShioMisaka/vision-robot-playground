@@ -14,6 +14,15 @@ find_package(robot_control_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 
 # ===== 测试 =====
+# 独立 S 曲线轨迹规划测试（无 ROS 依赖，可离线运行）
+add_executable(test_trajectory_planner
+  test/test_trajectory_planner.cpp
+)
+target_link_libraries(test_trajectory_planner robot_control_cpp::robot_control_core)
+install(TARGETS test_trajectory_planner
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # 独立 IK 测试（无 ROS 依赖，可离线运行）
 add_executable(test_ik_solver
   test/test_ik_solver.cpp

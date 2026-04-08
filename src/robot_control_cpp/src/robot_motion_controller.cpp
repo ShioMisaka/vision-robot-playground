@@ -313,4 +313,166 @@ Eigen::Matrix4d RobotMotionController::tcp_transform_matrix() const {
   return T;
 }
 
+void RobotMotionController::set_speed(MotionMode mode, double percent) {
+  if (percent <= 0) {
+    throw std::invalid_argument("set_speed: percent must be > 0, got " +
+                                std::to_string(percent));
+  }
+  double clamped = std::min(percent, 100.0);
+  switch (mode) {
+    case MotionMode::kMoveJ: movej_speed_ = clamped; break;
+    case MotionMode::kMoveL: movel_speed_ = clamped; break;
+    default: break;
+  }
+}
+
+double RobotMotionController::get_speed(MotionMode mode) const {
+  switch (mode) {
+    case MotionMode::kMoveJ: return movej_speed_;
+    case MotionMode::kMoveL: return movel_speed_;
+    default: return 50.0;
+  }
+}
+
+void RobotMotionController::moveJ(
+    const std::vector<double>& target_angles, bool block) {
+  if (static_cast<int>(target_angles.size()) != profile_.dof) {
+    throw std::invalid_argument(
+        "moveJ: expected " + std::to_string(profile_.dof) +
+        " joint angles, got " + std::to_string(target_angles.size()));
+  }
+
+  auto q_start = bridge_->get_current_arm();
+  double ratio = movej_speed_ / 100.0;
+
+  std::vector<SCurveConfig> configs(profile_.dof);
+  for (int i = 0; i < profile_.dof; ++i) {
+    configs[i] = {
+      profile_.joint_limits.max_vel * ratio,
+      profile_.joint_limits.max_acc * ratio,
+      profile_.joint_limits.max_jerk * ratio
+    };
+  }
+
+  auto trajectory = TrajectoryPlanner::plan_joint(
+      q_start, target_angles, configs, ControlConstants::kTrajectoryDt);
+
+  double finger = grasping_ ? gripper_.min_width
+                            : bridge_->get_current_finger();
+
+  for (size_t i = 1; i < trajectory.size(); ++i) {
+    bridge_->publish_command(trajectory[i], finger);
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
+  }
+
+  if (block) {
+    bridge_->wait_for_motion(
+        target_angles, finger,
+        ControlConstants::kJointTolerance,
+        ControlConstants::kFingerTolerance,
+        ControlConstants::kMotionTimeout,
+        ControlConstants::kPollInterval,
+        ControlConstants::kSettleTime,
+        !grasping_);
+  }
+}
+
+void RobotMotionController::moveL(
+    const std::array<double, 3>& xyz,
+    const std::optional<std::array<double, 3>>& rpy,
+    double finger, bool block) {
+  auto current_pose = get_end_effector_pose();
+  Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
+  Eigen::Vector3d end_pos(xyz[0], xyz[1], xyz[2]);
+
+  double total_dist = (end_pos - start_pos).norm();
+  if (total_dist < 1e-6) {
+    return;
+  }
+
+  double ratio = movel_speed_ / 100.0;
+  double cart_vel = profile_.cartesian_limits.max_vel * ratio;
+  double cart_acc = profile_.cartesian_limits.max_acc * ratio;
+  double cart_jerk = profile_.cartesian_limits.max_jerk * ratio;
+
+  // S 曲线应用于归一化路径参数 alpha ∈ [0, 1]
+  SCurveConfig alpha_cfg;
+  alpha_cfg.max_vel = cart_vel / total_dist;
+  alpha_cfg.max_acc = cart_acc / total_dist;
+  alpha_cfg.max_jerk = cart_jerk / total_dist;
+
+  auto alpha_traj = SCurvePlanner::plan(0.0, 1.0, alpha_cfg,
+                                        ControlConstants::kTrajectoryDt);
+
+  Eigen::Vector3d start_rpy(current_pose[3], current_pose[4], current_pose[5]);
+  Eigen::Quaterniond start_quat =
+      (Eigen::AngleAxisd(start_rpy.x(), Eigen::Vector3d::UnitX()) *
+       Eigen::AngleAxisd(start_rpy.y(), Eigen::Vector3d::UnitY()) *
+       Eigen::AngleAxisd(start_rpy.z(), Eigen::Vector3d::UnitZ()));
+
+  Eigen::Quaterniond end_quat = start_quat;
+  if (rpy.has_value()) {
+    end_quat =
+        (Eigen::AngleAxisd((*rpy)[0], Eigen::Vector3d::UnitX()) *
+         Eigen::AngleAxisd((*rpy)[1], Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd((*rpy)[2], Eigen::Vector3d::UnitZ()));
+  }
+
+  double actual_finger;
+  if (finger < 0) {
+    actual_finger = grasping_ ? gripper_.min_width
+                              : bridge_->get_current_finger();
+  } else {
+    actual_finger = finger;
+  }
+
+  auto tcp_offset = tcp_transform_matrix();
+  std::vector<double> final_angles;
+
+  for (size_t i = 1; i < alpha_traj.size(); ++i) {
+    double alpha = alpha_traj[i].pos;
+
+    Eigen::Vector3d interp_pos = start_pos + alpha * (end_pos - start_pos);
+    Eigen::Quaterniond interp_quat = start_quat.slerp(alpha, end_quat);
+
+    Eigen::Matrix4d target = Eigen::Matrix4d::Identity();
+    target.block<3, 3>(0, 0) = interp_quat.toRotationMatrix();
+    target(0, 3) = interp_pos.x();
+    target(1, 3) = interp_pos.y();
+    target(2, 3) = interp_pos.z();
+
+    Eigen::Matrix4d hand_target = target * tcp_offset.inverse();
+    Eigen::Vector3d hand_xyz = hand_target.block<3, 1>(0, 3);
+    Eigen::Vector3d hand_rpy = hand_target.block<3, 3>(0, 0).eulerAngles(0, 1, 2);
+
+    std::array<double, 3> h_xyz = {hand_xyz.x(), hand_xyz.y(), hand_xyz.z()};
+    std::array<double, 3> h_rpy = {hand_rpy.x(), hand_rpy.y(), hand_rpy.z()};
+
+    auto ik_result = ik_->solve(h_xyz, h_rpy);
+    if (!ik_result) {
+      throw std::runtime_error(
+          "moveL: IK failed at path interpolation point " +
+          std::to_string(i) + "/" + std::to_string(alpha_traj.size()) +
+          ", alpha=" + std::to_string(alpha));
+    }
+
+    final_angles = *ik_result;
+    bridge_->publish_command(final_angles, actual_finger);
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
+  }
+
+  if (block && !final_angles.empty()) {
+    bridge_->wait_for_motion(
+        final_angles, actual_finger,
+        ControlConstants::kJointTolerance,
+        ControlConstants::kFingerTolerance,
+        ControlConstants::kMotionTimeout,
+        ControlConstants::kPollInterval,
+        ControlConstants::kSettleTime,
+        !grasping_);
+  }
+}
+
 }  // namespace robot_control

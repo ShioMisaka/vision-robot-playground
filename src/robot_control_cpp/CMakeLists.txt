@@ -31,6 +31,7 @@ find_package(kdl_parser REQUIRED)
 add_library(robot_control_core SHARED
   src/ik_solver.cpp
   src/color_detector.cpp
+  src/trajectory_planner.cpp
   src/robot_motion_controller.cpp
   src/grasp_task_manager.cpp
 )
