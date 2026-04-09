@@ -12,6 +12,8 @@ Python 脚本通过 pybind11 调用 C++ 后端。
 - **仿真**: NVIDIA Isaac Sim（通过 ROS2 bridge 通信）
 - **机器人**: Franka Panda 7-DOF + 二指夹爪（架构支持扩展新机器人）
 - **相机**: ZEN_X_Mini（左目 RGB + 深度）
+- **轨迹规划**: 七段式 S 曲线（Jerk 连续），多轴同步时间对齐
+- **IK 求解**: KDL 伪逆 + 阻尼最小二乘法（DLS）奇异位形保护
 - **C++ 核心依赖**: rclcpp, Eigen3, Orocos KDL, OpenCV, tf2_ros, cv_bridge, message_filters
 - **Python 绑定**: pybind11 2.11
 
@@ -41,10 +43,11 @@ src/
   robot_control_cpp/
     include/robot_control_cpp/
       config.hpp                  # 话题配置 TopicConfig + 通用常量 ControlConstants
-      robot_profile.hpp           # RobotProfile / GripperProfile / TcpConfig（多机器人）
+      robot_profile.hpp           # RobotProfile / GripperProfile / TcpConfig / MotionLimits（多机器人）
       i_robot_controller.hpp      # 运动控制抽象接口 IRobotController
       i_vision_processor.hpp      # 视觉处理抽象接口 IVisionProcessor
-      ik_solver.hpp               # IK/FK 求解器（KDL，不依赖 rclcpp）
+      ik_solver.hpp               # IK/FK 求解器（KDL + DLS 阻尼最小二乘法）
+      trajectory_planner.hpp      # S 曲线轨迹规划器（七段式，Jerk 连续）
       color_detector.hpp          # CameraInterface 基类 + ColorDetector（OpenCV HSV）
       robot_motion_controller.hpp # 通用运动控制器 + MotionIOBridge 接口
       grasp_task_manager.hpp      # 抓取状态机 GraspTaskManager
@@ -52,8 +55,9 @@ src/
       vision_processor_node.hpp   # ROS2 视觉处理节点 VisionProcessorNode
       panda_profile.hpp           # Panda 专用配置（扩展新机器人参考）
     src/
-      ik_solver.cpp / color_detector.cpp / robot_motion_controller.cpp
-      grasp_task_manager.cpp / robot_controller_node.cpp / vision_processor_node.cpp
+      ik_solver.cpp / trajectory_planner.cpp / color_detector.cpp
+      robot_motion_controller.cpp / grasp_task_manager.cpp
+      robot_controller_node.cpp / vision_processor_node.cpp
     CMakeLists.txt                # 导出 robot_control_cpp::robot_control_core/nodes
     package.xml
 
@@ -102,6 +106,8 @@ urdf/
 - 线程同步：`std::mutex` + `std::condition_variable`
 - 回调组：状态订阅用 `MutuallyExclusiveCallbackGroup`，发布/TF 用 `ReentrantCallbackGroup`
 - 节点构造使用工厂模式（`create()` 静态方法 + 两阶段初始化），避免 `shared_from_this()` 问题
+- 轨迹执行使用 `sleep_until` 绝对时间调度（非 `sleep_for`），避免 OS 调度误差累积
+- moveJ/moveL 通过 S 曲线规划器以 50Hz 逐步发送关节位置，不依赖 Isaac Sim 内部轨迹规划
 
 ## ROS2 话题
 | 话题 | 类型 | 方向 | 说明 |

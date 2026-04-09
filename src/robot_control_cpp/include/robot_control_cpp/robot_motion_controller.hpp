@@ -117,6 +117,10 @@ private:
   /// 计算当前 TCP 的 4x4 齐次变换矩阵
   Eigen::Matrix4d tcp_transform_matrix() const;
 
+  /// 关节空间 S 曲线 moveJ 执行（含 finger，由 pose 版 moveJ 内部调用）
+  void moveJ_internal(const std::vector<double>& target_angles,
+                      double finger, bool block);
+
   std::shared_ptr<IKSolver> ik_;
   RobotProfile profile_;
   GripperProfile gripper_;

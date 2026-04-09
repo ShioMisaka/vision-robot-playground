@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <iostream>
 
 namespace robot_control {
 
@@ -334,6 +335,56 @@ double RobotMotionController::get_speed(MotionMode mode) const {
   }
 }
 
+void RobotMotionController::moveJ_internal(
+    const std::vector<double>& target_angles, double finger, bool block) {
+  auto current = bridge_->get_current_arm();
+
+  // 检查是否有实际运动量
+  double max_delta = 0.0;
+  for (int i = 0; i < profile_.dof; ++i) {
+    max_delta = std::max(max_delta, std::abs(target_angles[i] - current[i]));
+  }
+  if (max_delta < 1e-6) {
+    return;
+  }
+
+  // 使用 S 曲线轨迹规划器，按速度百分比缩放运动极限
+  double speed_factor = movej_speed_ / 100.0;
+  std::vector<SCurveConfig> configs;
+  configs.reserve(profile_.dof);
+  for (int i = 0; i < profile_.dof; ++i) {
+    configs.push_back({
+        profile_.joint_limits.max_vel * speed_factor,
+        profile_.joint_limits.max_acc * speed_factor,
+        profile_.joint_limits.max_jerk * speed_factor});
+  }
+
+  auto trajectory = TrajectoryPlanner::plan_joint(
+      current, target_angles, configs,
+      ControlConstants::kTrajectoryDt);
+
+  // 基于绝对时间调度发送轨迹点，避免 sleep_for 累积误差
+  double dt = ControlConstants::kTrajectoryDt;
+  auto start = std::chrono::steady_clock::now();
+  for (size_t i = 1; i < trajectory.size(); ++i) {
+    double t = static_cast<double>(i) * dt;
+    auto target_time = start + std::chrono::duration<double>(t);
+    std::this_thread::sleep_until(target_time);
+    bridge_->publish_command(trajectory[i], finger);
+  }
+
+  if (block) {
+    bridge_->wait_for_motion(
+        target_angles, finger,
+        ControlConstants::kJointTolerance,
+        ControlConstants::kFingerTolerance,
+        ControlConstants::kMotionTimeout,
+        ControlConstants::kPollInterval,
+        ControlConstants::kSettleTime,
+        !grasping_);
+  }
+}
+
 void RobotMotionController::moveJ(
     const std::vector<double>& target_angles, bool block) {
   if (static_cast<int>(target_angles.size()) != profile_.dof) {
@@ -342,49 +393,9 @@ void RobotMotionController::moveJ(
         " joint angles, got " + std::to_string(target_angles.size()));
   }
 
-  auto q_start = bridge_->get_current_arm();
-  double ratio = movej_speed_ / 100.0;
-
-  std::vector<SCurveConfig> configs(profile_.dof);
-  for (int i = 0; i < profile_.dof; ++i) {
-    configs[i] = {
-      profile_.joint_limits.max_vel * ratio,
-      profile_.joint_limits.max_acc * ratio,
-      profile_.joint_limits.max_jerk * ratio
-    };
-  }
-
-  auto trajectory = TrajectoryPlanner::plan_joint(
-      q_start, target_angles, configs, ControlConstants::kTrajectoryDt);
-
   double finger = grasping_ ? gripper_.min_width
                             : bridge_->get_current_finger();
-
-  // 发布轨迹，使用固定间隔避免消息突发
-  for (size_t i = 1; i < trajectory.size(); ++i) {
-    bridge_->publish_command(trajectory[i], finger);
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
-  }
-
-  if (block) {
-    // 重新发布最终目标确保被接收
-    bridge_->publish_command(target_angles, finger);
-    // 超时：至少给轨迹时长的 3 倍 + 固定 10s 缓冲
-    double traj_dur = trajectory.size() * ControlConstants::kTrajectoryDt;
-    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
-    bool reached = bridge_->wait_for_motion(
-        target_angles, finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        timeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
-    if (!reached) {
-      throw std::runtime_error("moveJ: motion timed out, target not reached");
-    }
-  }
+  moveJ_internal(target_angles, finger, block);
 }
 
 void RobotMotionController::moveJ(
@@ -443,44 +454,8 @@ void RobotMotionController::moveJ(
     actual_finger = finger;
   }
 
-  // 用关节空间 moveJ 执行
-  auto q_start = bridge_->get_current_arm();
-  double ratio = movej_speed_ / 100.0;
-
-  std::vector<SCurveConfig> configs(profile_.dof);
-  for (int i = 0; i < profile_.dof; ++i) {
-    configs[i] = {
-      profile_.joint_limits.max_vel * ratio,
-      profile_.joint_limits.max_acc * ratio,
-      profile_.joint_limits.max_jerk * ratio
-    };
-  }
-
-  auto trajectory = TrajectoryPlanner::plan_joint(
-      q_start, target_angles, configs, ControlConstants::kTrajectoryDt);
-
-  for (size_t i = 1; i < trajectory.size(); ++i) {
-    bridge_->publish_command(trajectory[i], actual_finger);
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
-  }
-
-  if (block) {
-    bridge_->publish_command(target_angles, actual_finger);
-    double traj_dur = trajectory.size() * ControlConstants::kTrajectoryDt;
-    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
-    bool reached = bridge_->wait_for_motion(
-        target_angles, actual_finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        timeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
-    if (!reached) {
-      throw std::runtime_error("moveJ(pose): motion timed out, target not reached");
-    }
-  }
+  // 用关节空间 S 曲线 moveJ 执行
+  moveJ_internal(target_angles, actual_finger, block);
 }
 
 void RobotMotionController::moveL(
@@ -496,20 +471,17 @@ void RobotMotionController::moveL(
     return;
   }
 
-  double ratio = movel_speed_ / 100.0;
-  double cart_vel = profile_.cartesian_limits.max_vel * ratio;
-  double cart_acc = profile_.cartesian_limits.max_acc * ratio;
-  double cart_jerk = profile_.cartesian_limits.max_jerk * ratio;
+  // 用 S 曲线规划器规划笛卡尔距离曲线
+  double speed_factor = movel_speed_ / 100.0;
+  SCurveConfig cart_cfg{
+      profile_.cartesian_limits.max_vel * speed_factor,
+      profile_.cartesian_limits.max_acc * speed_factor,
+      profile_.cartesian_limits.max_jerk * speed_factor};
 
-  // S 曲线应用于归一化路径参数 alpha ∈ [0, 1]
-  SCurveConfig alpha_cfg;
-  alpha_cfg.max_vel = cart_vel / total_dist;
-  alpha_cfg.max_acc = cart_acc / total_dist;
-  alpha_cfg.max_jerk = cart_jerk / total_dist;
+  auto cart_traj = SCurvePlanner::plan(
+      0.0, total_dist, cart_cfg, ControlConstants::kTrajectoryDt);
 
-  auto alpha_traj = SCurvePlanner::plan(0.0, 1.0, alpha_cfg,
-                                        ControlConstants::kTrajectoryDt);
-
+  // 姿态插值
   Eigen::Vector3d start_rpy(current_pose[3], current_pose[4], current_pose[5]);
   Eigen::Quaterniond start_quat =
       (Eigen::AngleAxisd(start_rpy.x(), Eigen::Vector3d::UnitX()) *
@@ -534,12 +506,13 @@ void RobotMotionController::moveL(
 
   auto tcp_offset = tcp_transform_matrix();
 
-  // 阶段1：预计算所有 IK 解（避免发布时 IK 耗时导致抖动）
+  // 预计算所有 IK 解
   std::vector<std::vector<double>> joint_traj;
-  joint_traj.reserve(alpha_traj.size() - 1);
+  joint_traj.reserve(cart_traj.size());
 
-  for (size_t i = 1; i < alpha_traj.size(); ++i) {
-    double alpha = alpha_traj[i].pos;
+  for (const auto& pt : cart_traj) {
+    double alpha = (total_dist > 1e-12) ? pt.pos / total_dist : 1.0;
+    alpha = std::clamp(alpha, 0.0, 1.0);
 
     Eigen::Vector3d interp_pos = start_pos + alpha * (end_pos - start_pos);
     Eigen::Quaterniond interp_quat = start_quat.slerp(alpha, end_quat);
@@ -559,39 +532,33 @@ void RobotMotionController::moveL(
 
     auto ik_result = ik_->solve(h_xyz, h_rpy);
     if (!ik_result) {
-      throw std::runtime_error(
-          "moveL: IK failed at path interpolation point " +
-          std::to_string(i) + "/" + std::to_string(alpha_traj.size()) +
-          ", alpha=" + std::to_string(alpha));
+      throw std::runtime_error("moveL: IK failed at trajectory point");
     }
 
     joint_traj.push_back(*ik_result);
   }
 
-  // 阶段2：固定间隔发布（避免消息突发）
-  for (size_t i = 0; i < joint_traj.size(); ++i) {
+  // 基于绝对时间调度发送轨迹点
+  double dt = ControlConstants::kTrajectoryDt;
+  auto start = std::chrono::steady_clock::now();
+  for (size_t i = 1; i < joint_traj.size(); ++i) {
+    double t = static_cast<double>(i) * dt;
+    auto target_time = start + std::chrono::duration<double>(t);
+    std::this_thread::sleep_until(target_time);
     bridge_->publish_command(joint_traj[i], actual_finger);
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(ControlConstants::kTrajectoryDt));
   }
 
   if (block && !joint_traj.empty()) {
     const auto& final_angles = joint_traj.back();
-    // 重新发布最终目标确保被接收
     bridge_->publish_command(final_angles, actual_finger);
-    double traj_dur = joint_traj.size() * ControlConstants::kTrajectoryDt;
-    double timeout = traj_dur * 3.0 + ControlConstants::kMotionTimeout;
-    bool reached = bridge_->wait_for_motion(
+    bridge_->wait_for_motion(
         final_angles, actual_finger,
         ControlConstants::kJointTolerance,
         ControlConstants::kFingerTolerance,
-        timeout,
+        ControlConstants::kMotionTimeout,
         ControlConstants::kPollInterval,
         ControlConstants::kSettleTime,
         !grasping_);
-    if (!reached) {
-      throw std::runtime_error("moveL: motion timed out, target not reached");
-    }
   }
 }
 

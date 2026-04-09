@@ -34,7 +34,7 @@ void check(bool cond, const std::string& name) {
 }  // namespace
 
 int main() {
-  std::cout << "=== TrajectoryPlanner Tests ===" << std::endl;
+  std::cout << "=== SCurvePlanner Tests ===" << std::endl;
 
   robot_control::SCurveConfig cfg{1.0, 2.0, 10.0};  // v=1, a=2, j=10
   double dt = 0.01;

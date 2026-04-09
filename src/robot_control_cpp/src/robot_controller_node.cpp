@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <iostream>
 
 namespace robot_control {
 
@@ -78,6 +79,7 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::duration<double>(timeout);
 
+  int poll_count = 0;
   while (std::chrono::steady_clock::now() < deadline) {
     std::vector<double> current;
     double current_finger;
@@ -88,16 +90,30 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
     }
 
     bool arm_ok = true;
+    double max_error = 0.0;
+    int max_error_idx = -1;
     for (size_t i = 0; i < target_arm.size() && i < current.size(); ++i) {
-      if (std::abs(target_arm[i] - current[i]) > joint_tol) {
+      double error = std::abs(target_arm[i] - current[i]);
+      if (error > max_error) {
+        max_error = error;
+        max_error_idx = static_cast<int>(i);
+      }
+      if (error > joint_tol) {
         arm_ok = false;
-        break;
       }
     }
     bool finger_ok =
         !check_finger || std::abs(finger - current_finger) < finger_tol;
 
+    poll_count++;
+    if (poll_count % 50 == 0) {  // 每秒输出一次（50 * 0.02 = 1秒）
+      std::cout << "  wait_for_motion poll " << poll_count
+                << ": max_error=" << max_error << " @ joint " << max_error_idx
+                << ", arm_ok=" << arm_ok << ", finger_ok=" << finger_ok << std::endl;
+    }
+
     if (arm_ok && finger_ok) {
+      std::cout << "  wait_for_motion: settling for " << settle_time << "s..." << std::endl;
       std::this_thread::sleep_for(
           std::chrono::duration<double>(settle_time));
       // settle 后重新检查，防止振荡导致误判到位
@@ -107,15 +123,23 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
         current_finger = current_finger_;
       }
       arm_ok = true;
+      max_error = 0.0;
       for (size_t i = 0; i < target_arm.size() && i < current.size(); ++i) {
-        if (std::abs(target_arm[i] - current[i]) > joint_tol) {
+        double error = std::abs(target_arm[i] - current[i]);
+        if (error > max_error) {
+          max_error = error;
+          max_error_idx = static_cast<int>(i);
+        }
+        if (error > joint_tol) {
           arm_ok = false;
-          break;
         }
       }
       finger_ok =
           !check_finger || std::abs(finger - current_finger) < finger_tol;
+      std::cout << "  wait_for_motion after settle: max_error=" << max_error
+                << ", arm_ok=" << arm_ok << std::endl;
       if (arm_ok && finger_ok) {
+        std::cout << "  wait_for_motion: SUCCESS" << std::endl;
         return true;
       }
     }
@@ -124,6 +148,7 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
         std::chrono::duration<double>(poll_interval));
   }
 
+  std::cout << "  wait_for_motion: TIMEOUT after " << poll_count << " polls" << std::endl;
   return false;
 }
 

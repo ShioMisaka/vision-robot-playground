@@ -3,6 +3,7 @@
 
 #include <kdl/chain.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
+#include <kdl/chainjnttojacsolver.hpp>
 #include <kdl/chainiksolverpos_nr_jl.hpp>
 #include <kdl/chainiksolvervel_pinv.hpp>
 #include <kdl/frames.hpp>
@@ -10,11 +11,93 @@
 #include <kdl_parser/kdl_parser.hpp>
 #include <urdf/model.h>
 
+#include <Eigen/SVD>
+
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace robot_control {
+
+/// 阻尼最小二乘法（DLS）IK 速度求解器
+/// 在奇异位形附近自动增加阻尼，避免关节速度爆炸
+class DampedIkSolverVel {
+public:
+  DampedIkSolverVel(const KDL::Chain& chain,
+                    double lambda_min = 0.01, double lambda_max = 0.5)
+      : jac_solver_(chain),
+        lambda_min_(lambda_min),
+        lambda_max_(lambda_max) {}
+
+  /// @brief 计算关节速度 dq = J^T (J J^T + λ²I)^{-1} Δx
+  /// @param q 当前关节角度
+  /// @param delta_twist 期望的笛卡尔速度（位姿误差）
+  /// @param qdot 输出关节速度
+  /// @return 操作度指标（0 = 奇异，1 = 远离奇异）
+  double CartToJnt(const KDL::JntArray& q,
+                   const KDL::Twist& delta_twist,
+                   KDL::JntArray& qdot) {
+    KDL::Jacobian J(q.rows());
+    jac_solver_.JntToJac(q, J);
+
+    int nj = q.rows();
+    int nc = 6;  // 6D twist
+
+    // 构建 Eigen 矩阵
+    Eigen::MatrixXd Je = Eigen::MatrixXd::Zero(nc, nj);
+    for (int i = 0; i < nc; ++i) {
+      for (int j = 0; j < nj; ++j) {
+        Je(i, j) = J(i, j);
+      }
+    }
+
+    Eigen::VectorXd dx(nc);
+    dx(0) = delta_twist.vel.x();
+    dx(1) = delta_twist.vel.y();
+    dx(2) = delta_twist.vel.z();
+    dx(3) = delta_twist.rot.x();
+    dx(4) = delta_twist.rot.y();
+    dx(5) = delta_twist.rot.z();
+
+    // SVD 分解求操作度
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(Je,
+        Eigen::ComputeThinU | Eigen::ComputeThinV);
+    Eigen::VectorXd singular_values = svd.singularValues();
+
+    // 操作度 w = σ_min / σ_max
+    double sigma_max = singular_values(0);
+    double sigma_min = singular_values(nj < 6 ? nj - 1 : 5);
+    double manipulability = (sigma_max > 1e-10)
+        ? sigma_min / sigma_max : 0.0;
+
+    // 自适应阻尼：操作度越低，阻尼越大
+    // 在奇异附近 (manipulability < threshold) 线性增加 λ
+    double threshold = 0.1;
+    double lambda;
+    if (manipulability >= threshold) {
+      lambda = lambda_min_;
+    } else {
+      lambda = lambda_min_ +
+          (lambda_max_ - lambda_min_) * (1.0 - manipulability / threshold);
+    }
+
+    // DLS: dq = J^T (J J^T + λ²I)^{-1} dx
+    Eigen::MatrixXd JJT = Je * Je.transpose();
+    JJT.diagonal().array() += lambda * lambda;
+    Eigen::VectorXd dq = Je.transpose() * JJT.ldlt().solve(dx);
+
+    for (int j = 0; j < nj; ++j) {
+      qdot(j) = dq(j);
+    }
+
+    return manipulability;
+  }
+
+private:
+  KDL::ChainJntToJacSolver jac_solver_;
+  double lambda_min_;
+  double lambda_max_;
+};
 
 struct IKSolver::Impl {
   RobotProfile profile;
@@ -55,8 +138,9 @@ IKSolver::IKSolver(const RobotProfile& profile) : impl_(std::make_unique<Impl>()
   impl_->fk_solver =
       std::make_unique<KDL::ChainFkSolverPos_recursive>(*impl_->chain);
 
+  // 使用较大的 eps 截断小奇异值，提高奇异位形附近的稳定性
   impl_->ik_vel_solver =
-      std::make_unique<KDL::ChainIkSolverVel_pinv>(*impl_->chain);
+      std::make_unique<KDL::ChainIkSolverVel_pinv>(*impl_->chain, 1e-3);
 
   impl_->q_min = KDL::JntArray(profile.dof);
   impl_->q_max = KDL::JntArray(profile.dof);

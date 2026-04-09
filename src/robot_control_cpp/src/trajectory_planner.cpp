@@ -31,10 +31,9 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     double q0, double q1, const SCurveConfig& cfg, double dt) {
   double h = q1 - q0;
   if (std::abs(h) < 1e-12) {
-    return {{0.0, q0, 0.0, 0.0}};
+    return {{0.0, q1, 0.0, 0.0}};
   }
 
-  // 所有内部计算使用正位移，sign 仅在输出时乘
   int sign = (h > 0) ? 1 : -1;
   double abs_h = std::abs(h);
 
@@ -44,27 +43,21 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
 
   // ============ 计算各段时间 ============
 
-  // 达到 v_max 所需的最小距离（完整加减速对称距离）
   double d_full = 2.0 * (v_max * a_max / j_max + v_max * v_max / (2.0 * a_max));
 
   double t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0;
 
-  // 公共初始化：jerk 相时长和 jerk 相末速度
   t1 = a_max / j_max;
   t3 = t1;
   t5 = t1;
   t7 = t1;
   double v1 = 0.5 * j_max * t1 * t1;
 
-  // v_max 必须足以支撑恒定加速阶段（v_max >= 2*v1），
-  // 否则 t2 为负导致轨迹计算产生错误结果
   if (abs_h >= d_full && v_max >= 2.0 * v1) {
     // ---- 情况 1：完整七段 ----
-    // v_max = 2*v1 + a_max * t2
     t2 = (v_max - 2.0 * v1) / a_max;
     t6 = t2;
 
-    // 解析计算加速阶段（1-3）的距离
     double p1 = (1.0 / 6.0) * j_max * t1 * t1 * t1;
     double v_after_1 = v1;
     double p2 = p1 + v_after_1 * t2 + 0.5 * a_max * t2 * t2;
@@ -77,23 +70,17 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     if (t4 < 0) t4 = 0;
 
   } else {
-    // ---- 情况 2 & 3：最大速度不可达或 v_max 不足以支撑恒定加速阶段 ----
+    // ---- 情况 2 & 3 ----
     t4 = 0;
 
-    // 解二次方程求 v_peak
-    // v_peak^2 + 2*v_peak*a_max^2/j_max - h*a_max = 0
     double b_coeff = 2.0 * a_max * a_max / j_max;
     double v_peak = (-b_coeff + std::sqrt(b_coeff * b_coeff + 4.0 * abs_h * a_max)) / 2.0;
 
-    // 检查 t2 是否非负（即 a_max 确实达到）
     if (v_peak >= 2.0 * v1 - 1e-12) {
-      // 情况 2：a_max 达到，但 v_max 未达到
       t2 = (v_peak - 2.0 * v1) / a_max;
       if (t2 < 0) t2 = 0;
       t6 = t2;
     } else {
-      // 情况 3：连 a_max 也未达到，仅有 jerk 阶段
-      // 总距离：h = 2 * j_max * t1^3
       t2 = 0;
       t6 = 0;
       t1 = std::cbrt(abs_h / (2.0 * j_max));
@@ -110,10 +97,8 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
   std::vector<TrajectoryPoint> points;
   points.reserve(static_cast<size_t>(T / dt) + 2);
 
-  // 记录起点
   points.push_back({0.0, q0, 0.0, 0.0});
 
-  // 阶段边界：累积时间
   double t_bounds[8];
   t_bounds[0] = 0;
   t_bounds[1] = t1;
@@ -124,22 +109,14 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
   t_bounds[6] = t1 + t2 + t3 + t4 + t5 + t6;
   t_bounds[7] = T;
 
-  // 正位移 S 曲线各阶段的 jerk
   double jerks[7] = {
-    j_max,    // 阶段 1: +jerk
-    0.0,      // 阶段 2: 恒定加速
-    -j_max,   // 阶段 3: -jerk
-    0.0,      // 阶段 4: 匀速巡航
-    -j_max,   // 阶段 5: -jerk（减速）
-    0.0,      // 阶段 6: 恒定减速
-    j_max     // 阶段 7: +jerk（减速到零）
+    j_max, 0.0, -j_max, 0.0, -j_max, 0.0, j_max
   };
 
   int num_steps = static_cast<int>(std::ceil(T / dt));
   for (int step = 1; step <= num_steps; ++step) {
     double t = std::min(static_cast<double>(step) * dt, T);
 
-    // 查找当前阶段
     int phase = 0;
     for (int p = 0; p < 7; ++p) {
       if (t >= t_bounds[p] - 1e-12) {
@@ -147,7 +124,6 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
       }
     }
 
-    // 从 t=0 正向遍历已完成阶段，获取当前阶段的初始条件
     double p0 = 0.0, v0 = 0.0, a0 = 0.0;
     double t_acc = 0.0;
     for (int p = 0; p < phase; ++p) {
@@ -164,7 +140,6 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     double tau = t - t_acc;
     double j = jerks[phase];
 
-    // 内部解析求值后乘以 sign 得到实际输出
     double pos = static_cast<double>(sign) * eval_pos(p0, v0, a0, j, tau) + q0;
     double vel = static_cast<double>(sign) * eval_vel(v0, a0, j, tau);
     double acc = static_cast<double>(sign) * eval_acc(a0, j, tau);
@@ -172,7 +147,6 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     points.push_back({t, pos, vel, acc});
   }
 
-  // 强制终止点精确到达目标
   if (!points.empty()) {
     points.back().pos = q1;
     points.back().vel = 0.0;
@@ -193,7 +167,6 @@ std::vector<std::vector<double>> TrajectoryPlanner::plan_joint(
     throw std::invalid_argument("plan_joint: dimension mismatch");
   }
 
-  // 步骤 1: 各轴独立规划，找到最长运动时间 T_max
   std::vector<std::vector<TrajectoryPoint>> axis_trajectories(n);
   double T_max = 0.0;
 
@@ -204,28 +177,23 @@ std::vector<std::vector<double>> TrajectoryPlanner::plan_joint(
     }
   }
 
-  // 步骤 2：短轨迹轴在重采样时自动保持目标位置（t > T_i 时
-  // idx+1 >= traj.size()，直接取 traj.back().pos），无需额外时间缩放。
-  // 注意：不能通过降低 max_vel 拉伸短轨迹，因为 max_vel → 0 时
-  // S 曲线规划器的七段公式会产生负的 t2，导致轨迹计算错误。
-
-  // 步骤 3: 重采样所有轴到 T_max 对齐的均匀 dt 网格
-  int num_steps = static_cast<int>(std::round(T_max / dt));
+  int num_steps = static_cast<int>(std::ceil(T_max / dt));
   std::vector<std::vector<double>> result;
   result.reserve(static_cast<size_t>(num_steps) + 1);
 
   for (int step = 0; step <= num_steps; ++step) {
-    double t = std::min(static_cast<double>(step) * dt, T_max);
+    double t = (step == num_steps) ? T_max
+             : std::min(static_cast<double>(step) * dt, T_max);
     std::vector<double> positions(n);
     for (size_t i = 0; i < n; ++i) {
       auto& traj = axis_trajectories[i];
-      size_t idx = 0;
-      while (idx + 1 < traj.size() && traj[idx + 1].t < t - 1e-12) {
-        ++idx;
-      }
-      if (idx + 1 >= traj.size()) {
+      if (t >= traj.back().t - 1e-12) {
         positions[i] = traj.back().pos;
       } else {
+        size_t idx = 0;
+        while (idx + 1 < traj.size() && traj[idx + 1].t < t - 1e-12) {
+          ++idx;
+        }
         double t0 = traj[idx].t;
         double t1_time = traj[idx + 1].t;
         double alpha = (t1_time - t0) > 1e-12

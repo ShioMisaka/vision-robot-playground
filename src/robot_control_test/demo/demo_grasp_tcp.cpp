@@ -109,9 +109,14 @@ int main(int argc, char* argv[]) {
       kTargetX, kTargetY, kTargetZ + kLiftHeight};
   ctrl->moveL(lift_pos, kGripperDownRpy, gripper.min_width, true);
 
+  RCLCPP_INFO(robot_node->get_logger(), "--- 改变姿态 ---");
+  auto angles = ctrl->get_joint_angles();
+  angles[1] -= 0.3;
+  ctrl->moveJ(angles, true);
+
   // moveJ：关节旋转展示
   RCLCPP_INFO(robot_node->get_logger(), "--- moveJ 转90° ---");
-  auto angles = ctrl->get_joint_angles();
+  angles = ctrl->get_joint_angles();
   angles[0] += 1.5708;
   ctrl->moveJ(angles, true);
 

@@ -5,6 +5,8 @@
 ## 功能
 
 - **机械臂控制**: 关节角度指令、IK 位姿控制、相对平移/旋转、TCP 工具坐标系
+- **S 曲线轨迹规划**: 七段式 Jerk 连续轨迹，moveJ 关节空间平滑运动，moveL 笛卡尔直线平滑运动
+- **奇异位形保护**: IK 求解器内置阻尼最小二乘法（DLS），自动检测并抑制奇异位形附近的关节速度爆炸
 - **视觉处理**: 双目深度相机左目+深度同步订阅，HSV 颜色目标检测
 - **视觉伺服抓取**: 图像反馈闭环 — 检测 → 居中 → 下探 → 夹取 → 提起
 - **TF2 集成**: 自动发布末端执行器 TF 变换链，支持坐标系变换查询
@@ -49,7 +51,8 @@ isaac_ros_project/
 │   │   │   ├── robot_profile.hpp           # RobotProfile / GripperProfile / TcpConfig
 │   │   │   ├── i_robot_controller.hpp      # IRobotController 抽象接口
 │   │   │   ├── i_vision_processor.hpp      # IVisionProcessor 抽象接口
-│   │   │   ├── ik_solver.hpp               # IK/FK 求解器（KDL）
+│   │   │   ├── ik_solver.hpp               # IK/FK 求解器（KDL + DLS）
+│   │   │   ├── trajectory_planner.hpp      # S 曲线轨迹规划器
 │   │   │   ├── color_detector.hpp          # CameraInterface + ColorDetector
 │   │   │   ├── robot_motion_controller.hpp # RobotMotionController + MotionIOBridge
 │   │   │   ├── grasp_task_manager.hpp      # GraspTaskManager 状态机
@@ -66,6 +69,7 @@ isaac_ros_project/
 │   ├── robot_control_test/         # C++ 测试与演示包
 │   │   ├── test/
 │   │   │   ├── test_ik_solver.cpp          # 独立 IK 测试（离线）
+│   │   │   ├── test_trajectory_planner.cpp # S 曲线规划器测试（离线）
 │   │   │   └── test_robot_node.cpp         # 集成测试（需 Isaac Sim）
 │   │   └── demo/
 │   │       └── demo_grasp_tcp.cpp          # TCP 抓取演示
@@ -105,8 +109,9 @@ isaac_ros_project/
 ├─────────────┼────────────────────────┼───────────────────┤
 │  Layer 1: Pure C++ Core(无 ROS 依赖) │                   │
 │  ┌──────────▼────────────────────────▼───────────────┐   │
-│  │ IKSolver (KDL)  │ RobotMotionController           │   │
-│  │ ColorDetector   │ GraspTaskManager                │   │
+│  │ IKSolver (KDL + DLS) │ RobotMotionController       │   │
+│  │ SCurvePlanner        │ GraspTaskManager            │   │
+│  │ ColorDetector        │                             │   │
 │  └───────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────┘
 ```
