@@ -2,14 +2,9 @@
 
 #include <vector>
 
-namespace robot_control {
+#include "robot_control_cpp/robot_profile.hpp"
 
-/// 单轴七段式 S 曲线规划参数
-struct SCurveConfig {
-  double max_vel;   ///< 最大速度
-  double max_acc;   ///< 最大加速度
-  double max_jerk;  ///< 最大加加速度
-};
+namespace robot_control {
 
 /// 轨迹采样点
 struct TrajectoryPoint {
@@ -25,11 +20,11 @@ public:
   /// @brief 规划从 q0 到 q1 的单轴轨迹
   /// @param q0 起始位置
   /// @param q1 目标位置
-  /// @param cfg 运动极限参数
+  /// @param limits 运动极限参数（max_vel, max_acc, max_jerk）
   /// @param dt 采样时间步长
   /// @return 采样点序列（包含起始点和终止点）
   static std::vector<TrajectoryPoint> plan(
-      double q0, double q1, const SCurveConfig& cfg, double dt);
+      double q0, double q1, const MotionLimits& limits, double dt);
 };
 
 /// 多轴同步轨迹规划器
@@ -38,13 +33,13 @@ public:
   /// @brief 规划多轴同步 S 曲线轨迹
   /// @param q_start 起始关节角度
   /// @param q_end 目标关节角度
-  /// @param configs 每个轴的运动极限
+  /// @param limits 每个轴的运动极限
   /// @param dt 采样时间步长
   /// @return 按时间步采样的关节位置序列（每步包含所有轴）
   static std::vector<std::vector<double>> plan_joint(
       const std::vector<double>& q_start,
       const std::vector<double>& q_end,
-      const std::vector<SCurveConfig>& configs,
+      const std::vector<MotionLimits>& limits,
       double dt);
 };
 

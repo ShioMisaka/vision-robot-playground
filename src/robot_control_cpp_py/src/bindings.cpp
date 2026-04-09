@@ -382,5 +382,4 @@ PYBIND11_MODULE(_core, m) {
   auto profiles = m.def_submodule("profiles");
   profiles.def("panda", &profiles::panda);
   profiles.def("panda_gripper", &profiles::panda_gripper);
-  profiles.def("panda_red_detector", &profiles::panda_red_detector);
 }

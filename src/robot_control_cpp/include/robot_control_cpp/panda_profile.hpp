@@ -4,7 +4,6 @@
 #include <string>
 #include <vector>
 #include "robot_control_cpp/robot_profile.hpp"
-#include "robot_control_cpp/color_detector.hpp"
 
 namespace robot_control::profiles {
 
@@ -57,11 +56,6 @@ inline RobotProfile panda() {
 /// @brief 创建 Panda 二指夹爪参数
 inline GripperProfile panda_gripper() {
   return {"parallel", 0.0, 0.04, 1};
-}
-
-/// @brief 创建 Panda 红色检测器
-inline ColorDetector panda_red_detector() {
-  return ColorDetector({0, 100, 100}, {10, 255, 255});
 }
 
 }  // namespace robot_control::profiles

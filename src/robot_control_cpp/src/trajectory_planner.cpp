@@ -28,7 +28,7 @@ double eval_acc(double a0, double j, double tau) {
 }  // namespace
 
 std::vector<TrajectoryPoint> SCurvePlanner::plan(
-    double q0, double q1, const SCurveConfig& cfg, double dt) {
+    double q0, double q1, const MotionLimits& limits, double dt) {
   double h = q1 - q0;
   if (std::abs(h) < 1e-12) {
     return {{0.0, q1, 0.0, 0.0}};
@@ -37,13 +37,13 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
   int sign = (h > 0) ? 1 : -1;
   double abs_h = std::abs(h);
 
-  double v_max = cfg.max_vel;
-  double a_max = cfg.max_acc;
-  double j_max = cfg.max_jerk;
+  double v_max = limits.max_vel;
+  double a_max = limits.max_acc;
+  double j_max = limits.max_jerk;
 
   // ============ 计算各段时间 ============
 
-  double d_full = 2.0 * (v_max * a_max / j_max + v_max * v_max / (2.0 * a_max));
+  double d_full = v_max * v_max / a_max + v_max * a_max / j_max;
 
   double t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0;
 
@@ -73,7 +73,7 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
     // ---- 情况 2 & 3 ----
     t4 = 0;
 
-    double b_coeff = 2.0 * a_max * a_max / j_max;
+    double b_coeff = a_max * a_max / j_max;
     double v_peak = (-b_coeff + std::sqrt(b_coeff * b_coeff + 4.0 * abs_h * a_max)) / 2.0;
 
     if (v_peak >= 2.0 * v1 - 1e-12) {
@@ -160,10 +160,10 @@ std::vector<TrajectoryPoint> SCurvePlanner::plan(
 std::vector<std::vector<double>> TrajectoryPlanner::plan_joint(
     const std::vector<double>& q_start,
     const std::vector<double>& q_end,
-    const std::vector<SCurveConfig>& configs,
+    const std::vector<MotionLimits>& limits,
     double dt) {
   size_t n = q_start.size();
-  if (n != q_end.size() || n != configs.size()) {
+  if (n != q_end.size() || n != limits.size()) {
     throw std::invalid_argument("plan_joint: dimension mismatch");
   }
 
@@ -171,7 +171,7 @@ std::vector<std::vector<double>> TrajectoryPlanner::plan_joint(
   double T_max = 0.0;
 
   for (size_t i = 0; i < n; ++i) {
-    axis_trajectories[i] = SCurvePlanner::plan(q_start[i], q_end[i], configs[i], dt);
+    axis_trajectories[i] = SCurvePlanner::plan(q_start[i], q_end[i], limits[i], dt);
     if (!axis_trajectories[i].empty()) {
       T_max = std::max(T_max, axis_trajectories[i].back().t);
     }

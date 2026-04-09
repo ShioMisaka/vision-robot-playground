@@ -36,7 +36,7 @@ void check(bool cond, const std::string& name) {
 int main() {
   std::cout << "=== SCurvePlanner Tests ===" << std::endl;
 
-  robot_control::SCurveConfig cfg{1.0, 2.0, 10.0};  // v=1, a=2, j=10
+  robot_control::MotionLimits cfg{1.0, 2.0, 10.0};  // v=1, a=2, j=10
   double dt = 0.01;
 
   // ---- 1. Zero displacement ----
@@ -137,7 +137,7 @@ int main() {
   {
     std::vector<double> q_start = {0.0, 0.0, 0.0};
     std::vector<double> q_end = {1.0, 0.5, 2.0};
-    std::vector<robot_control::SCurveConfig> configs = {
+    std::vector<robot_control::MotionLimits> configs = {
       {1.0, 2.0, 10.0},
       {1.0, 2.0, 10.0},
       {1.0, 2.0, 10.0}
@@ -166,7 +166,7 @@ int main() {
   {
     std::vector<double> q_start = {0.0, 0.0};
     std::vector<double> q_end = {1.0, 1.0};
-    std::vector<robot_control::SCurveConfig> configs = {
+    std::vector<robot_control::MotionLimits> configs = {
       {2.0, 4.0, 20.0},  // Fast axis
       {0.5, 1.0, 5.0}    // Slow axis
     };

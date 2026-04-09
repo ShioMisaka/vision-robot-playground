@@ -570,7 +570,7 @@ logger: rc.Logger = vision.get_logger()
 ```python
 profile = rc.profiles.panda()              # → RobotProfile
 gripper = rc.profiles.panda_gripper()       # → GripperProfile
-detector = rc.profiles.panda_red_detector() # → ColorDetector (红色 HSV 检测)
+detector = rc.ColorDetector([0, 100, 100], [10, 255, 255])  # → ColorDetector (红色 HSV 检测)
 ```
 
 **Panda 默认配置：**

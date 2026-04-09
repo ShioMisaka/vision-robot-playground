@@ -12,7 +12,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <cv_bridge/cv_bridge.hpp>
 
-#include "robot_control_cpp/color_detector.hpp"
+#include "robot_control_cpp/camera_interface.hpp"
 #include "robot_control_cpp/i_vision_processor.hpp"
 #include "robot_control_cpp/config.hpp"
 

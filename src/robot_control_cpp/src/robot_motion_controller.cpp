@@ -350,7 +350,7 @@ void RobotMotionController::moveJ_internal(
 
   // 使用 S 曲线轨迹规划器，按速度百分比缩放运动极限
   double speed_factor = movej_speed_ / 100.0;
-  std::vector<SCurveConfig> configs;
+  std::vector<MotionLimits> configs;
   configs.reserve(profile_.dof);
   for (int i = 0; i < profile_.dof; ++i) {
     configs.push_back({
@@ -473,7 +473,7 @@ void RobotMotionController::moveL(
 
   // 用 S 曲线规划器规划笛卡尔距离曲线
   double speed_factor = movel_speed_ / 100.0;
-  SCurveConfig cart_cfg{
+  MotionLimits cart_cfg{
       profile_.cartesian_limits.max_vel * speed_factor,
       profile_.cartesian_limits.max_acc * speed_factor,
       profile_.cartesian_limits.max_jerk * speed_factor};

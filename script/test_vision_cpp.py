@@ -22,6 +22,7 @@ from robot_control_cpp_py import (
     VisionProcessorNode,
     MultiThreadedExecutor,
     TopicConfig,
+    ColorDetector,
     profiles,
 )
 
@@ -45,7 +46,7 @@ def main() -> None:
 
     profile = profiles.panda()
     gripper = profiles.panda_gripper()
-    detector = profiles.panda_red_detector()
+    detector = ColorDetector([0, 100, 100], [10, 255, 255])
     topics = TopicConfig()
 
     robot = RobotControllerNode.create(profile, gripper, topics)
