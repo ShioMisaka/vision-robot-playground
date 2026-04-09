@@ -10,6 +10,7 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -65,6 +66,7 @@ private:
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr cmd_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  std::unique_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
@@ -74,6 +76,9 @@ private:
 
   std::string current_tcp_name_;
   TcpConfig current_tcp_config_;
+
+  /// 发布 hand → camera_link → camera_color_optical_frame 静态 TF
+  void publish_camera_tf();
 };
 
 /// ROS 2 机器人控制节点

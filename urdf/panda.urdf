@@ -5,11 +5,6 @@
 <!-- =================================================================================== -->
 <robot name="panda" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <link name="panda_link0">
-  	<inertial>
-      <origin rpy="0 0 0" xyz="0 0 0.05"/>
-       <mass value="2.9"/>
-       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
-    </inertial>
     <visual>
       <geometry>
         <mesh filename="package://meshes/collision/link0.obj"/>
@@ -334,5 +329,19 @@
     <child link="panda_grasptarget"/>
     <origin rpy="0 0 0" xyz="0 0 0.105"/>
   </joint>
-  
+
+  <!-- ZED_X_Mini 相机（eye-in-hand, 朝下） -->
+  <link name="camera_link"/>
+  <joint name="panda_hand_camera_joint" type="fixed">
+    <parent link="panda_hand"/>
+    <child link="camera_link"/>
+    <origin rpy="0 1.57079632679 3.14159265359" xyz="0.015 0 0.03"/>
+  </joint>
+  <link name="camera_color_optical_frame"/>
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_color_optical_frame"/>
+    <origin rpy="-1.57079632679 0 -1.57079632679" xyz="0 0 0"/>
+  </joint>
+
 </robot>

@@ -1,8 +1,17 @@
 #pragma once
 
+#include <array>
 #include <string>
 
 namespace robot_control {
+
+/// 相机外参（相对于 hand_frame 的固定偏移）
+struct CameraExtrinsics {
+  /// camera_link 相对于 hand 的位置偏移（米）
+  std::array<double, 3> xyz = {0.015, 0.0, 0.03};
+  /// camera_link 相对于 hand 的旋转（ZYX 惯性欧拉角，弧度）
+  std::array<double, 3> rpy = {0.0, 1.57079632679, 3.14159265359};
+};
 
 /// ROS 2 话题配置，支持按机器人实例自定义
 struct TopicConfig {
@@ -11,6 +20,7 @@ struct TopicConfig {
   std::string camera_left = "/camera/image_raw/left";
   std::string camera_depth = "/camera/image_raw/depth";
   std::string camera_frame = "camera_color_optical_frame";
+  CameraExtrinsics camera_extrinsics;
 };
 
 /// 通用控制常量

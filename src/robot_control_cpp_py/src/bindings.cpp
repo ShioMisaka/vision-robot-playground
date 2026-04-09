@@ -22,6 +22,7 @@
 #include <Eigen/Core>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <string>
 
 namespace py = pybind11;
@@ -113,6 +114,12 @@ PYBIND11_MODULE(_core, m) {
       .def_readwrite("offset_xyz", &TcpConfig::offset_xyz)
       .def_readwrite("offset_rpy", &TcpConfig::offset_rpy);
 
+  // CameraExtrinsics
+  py::class_<CameraExtrinsics>(m, "CameraExtrinsics")
+      .def(py::init<>())
+      .def_readwrite("xyz", &CameraExtrinsics::xyz)
+      .def_readwrite("rpy", &CameraExtrinsics::rpy);
+
   // TopicConfig
   py::class_<TopicConfig>(m, "TopicConfig")
       .def(py::init<>())
@@ -120,7 +127,8 @@ PYBIND11_MODULE(_core, m) {
       .def_readwrite("joint_state", &TopicConfig::joint_state)
       .def_readwrite("camera_left", &TopicConfig::camera_left)
       .def_readwrite("camera_depth", &TopicConfig::camera_depth)
-      .def_readwrite("camera_frame", &TopicConfig::camera_frame);
+      .def_readwrite("camera_frame", &TopicConfig::camera_frame)
+      .def_readwrite("camera_extrinsics", &TopicConfig::camera_extrinsics);
 
   // RobotProfile
   py::class_<RobotProfile>(m, "RobotProfile")
@@ -329,7 +337,14 @@ PYBIND11_MODULE(_core, m) {
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())
-      .def("get_state", &GraspTaskManager::get_state);
+      .def("get_state", &GraspTaskManager::get_state)
+      .def("transform_to_base",
+           [](GraspTaskManager& self,
+              const std::vector<double>& xyz) -> std::optional<std::array<double, 3>> {
+             return self.transform_to_base(Eigen::Vector3d(xyz[0], xyz[1], xyz[2]));
+           },
+           py::arg("camera_xyz"),
+           py::call_guard<py::gil_scoped_release>());
 
   // ===== Layer 2 ROS2 节点 =====
 

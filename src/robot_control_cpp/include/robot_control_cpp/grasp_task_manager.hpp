@@ -48,16 +48,18 @@ public:
   /// @brief 获取当前状态
   GraspState get_state() const { return state_; }
 
+  /// @brief 将相机坐标系 3D 点转换到基座坐标系
+  /// @param camera_xyz 相机光学坐标系下的 3D 点
+  /// @return 基座坐标系下的 3D 点，失败返回 nullopt
+  std::optional<std::array<double, 3>> transform_to_base(
+      const Eigen::Vector3d& camera_xyz);
+
 private:
   bool step_detect();
   void step_approach();
   void step_descend();
   void step_grasp();
   void step_lift();
-
-  /// 将相机坐标系 3D 点转换到基座坐标系
-  std::optional<std::array<double, 3>> transform_to_base(
-      const Eigen::Vector3d& camera_xyz);
 
   std::shared_ptr<IRobotController> robot_;
   std::shared_ptr<IVisionProcessor> vision_;

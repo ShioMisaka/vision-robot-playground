@@ -34,12 +34,17 @@ RosMotionBridge::RosMotionBridge(rclcpp::Node::SharedPtr node,
 
   tf_broadcaster_ =
       std::make_unique<tf2_ros::TransformBroadcaster>(*node_);
+  static_tf_broadcaster_ =
+      std::make_unique<tf2_ros::StaticTransformBroadcaster>(*node_);
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ =
       std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   // 初始化当前关节状态
   current_arm_.resize(profile_.dof, 0.0);
+
+  // 发布相机静态 TF（hand → camera_link → camera_color_optical_frame）
+  publish_camera_tf();
 }
 
 void RosMotionBridge::publish_command(const std::vector<double>& arm,
@@ -293,6 +298,42 @@ void RosMotionBridge::publish_ee_tf(
   } catch (...) {
     // FK 失败不影响主流程
   }
+}
+
+void RosMotionBridge::publish_camera_tf() {
+  const auto& ext = topics_.camera_extrinsics;
+
+  // hand → camera_link
+  geometry_msgs::msg::TransformStamped t_cam;
+  t_cam.header.stamp = rclcpp::Time(0);
+  t_cam.header.frame_id = profile_.hand_frame;
+  t_cam.child_frame_id = "camera_link";
+  t_cam.transform.translation.x = ext.xyz[0];
+  t_cam.transform.translation.y = ext.xyz[1];
+  t_cam.transform.translation.z = ext.xyz[2];
+
+  tf2::Quaternion q_cam;
+  q_cam.setRPY(ext.rpy[0], ext.rpy[1], ext.rpy[2]);
+  t_cam.transform.rotation.x = q_cam.x();
+  t_cam.transform.rotation.y = q_cam.y();
+  t_cam.transform.rotation.z = q_cam.z();
+  t_cam.transform.rotation.w = q_cam.w();
+
+  // camera_link → camera_color_optical_frame（标准光学坐标系旋转）
+  geometry_msgs::msg::TransformStamped t_opt;
+  t_opt.header.stamp = rclcpp::Time(0);
+  t_opt.header.frame_id = "camera_link";
+  t_opt.child_frame_id = topics_.camera_frame;
+
+  tf2::Quaternion q_opt;
+  q_opt.setRPY(-1.57079632679, 0.0, -1.57079632679);
+  t_opt.transform.rotation.x = q_opt.x();
+  t_opt.transform.rotation.y = q_opt.y();
+  t_opt.transform.rotation.z = q_opt.z();
+  t_opt.transform.rotation.w = q_opt.w();
+
+  static_tf_broadcaster_->sendTransform(t_cam);
+  static_tf_broadcaster_->sendTransform(t_opt);
 }
 
 // ===== RobotControllerNode =====

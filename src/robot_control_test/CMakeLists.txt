@@ -50,6 +50,15 @@ install(TARGETS test_robot_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+# 相机 TF 链验证测试（需要 Isaac Sim 运行中）
+add_executable(test_camera_tf
+  test/test_camera_tf.cpp
+)
+target_link_libraries(test_camera_tf robot_control_cpp::robot_control_nodes)
+install(TARGETS test_camera_tf
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # ===== 演示 =====
 add_executable(demo_grasp_tcp
   demo/demo_grasp_tcp.cpp
