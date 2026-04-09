@@ -28,8 +28,6 @@ LIFT_HEIGHT = 0.15       # 提起高度 15cm
 GRIPPER_DOWN_RPY = [0.0, math.radians(-180), math.radians(-180)]
 
 # ---- 运动参数 ----
-INTERP_STEPS = 15        # 插值步数（越大越平滑）
-STEP_TIME = 0.06         # 每步间隔（秒）
 
 
 def main() -> None:
@@ -59,15 +57,11 @@ def main() -> None:
     # 移动到目标上方
     robot.get_logger().info("--- 移动到目标上方 ---")
     approach = [TARGET_XYZ[0], TARGET_XYZ[1], TARGET_XYZ[2] + APPROACH_HEIGHT]
-    ctrl.move_to_pose(approach, rpy=GRIPPER_DOWN_RPY,
-                      finger=gripper.max_width,
-                      steps=INTERP_STEPS, step_time=STEP_TIME)
+    ctrl.moveJ(approach, rpy=GRIPPER_DOWN_RPY, finger=gripper.max_width)
 
     # 下降到目标位置
     robot.get_logger().info("--- 下降到目标 ---")
-    ctrl.move_to_pose(TARGET_XYZ, rpy=GRIPPER_DOWN_RPY,
-                      finger=gripper.max_width,
-                      steps=INTERP_STEPS, step_time=STEP_TIME)
+    ctrl.moveL(TARGET_XYZ, rpy=GRIPPER_DOWN_RPY, finger=gripper.max_width)
 
     # 闭合夹爪
     robot.get_logger().info("--- 闭合夹爪 ---")
@@ -76,9 +70,7 @@ def main() -> None:
     # 提起
     robot.get_logger().info("--- 提起 ---")
     lift = [TARGET_XYZ[0], TARGET_XYZ[1], TARGET_XYZ[2] + LIFT_HEIGHT]
-    ctrl.move_to_pose(lift, rpy=GRIPPER_DOWN_RPY,
-                      finger=gripper.min_width,
-                      steps=INTERP_STEPS, step_time=STEP_TIME)
+    ctrl.moveL(lift, rpy=GRIPPER_DOWN_RPY, finger=gripper.min_width)
 
     robot.get_logger().info("完成!")
 

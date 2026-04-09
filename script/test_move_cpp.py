@@ -23,8 +23,6 @@ LIFT_HEIGHT = 0.15       # 提起高度 15cm
 GRIPPER_DOWN_RPY = [0.0, math.radians(-180), math.radians(-180)]
 
 # ---- 运动参数 ----
-INTERP_STEPS = 15        # 插值步数（越大越平滑）
-STEP_TIME = 0.06         # 每步间隔（秒）
 
 
 def main() -> None:
@@ -49,7 +47,7 @@ def main() -> None:
     ctrl.open_gripper()
 
     # 位置 + 姿态（夹爪朝下，适合抓取）
-    ctrl.move_to_pose(
+    ctrl.moveJ(
         [0.526, 0.0, 0.18],
         rpy=[0.0, math.radians(-180), math.radians(-180)],
     )
@@ -59,11 +57,10 @@ def main() -> None:
     ctrl.close_gripper()
 
     robot.get_logger().info("--- 抬起 ---")
-    ctrl.move_linear([0, 0, 0.2], rpy=GRIPPER_DOWN_RPY, finger=gripper.max_width,
-                      steps=INTERP_STEPS, step_time=STEP_TIME)
+    ctrl.moveL([0.526, 0.0, 0.38], rpy=GRIPPER_DOWN_RPY, finger=gripper.max_width)
 
     robot.get_logger().info("--- 旋转 ---")
-    ctrl.rotate_joint(0, math.radians(90), 15, 0.6)
+    ctrl.rotate_joint(0, math.radians(90))
 
     # ctrl.rotate_joint(3, math.radians(90))
 
