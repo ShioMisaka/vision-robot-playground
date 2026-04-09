@@ -68,4 +68,13 @@ install(TARGETS demo_grasp_tcp
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+# 相机画面显示（RGB + 深度伪彩色）
+add_executable(demo_camera
+  demo/demo_camera.cpp
+)
+target_link_libraries(demo_camera robot_control_cpp::robot_control_nodes)
+install(TARGETS demo_camera
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()
