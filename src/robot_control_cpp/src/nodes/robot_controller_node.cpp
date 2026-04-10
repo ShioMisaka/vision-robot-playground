@@ -735,7 +735,7 @@ void RobotControllerNode::handle_movej_accepted(
     std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>> goal_handle) {
   state_machine_.transition_to(RobotState::kMoving);
 
-  std::thread([this, goal_handle]() {
+  movej_thread_ = std::thread([this, goal_handle]() {
     auto result = std::make_shared<arm_control_interfaces::action::MoveJ::Result>();
     auto feedback = std::make_shared<arm_control_interfaces::action::MoveJ::Feedback>();
 
@@ -867,7 +867,7 @@ void RobotControllerNode::handle_movej_accepted(
       state_machine_.transition_to(RobotState::kFault);
       state_machine_.set_error(2, result->message);
     }
-  }).detach();
+  });
 }
 
 // ===== MoveL Action =====
@@ -901,7 +901,7 @@ void RobotControllerNode::handle_movel_accepted(
     std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>> goal_handle) {
   state_machine_.transition_to(RobotState::kMoving);
 
-  std::thread([this, goal_handle]() {
+  movel_thread_ = std::thread([this, goal_handle]() {
     auto result = std::make_shared<arm_control_interfaces::action::MoveL::Result>();
     auto feedback = std::make_shared<arm_control_interfaces::action::MoveL::Feedback>();
 
@@ -1024,6 +1024,12 @@ void RobotControllerNode::handle_movel_accepted(
         goal_handle->succeed(result);
         state_machine_.transition_to(RobotState::kIdle);
       } else {
+        if (state_machine_.state() == RobotState::kFault) {
+          result->success = false;
+          result->message = "MoveL interrupted by EMERGENCY_STOP";
+          goal_handle->abort(result);
+          return;
+        }
         result->success = false;
         result->message = "MoveL cancelled";
         goal_handle->canceled(result);
@@ -1037,7 +1043,7 @@ void RobotControllerNode::handle_movel_accepted(
       state_machine_.transition_to(RobotState::kFault);
       state_machine_.set_error(3, result->message);
     }
-  }).detach();
+  });
 }
 
 // ===== Pendant Service Callbacks =====
