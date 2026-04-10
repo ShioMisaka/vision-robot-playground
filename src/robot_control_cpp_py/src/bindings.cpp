@@ -18,7 +18,7 @@
 #include "robot_control_cpp/nodes/grasp_task_manager.hpp"
 #include "robot_control_cpp/nodes/robot_controller_node.hpp"
 #include "robot_control_cpp/nodes/vision_processor_node.hpp"
-#include "robot_control_cpp/panda_profile.hpp"
+#include "robot_control_cpp/profiles/panda_profile.hpp"
 
 #include <Eigen/Core>
 #include <array>

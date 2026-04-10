@@ -760,7 +760,7 @@ pybind11 绑定中，所有阻塞方法自动释放 Python GIL：
 
 ### 添加新机器人
 
-1. 创建 Profile 文件 `include/robot_control_cpp/my_robot_profile.hpp`：
+1. 创建 Profile 文件 `include/robot_control_cpp/profiles/my_robot_profile.hpp`：
 
 ```cpp
 #pragma once

@@ -25,7 +25,7 @@
 
 #include "robot_control_cpp/motion/robot_motion_controller.hpp"
 #include "robot_control_cpp/kinematics/ik_solver.hpp"
-#include "robot_control_cpp/panda_profile.hpp"
+#include "robot_control_cpp/profiles/panda_profile.hpp"
 
 namespace {
 

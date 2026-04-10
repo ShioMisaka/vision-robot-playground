@@ -47,7 +47,8 @@ isaac_ros_project/
 ├── src/
 │   ├── robot_control_cpp/          # C++ 核心库包（纯库，4 个 CMake target）
 │   │   ├── include/robot_control_cpp/
-│   │   │   ├── panda_profile.hpp           # Panda 专用配置
+│   │   │   ├── profiles/                   # 机器人配置文件
+│   │   │   │   └── panda_profile.hpp       # Panda 专用配置
 │   │   │   ├── kinematics/                 # robot_kinematics target（零 ROS 依赖）
 │   │   │   │   ├── robot_profile.hpp       # RobotProfile / GripperProfile / TcpConfig
 │   │   │   │   ├── ik_solver.hpp            # IK/FK 求解器（KDL + DLS）

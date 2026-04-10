@@ -55,7 +55,8 @@ src/
   # === C++ 核心库包（纯库，无可执行文件）===
   robot_control_cpp/
     include/robot_control_cpp/
-      panda_profile.hpp                           # Panda 专用配置
+      profiles/
+        panda_profile.hpp                         # Panda 专用配置
       kinematics/
         robot_profile.hpp                         # RobotProfile / GripperProfile / TcpConfig / MotionLimits
         ik_solver.hpp                              # IK/FK 求解器（KDL + DLS）
@@ -199,6 +200,6 @@ rc.rclcpp_shutdown()
 - VisionProcessor/CameraInterface::process_image() 是桩代码，子类重写以接入 YOLO/GraspNet
 - 视觉伺服参数定义在 script 中，非节点级参数
 - TF2: RobotControllerNode 自动发布 base → hand → tcp 变换链
-- 新增机器人：在 `include/robot_control_cpp/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
+- 新增机器人：在 `include/robot_control_cpp/profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
 - pybind11 绑定中所有阻塞方法必须释放 GIL（`py::call_guard<py::gil_scoped_release>()`）
 - Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy

@@ -26,7 +26,7 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_control_cpp/panda_profile.hpp"
+#include "robot_control_cpp/profiles/panda_profile.hpp"
 #include "robot_control_cpp/motion/control_constants.hpp"
 #include "robot_control_cpp/nodes/topic_config.hpp"
 
