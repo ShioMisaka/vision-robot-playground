@@ -1,0 +1,4 @@
+float64 ratio
+---
+bool success
+string message
