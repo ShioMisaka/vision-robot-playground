@@ -1,9 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -23,9 +25,21 @@
 #include <robot_control_msgs/srv/set_speed.hpp>
 #include <robot_control_msgs/srv/get_robot_state.hpp>
 
+#include <rclcpp_action/rclcpp_action.hpp>
+
+#include <arm_control_interfaces/action/move_j.hpp>
+#include <arm_control_interfaces/action/move_l.hpp>
+#include <arm_control_interfaces/srv/set_tcp.hpp>
+#include <arm_control_interfaces/srv/set_speed_ratio.hpp>
+#include <arm_control_interfaces/srv/robot_cmd.hpp>
+#include <arm_control_interfaces/msg/robot_status.hpp>
+#include <arm_control_interfaces/msg/jog_command.hpp>
+
 #include "robot_control_cpp/motion/robot_motion_controller.hpp"
 #include "robot_control_cpp/kinematics/robot_profile.hpp"
 #include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_control_cpp/nodes/robot_state.hpp"
+#include "robot_control_cpp/nodes/trajectory_executor.hpp"
 
 namespace robot_control {
 
@@ -121,6 +135,11 @@ public:
   /// @brief 获取底层 IO bridge
   std::shared_ptr<RosMotionBridge> get_bridge() { return bridge_; }
 
+  /// @brief 获取状态机（只读）
+  const RobotStateMachine& state_machine() const { return state_machine_; }
+
+  ~RobotControllerNode();
+
 private:
   RobotControllerNode(const RobotProfile& profile,
                       const GripperProfile& gripper,
@@ -155,6 +174,50 @@ private:
       const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> req,
       std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res);
 
+  // === Action callbacks (MoveJ) ===
+  rclcpp_action::GoalResponse handle_movej_goal(
+      const rclcpp_action::GoalUUID& uuid,
+      std::shared_ptr<const arm_control_interfaces::action::MoveJ::Goal> goal);
+  rclcpp_action::CancelResponse handle_movej_cancel(
+      const std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>> goal_handle);
+  void handle_movej_accepted(
+      std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>> goal_handle);
+
+  // === Action callbacks (MoveL) ===
+  rclcpp_action::GoalResponse handle_movel_goal(
+      const rclcpp_action::GoalUUID& uuid,
+      std::shared_ptr<const arm_control_interfaces::action::MoveL::Goal> goal);
+  rclcpp_action::CancelResponse handle_movel_cancel(
+      const std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>> goal_handle);
+  void handle_movel_accepted(
+      std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>> goal_handle);
+
+  // === Pendant service callbacks ===
+  void handle_pendant_set_tcp(
+      const std::shared_ptr<arm_control_interfaces::srv::SetTCP::Request> req,
+      std::shared_ptr<arm_control_interfaces::srv::SetTCP::Response> res);
+  void handle_set_speed_ratio(
+      const std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Request> req,
+      std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Response> res);
+  void handle_robot_cmd(
+      const std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Request> req,
+      std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Response> res);
+
+  // === Jog + watchdog ===
+  void handle_jog_command(const arm_control_interfaces::msg::JogCommand::SharedPtr msg);
+  void jog_watchdog_callback();
+
+  // === Status publisher ===
+  void publish_status();
+
+  // === Emergency stop helper ===
+  void emergency_stop();
+
+  // === Action execution threads (joined on destruction) ===
+  std::thread movej_thread_;
+  std::thread movel_thread_;
+  std::atomic<bool> shutdown_{false};
+
   std::shared_ptr<RosMotionBridge> bridge_;
   std::shared_ptr<RobotMotionController> controller_;
   std::shared_ptr<IKSolver> ik_;
@@ -175,6 +238,33 @@ private:
   rclcpp::Service<robot_control_msgs::srv::GoHome>::SharedPtr srv_home_;
   rclcpp::Service<robot_control_msgs::srv::SetSpeed>::SharedPtr srv_speed_;
   rclcpp::Service<robot_control_msgs::srv::GetRobotState>::SharedPtr srv_state_;
+
+  // === State machine ===
+  RobotStateMachine state_machine_;
+
+  // === Trajectory executor ===
+  std::unique_ptr<TrajectoryExecutor> trajectory_executor_;
+
+  // === Global speed ratio (atomic for thread-safe access from action threads) ===
+  std::atomic<double> global_speed_ratio_{1.0};
+
+  // === Action servers ===
+  rclcpp_action::Server<arm_control_interfaces::action::MoveJ>::SharedPtr movej_action_;
+  rclcpp_action::Server<arm_control_interfaces::action::MoveL>::SharedPtr movel_action_;
+
+  // === Pendant service servers ===
+  rclcpp::Service<arm_control_interfaces::srv::SetTCP>::SharedPtr pendant_set_tcp_srv_;
+  rclcpp::Service<arm_control_interfaces::srv::SetSpeedRatio>::SharedPtr set_speed_ratio_srv_;
+  rclcpp::Service<arm_control_interfaces::srv::RobotCmd>::SharedPtr robot_cmd_srv_;
+
+  // === Jog + watchdog ===
+  rclcpp::Subscription<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_sub_;
+  rclcpp::TimerBase::SharedPtr jog_watchdog_timer_;
+  rclcpp::Time last_jog_time_;
+
+  // === Status publisher ===
+  rclcpp::Publisher<arm_control_interfaces::msg::RobotStatus>::SharedPtr status_pub_;
+  rclcpp::TimerBase::SharedPtr status_timer_;
 
   std::mutex ready_mutex_;
   std::condition_variable ready_cv_;
