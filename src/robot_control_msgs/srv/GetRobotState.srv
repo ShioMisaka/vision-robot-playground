@@ -1,0 +1,7 @@
+---
+bool success
+float64[] joint_angles
+float64[] tcp_pose  # x,y,z,r,p,y
+float64 finger_width
+string tcp_name
+string message

@@ -14,6 +14,15 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <robot_control_msgs/srv/solve_ik.hpp>
+#include <robot_control_msgs/srv/move_joint.hpp>
+#include <robot_control_msgs/srv/move_pose.hpp>
+#include <robot_control_msgs/srv/move_linear.hpp>
+#include <robot_control_msgs/srv/control_gripper.hpp>
+#include <robot_control_msgs/srv/go_home.hpp>
+#include <robot_control_msgs/srv/set_speed.hpp>
+#include <robot_control_msgs/srv/get_robot_state.hpp>
+
 #include "robot_control_cpp/motion/robot_motion_controller.hpp"
 #include "robot_control_cpp/kinematics/robot_profile.hpp"
 #include "robot_control_cpp/nodes/topic_config.hpp"
@@ -109,6 +118,9 @@ public:
     return bridge_->get_tf_buffer();
   }
 
+  /// @brief 获取底层 IO bridge
+  std::shared_ptr<RosMotionBridge> get_bridge() { return bridge_; }
+
 private:
   RobotControllerNode(const RobotProfile& profile,
                       const GripperProfile& gripper,
@@ -116,6 +128,32 @@ private:
 
   /// shared_from_this() 安全后调用
   void init();
+
+  // Service callbacks
+  void handle_solve_ik(
+      const std::shared_ptr<robot_control_msgs::srv::SolveIK::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::SolveIK::Response> res);
+  void handle_move_joint(
+      const std::shared_ptr<robot_control_msgs::srv::MoveJoint::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::MoveJoint::Response> res);
+  void handle_move_pose(
+      const std::shared_ptr<robot_control_msgs::srv::MovePose::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::MovePose::Response> res);
+  void handle_move_linear(
+      const std::shared_ptr<robot_control_msgs::srv::MoveLinear::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::MoveLinear::Response> res);
+  void handle_control_gripper(
+      const std::shared_ptr<robot_control_msgs::srv::ControlGripper::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::ControlGripper::Response> res);
+  void handle_go_home(
+      const std::shared_ptr<robot_control_msgs::srv::GoHome::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::GoHome::Response> res);
+  void handle_set_speed(
+      const std::shared_ptr<robot_control_msgs::srv::SetSpeed::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::SetSpeed::Response> res);
+  void handle_get_state(
+      const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> req,
+      std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res);
 
   std::shared_ptr<RosMotionBridge> bridge_;
   std::shared_ptr<RobotMotionController> controller_;
@@ -128,6 +166,15 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::CallbackGroup::SharedPtr state_cbg_;
   rclcpp::CallbackGroup::SharedPtr pub_cbg_;
+
+  rclcpp::Service<robot_control_msgs::srv::SolveIK>::SharedPtr srv_ik_;
+  rclcpp::Service<robot_control_msgs::srv::MoveJoint>::SharedPtr srv_move_joint_;
+  rclcpp::Service<robot_control_msgs::srv::MovePose>::SharedPtr srv_move_pose_;
+  rclcpp::Service<robot_control_msgs::srv::MoveLinear>::SharedPtr srv_move_linear_;
+  rclcpp::Service<robot_control_msgs::srv::ControlGripper>::SharedPtr srv_gripper_;
+  rclcpp::Service<robot_control_msgs::srv::GoHome>::SharedPtr srv_home_;
+  rclcpp::Service<robot_control_msgs::srv::SetSpeed>::SharedPtr srv_speed_;
+  rclcpp::Service<robot_control_msgs::srv::GetRobotState>::SharedPtr srv_state_;
 
   std::mutex ready_mutex_;
   std::condition_variable ready_cv_;

@@ -1,0 +1,5 @@
+float64[] joint_angles
+bool block
+---
+bool success
+string message

@@ -16,6 +16,7 @@ Python 脚本通过 pybind11 调用 C++ 后端。
 - **IK 求解**: KDL 伪逆 + 阻尼最小二乘法（DLS）奇异位形保护
 - **C++ 核心依赖**: rclcpp, Eigen3, Orocos KDL, OpenCV, tf2_ros, cv_bridge, message_filters
 - **Python 绑定**: pybind11 2.11
+- **示教器 GUI**: Qt5 Widgets（C++ ROS2 包，通过 ROS2 Service 与控制节点解耦）
 
 ## 分层架构
 ```
@@ -101,6 +102,32 @@ src/
     CMakeLists.txt                # find_package(robot_control_cpp) 链接对应 target
     package.xml                   # depend on robot_control_cpp
 
+  # === ROS2 自定义消息包 ===
+  robot_control_msgs/
+    srv/
+      SolveIK.srv                 # IK 求解服务
+      MoveJoint.srv               # 关节运动服务
+      MovePose.srv                # 笛卡尔运动服务（moveJ/moveL）
+      MoveLinear.srv              # 线性增量运动服务
+      ControlGripper.srv          # 夹爪控制服务
+      GoHome.srv                  # 回 Home 服务
+      SetSpeed.srv                # 速度设置服务
+      GetRobotState.srv           # 状态查询服务
+    CMakeLists.txt
+    package.xml
+
+  # === Qt5 示教器包 ===
+  teaching_pendant/
+    include/teaching_pendant/
+      pendant_node.hpp            # ROS2 节点（service client + subscriber）
+      main_window.hpp             # Qt5 主窗口
+    src/
+      pendant_node.cpp            # 通信后端实现
+      main_window.cpp             # GUI 实现
+      main.cpp                    # 入口（Qt + ROS2 线程整合）
+    CMakeLists.txt                # Qt5 + ROS2
+    package.xml
+
 script/
   test_move.py         # Python 演示（纯 Python 后端）：IK 位姿控制
   test_vision.py       # Python 演示（纯 Python 后端）：视觉伺服引导抓取
@@ -139,10 +166,29 @@ urdf/
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图（uint16 mm 或 float32 m） |
 
+## ROS2 Services（robot_controller_node）
+| Service | 类型 | 说明 |
+|---------|------|------|
+| `~/solve_ik` | SolveIK | IK 求解（xyz, rpy → joint_angles） |
+| `~/move_joint` | MoveJoint | 关节空间运动（moveJ） |
+| `~/move_pose` | MovePose | 笛卡尔运动（mode: 0=moveJ, 1=moveL） |
+| `~/move_linear` | MoveLinear | 线性增量运动 |
+| `~/control_gripper` | ControlGripper | 夹爪控制（0=open, 1=close, 2=set_width） |
+| `~/go_home` | GoHome | 回安全位 |
+| `~/set_speed` | SetSpeed | 设置速度（mode: 0=moveJ, 1=moveL, percent: 0-100） |
+| `~/get_state` | GetRobotState | 查询状态（关节角、位姿、夹爪、TCP） |
+
 ## 常用命令
 ```bash
-# 编译 C++ 核心库
+# 编译消息定义
+colcon build --base-paths src --packages-select robot_control_msgs
+
+# 编译 C++ 核心库（含 Service Server）
 colcon build --base-paths src --packages-select robot_control_cpp
+
+# 编译示教器（需先编译 msgs + core）
+source install/setup.zsh
+colcon build --base-paths src --packages-select teaching_pendant
 
 # 编译 pybind11 绑定包（需先编译核心库）
 source install/setup.zsh
@@ -153,6 +199,9 @@ colcon build --base-paths src --packages-select robot_control_test
 
 # 一键编译全部
 colcon build --base-paths src --packages-up-to robot_control_cpp_py
+
+# 编译示教器及其依赖
+colcon build --base-paths src --packages-up-to teaching_pendant
 
 # 运行 C++ 演示（需要 Isaac Sim）
 ros2 run robot_control_test demo_grasp_tcp
@@ -168,6 +217,9 @@ python3 script/test_vision.py
 
 # 查看 ROS2 话题
 ros2 topic list
+
+# 运行示教器（需要 Isaac Sim + robot_controller_node 运行中）
+ros2 run teaching_pendant teaching_pendant
 ```
 
 ## Python 绑定使用模式

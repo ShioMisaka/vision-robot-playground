@@ -1,0 +1,5 @@
+uint8 command  # 0=open, 1=close, 2=set_width
+float64 width
+---
+bool success
+string message

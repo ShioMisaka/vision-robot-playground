@@ -19,6 +19,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(image_transport REQUIRED)
+find_package(robot_control_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(orocos_kdl REQUIRED)
@@ -96,6 +97,7 @@ ament_target_dependencies(robot_nodes
   cv_bridge
   message_filters
   image_transport
+  robot_control_msgs
 )
 
 # ===== 安装 =====
@@ -122,6 +124,7 @@ ament_export_dependencies(
   cv_bridge
   message_filters
   image_transport
+  robot_control_msgs
   orocos_kdl
   urdfdom
   urdf

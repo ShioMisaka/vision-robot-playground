@@ -1,4 +1,4 @@
-# Robot Vision Grasp
+# Robot Vision Playground
 
 基于 ROS2 + Isaac Sim 的机械臂视觉引导抓取系统。C++ 核心库 + pybind11 Python 绑定的多语言分层架构，支持多机器人扩展。
 
@@ -51,7 +51,7 @@ isaac_ros_project/
 │   │   │   │   └── panda_profile.hpp       # Panda 专用配置
 │   │   │   ├── kinematics/                 # robot_kinematics target（零 ROS 依赖）
 │   │   │   │   ├── robot_profile.hpp       # RobotProfile / GripperProfile / TcpConfig
-│   │   │   │   ├── ik_solver.hpp            # IK/FK 求解器（KDL + DLS）
+│   │   │   │   ├── ik_solver.hpp           # IK/FK 求解器（KDL + DLS）
 │   │   │   │   └── trajectory_planner.hpp  # S 曲线轨迹规划器
 │   │   │   ├── motion/                     # robot_motion target（依赖 kinematics）
 │   │   │   │   ├── control_constants.hpp   # 通用控制常量

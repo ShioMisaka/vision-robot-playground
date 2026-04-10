@@ -389,7 +389,64 @@ void RobotControllerNode::init() {
       },
       sub_opts);
 
-  RCLCPP_INFO(this->get_logger(), "RobotControllerNode started");
+  // Service servers
+  srv_ik_ = create_service<robot_control_msgs::srv::SolveIK>(
+      "~/solve_ik",
+      [this](const std::shared_ptr<robot_control_msgs::srv::SolveIK::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::SolveIK::Response> res) {
+        handle_solve_ik(req, res);
+      });
+
+  srv_move_joint_ = create_service<robot_control_msgs::srv::MoveJoint>(
+      "~/move_joint",
+      [this](const std::shared_ptr<robot_control_msgs::srv::MoveJoint::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::MoveJoint::Response> res) {
+        handle_move_joint(req, res);
+      });
+
+  srv_move_pose_ = create_service<robot_control_msgs::srv::MovePose>(
+      "~/move_pose",
+      [this](const std::shared_ptr<robot_control_msgs::srv::MovePose::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::MovePose::Response> res) {
+        handle_move_pose(req, res);
+      });
+
+  srv_move_linear_ = create_service<robot_control_msgs::srv::MoveLinear>(
+      "~/move_linear",
+      [this](const std::shared_ptr<robot_control_msgs::srv::MoveLinear::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::MoveLinear::Response> res) {
+        handle_move_linear(req, res);
+      });
+
+  srv_gripper_ = create_service<robot_control_msgs::srv::ControlGripper>(
+      "~/control_gripper",
+      [this](const std::shared_ptr<robot_control_msgs::srv::ControlGripper::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::ControlGripper::Response> res) {
+        handle_control_gripper(req, res);
+      });
+
+  srv_home_ = create_service<robot_control_msgs::srv::GoHome>(
+      "~/go_home",
+      [this](const std::shared_ptr<robot_control_msgs::srv::GoHome::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::GoHome::Response> res) {
+        handle_go_home(req, res);
+      });
+
+  srv_speed_ = create_service<robot_control_msgs::srv::SetSpeed>(
+      "~/set_speed",
+      [this](const std::shared_ptr<robot_control_msgs::srv::SetSpeed::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::SetSpeed::Response> res) {
+        handle_set_speed(req, res);
+      });
+
+  srv_state_ = create_service<robot_control_msgs::srv::GetRobotState>(
+      "~/get_state",
+      [this](const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> req,
+             std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res) {
+        handle_get_state(req, res);
+      });
+
+  RCLCPP_INFO(this->get_logger(), "RobotControllerNode started (with services)");
 }
 
 bool RobotControllerNode::wait_for_ready(double timeout) {
@@ -397,6 +454,167 @@ bool RobotControllerNode::wait_for_ready(double timeout) {
   return ready_cv_.wait_for(
       lock, std::chrono::duration<double>(timeout),
       [this] { return ready_; });
+}
+
+// ===== Service Callbacks =====
+
+void RobotControllerNode::handle_solve_ik(
+    const std::shared_ptr<robot_control_msgs::srv::SolveIK::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::SolveIK::Response> res) {
+  if (req->xyz.size() != 3) {
+    res->success = false;
+    res->message = "xyz must have exactly 3 elements";
+    return;
+  }
+
+  std::array<double, 3> xyz{req->xyz[0], req->xyz[1], req->xyz[2]};
+  std::optional<std::array<double, 3>> rpy;
+
+  if (req->rpy.size() == 3) {
+    rpy = std::array<double, 3>{req->rpy[0], req->rpy[1], req->rpy[2]};
+  }
+
+  auto result = ik_->solve(xyz, rpy);
+  if (result) {
+    res->success = true;
+    res->joint_angles = *result;
+    res->message = "IK solved";
+  } else {
+    res->success = false;
+    res->message = "IK solution not found";
+  }
+}
+
+void RobotControllerNode::handle_move_joint(
+    const std::shared_ptr<robot_control_msgs::srv::MoveJoint::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::MoveJoint::Response> res) {
+  try {
+    controller_->moveJ(req->joint_angles, req->block);
+    res->success = true;
+    res->message = "moveJ completed";
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("moveJ failed: ") + e.what();
+  }
+}
+
+void RobotControllerNode::handle_move_pose(
+    const std::shared_ptr<robot_control_msgs::srv::MovePose::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::MovePose::Response> res) {
+  if (req->xyz.size() != 3) {
+    res->success = false;
+    res->message = "xyz must have exactly 3 elements";
+    return;
+  }
+
+  std::array<double, 3> xyz{req->xyz[0], req->xyz[1], req->xyz[2]};
+  std::optional<std::array<double, 3>> rpy;
+
+  if (req->rpy.size() == 3) {
+    rpy = std::array<double, 3>{req->rpy[0], req->rpy[1], req->rpy[2]};
+  }
+
+  try {
+    if (req->mode == 1) {
+      controller_->moveL(xyz, rpy, req->finger);
+    } else {
+      controller_->moveJ(xyz, rpy, req->finger);
+    }
+    res->success = true;
+    res->message = (req->mode == 1) ? "moveL completed" : "moveJ completed";
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("move_pose failed: ") + e.what();
+  }
+}
+
+void RobotControllerNode::handle_move_linear(
+    const std::shared_ptr<robot_control_msgs::srv::MoveLinear::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::MoveLinear::Response> res) {
+  if (req->delta.size() != 3) {
+    res->success = false;
+    res->message = "delta must have exactly 3 elements";
+    return;
+  }
+
+  std::array<double, 3> delta{req->delta[0], req->delta[1], req->delta[2]};
+
+  try {
+    controller_->move_linear(delta, req->frame, req->finger);
+    res->success = true;
+    res->message = "move_linear completed";
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("move_linear failed: ") + e.what();
+  }
+}
+
+void RobotControllerNode::handle_control_gripper(
+    const std::shared_ptr<robot_control_msgs::srv::ControlGripper::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::ControlGripper::Response> res) {
+  try {
+    switch (req->command) {
+      case 0:
+        controller_->open_gripper();
+        res->message = "gripper opened";
+        break;
+      case 1:
+        controller_->close_gripper();
+        res->message = "gripper closed";
+        break;
+      case 2:
+        controller_->set_gripper(req->width);
+        res->message = "gripper set to " + std::to_string(req->width);
+        break;
+      default:
+        res->success = false;
+        res->message = "invalid command: use 0=open, 1=close, 2=set_width";
+        return;
+    }
+    res->success = true;
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("gripper failed: ") + e.what();
+  }
+}
+
+void RobotControllerNode::handle_go_home(
+    const std::shared_ptr<robot_control_msgs::srv::GoHome::Request> /*req*/,
+    std::shared_ptr<robot_control_msgs::srv::GoHome::Response> res) {
+  try {
+    controller_->go_home();
+    res->success = true;
+    res->message = "go_home completed";
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("go_home failed: ") + e.what();
+  }
+}
+
+void RobotControllerNode::handle_set_speed(
+    const std::shared_ptr<robot_control_msgs::srv::SetSpeed::Request> req,
+    std::shared_ptr<robot_control_msgs::srv::SetSpeed::Response> res) {
+  auto mode = (req->mode == 1) ? MotionMode::kMoveL : MotionMode::kMoveJ;
+  controller_->set_speed(mode, req->percent);
+  res->success = true;
+  res->message = "speed set";
+}
+
+void RobotControllerNode::handle_get_state(
+    const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> /*req*/,
+    std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res) {
+  try {
+    res->joint_angles = controller_->get_joint_angles();
+    auto pose = controller_->get_end_effector_pose();
+    res->tcp_pose = {pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]};
+    res->finger_width = controller_->get_finger_width();
+    res->tcp_name = controller_->get_current_tcp();
+    res->success = true;
+    res->message = "ok";
+  } catch (const std::exception& e) {
+    res->success = false;
+    res->message = std::string("get_state failed: ") + e.what();
+  }
 }
 
 }  // namespace robot_control
