@@ -19,6 +19,8 @@
   <depend>message_filters</depend>
   <depend>image_transport</depend>
   <depend>robot_control_msgs</depend>
+  <depend>rclcpp_action</depend>
+  <depend>arm_control_interfaces</depend>
   <depend>orocos_kdl</depend>
   <depend>urdfdom</depend>
   <depend>kdl_parser</depend>
