@@ -5,7 +5,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -27,43 +26,67 @@ find_package(urdfdom REQUIRED)
 find_package(urdf REQUIRED)
 find_package(kdl_parser REQUIRED)
 
-# ===== Layer 1: 核心库（不依赖 rclcpp）=====
-add_library(robot_control_core SHARED
-  src/ik_solver.cpp
-  src/color_detector.cpp
-  src/trajectory_planner.cpp
-  src/robot_motion_controller.cpp
-  src/grasp_task_manager.cpp
+# ===== robot_kinematics: IK + 轨迹规划（零 ROS 依赖）=====
+add_library(robot_kinematics SHARED
+  src/kinematics/ik_solver.cpp
+  src/kinematics/trajectory_planner.cpp
 )
 
-target_include_directories(robot_control_core PUBLIC
+target_include_directories(robot_kinematics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(robot_control_core
+ament_target_dependencies(robot_kinematics
   orocos_kdl
   urdfdom
   urdf
   kdl_parser
   Eigen3
-  OpenCV
 )
 
-# ===== Layer 2: ROS 2 节点 =====
-add_library(robot_control_nodes SHARED
-  src/robot_controller_node.cpp
-  src/vision_processor_node.cpp
+# ===== robot_vision: 视觉处理（零 ROS 依赖）=====
+add_library(robot_vision SHARED
+  src/vision/color_detector.cpp
 )
 
-target_include_directories(robot_control_nodes PUBLIC
+target_include_directories(robot_vision PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_control_nodes robot_control_core)
+ament_target_dependencies(robot_vision
+  OpenCV
+  Eigen3
+)
 
-ament_target_dependencies(robot_control_nodes
+# ===== robot_motion: 运动控制器（依赖 kinematics）=====
+add_library(robot_motion SHARED
+  src/motion/robot_motion_controller.cpp
+)
+
+target_include_directories(robot_motion PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(robot_motion robot_kinematics)
+
+# ===== robot_nodes: ROS2 节点（依赖 motion + vision）=====
+add_library(robot_nodes SHARED
+  src/nodes/robot_controller_node.cpp
+  src/nodes/vision_processor_node.cpp
+  src/nodes/grasp_task_manager.cpp
+)
+
+target_include_directories(robot_nodes PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(robot_nodes robot_motion robot_vision)
+
+ament_target_dependencies(robot_nodes
   rclcpp
   sensor_msgs
   geometry_msgs
@@ -80,7 +103,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(TARGETS robot_control_core robot_control_nodes
+install(TARGETS robot_kinematics robot_motion robot_vision robot_nodes
   EXPORT robot_control_cpp_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
