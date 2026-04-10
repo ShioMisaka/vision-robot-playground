@@ -733,7 +733,13 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movej_cancel(
 
 void RobotControllerNode::handle_movej_accepted(
     std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>> goal_handle) {
-  state_machine_.transition_to(RobotState::kMoving);
+  if (!state_machine_.transition_to(RobotState::kMoving)) {
+    auto result = std::make_shared<arm_control_interfaces::action::MoveJ::Result>();
+    result->success = false;
+    result->message = "MoveJ rejected: cannot transition to MOVING state";
+    goal_handle->abort(result);
+    return;
+  }
 
   movej_thread_ = std::thread([this, goal_handle]() {
     auto result = std::make_shared<arm_control_interfaces::action::MoveJ::Result>();
@@ -899,7 +905,13 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movel_cancel(
 
 void RobotControllerNode::handle_movel_accepted(
     std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>> goal_handle) {
-  state_machine_.transition_to(RobotState::kMoving);
+  if (!state_machine_.transition_to(RobotState::kMoving)) {
+    auto result = std::make_shared<arm_control_interfaces::action::MoveL::Result>();
+    result->success = false;
+    result->message = "MoveL rejected: cannot transition to MOVING state";
+    goal_handle->abort(result);
+    return;
+  }
 
   movel_thread_ = std::thread([this, goal_handle]() {
     auto result = std::make_shared<arm_control_interfaces::action::MoveL::Result>();
@@ -981,6 +993,7 @@ void RobotControllerNode::handle_movel_accepted(
 
       trajectory_executor_->start(steps, finger);
 
+      auto next_fb_time = std::chrono::steady_clock::now();
       while (trajectory_executor_->is_active()) {
         double progress;
         std::vector<double> cur_angles;
@@ -992,7 +1005,8 @@ void RobotControllerNode::handle_movel_accepted(
         feedback->estimated_time_remaining = time_rem;
         goal_handle->publish_feedback(feedback);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        next_fb_time += std::chrono::milliseconds(20);
+        std::this_thread::sleep_until(next_fb_time);
       }
 
       if (trajectory_executor_->wait_for_completion(2.0)) {
@@ -1085,7 +1099,10 @@ void RobotControllerNode::handle_robot_cmd(
         bridge_->publish_command(bridge_->get_current_arm(),
                                 bridge_->get_current_finger());
         state_machine_.transition_to(RobotState::kStopping);
-        state_machine_.transition_to(RobotState::kIdle);
+        // Do NOT transition to kIdle here — the action thread handles
+        // kStopping -> kIdle after the cancelled trajectory finishes.
+        // Transitioning to kIdle immediately would allow new goals while
+        // the old action thread is still running, causing std::terminate.
         res->success = true;
         res->message = "STOP executed";
       } else if (state_machine_.state() == RobotState::kStopping) {
@@ -1237,7 +1254,10 @@ void RobotControllerNode::publish_status() {
 
   msg->finger_width = controller_->get_finger_width();
   msg->tcp_name = controller_->get_current_tcp();
-  msg->is_connected = ready_;
+  {
+    std::lock_guard<std::mutex> lock(ready_mutex_);
+    msg->is_connected = ready_;
+  }
 
   status_pub_->publish(std::move(msg));
 }
