@@ -23,8 +23,8 @@
 #include <array>
 #include <optional>
 
-#include "robot_control_cpp/robot_motion_controller.hpp"
-#include "robot_control_cpp/ik_solver.hpp"
+#include "robot_control_cpp/motion/robot_motion_controller.hpp"
+#include "robot_control_cpp/kinematics/ik_solver.hpp"
 #include "robot_control_cpp/panda_profile.hpp"
 
 namespace {

@@ -25,9 +25,10 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
-#include "robot_control_cpp/robot_controller_node.hpp"
+#include "robot_control_cpp/nodes/robot_controller_node.hpp"
 #include "robot_control_cpp/panda_profile.hpp"
-#include "robot_control_cpp/config.hpp"
+#include "robot_control_cpp/motion/control_constants.hpp"
+#include "robot_control_cpp/nodes/topic_config.hpp"
 
 // ---- 目标参数 ----
 constexpr double kTargetX = 0.52699;

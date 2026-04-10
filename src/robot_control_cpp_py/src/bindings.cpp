@@ -7,16 +7,17 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
-#include "robot_control_cpp/config.hpp"
-#include "robot_control_cpp/robot_profile.hpp"
-#include "robot_control_cpp/ik_solver.hpp"
-#include "robot_control_cpp/color_detector.hpp"
-#include "robot_control_cpp/i_robot_controller.hpp"
-#include "robot_control_cpp/i_vision_processor.hpp"
-#include "robot_control_cpp/robot_motion_controller.hpp"
-#include "robot_control_cpp/grasp_task_manager.hpp"
-#include "robot_control_cpp/robot_controller_node.hpp"
-#include "robot_control_cpp/vision_processor_node.hpp"
+#include "robot_control_cpp/motion/control_constants.hpp"
+#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_control_cpp/kinematics/robot_profile.hpp"
+#include "robot_control_cpp/kinematics/ik_solver.hpp"
+#include "robot_control_cpp/vision/color_detector.hpp"
+#include "robot_control_cpp/motion/i_robot_controller.hpp"
+#include "robot_control_cpp/vision/i_vision_processor.hpp"
+#include "robot_control_cpp/motion/robot_motion_controller.hpp"
+#include "robot_control_cpp/nodes/grasp_task_manager.hpp"
+#include "robot_control_cpp/nodes/robot_controller_node.hpp"
+#include "robot_control_cpp/nodes/vision_processor_node.hpp"
 #include "robot_control_cpp/panda_profile.hpp"
 
 #include <Eigen/Core>

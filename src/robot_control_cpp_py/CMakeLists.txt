@@ -22,8 +22,10 @@ pybind11_add_module(_core MODULE
 )
 
 target_link_libraries(_core PRIVATE
-  robot_control_cpp::robot_control_core
-  robot_control_cpp::robot_control_nodes
+  robot_control_cpp::robot_kinematics
+  robot_control_cpp::robot_motion
+  robot_control_cpp::robot_vision
+  robot_control_cpp::robot_nodes
 )
 
 # ===== 安装 =====

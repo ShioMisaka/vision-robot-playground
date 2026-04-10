@@ -18,7 +18,7 @@ find_package(rclcpp REQUIRED)
 add_executable(test_trajectory_planner
   test/test_trajectory_planner.cpp
 )
-target_link_libraries(test_trajectory_planner robot_control_cpp::robot_control_core)
+target_link_libraries(test_trajectory_planner robot_control_cpp::robot_kinematics)
 install(TARGETS test_trajectory_planner
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -27,7 +27,7 @@ install(TARGETS test_trajectory_planner
 add_executable(test_motion_controller
   test/test_motion_controller.cpp
 )
-target_link_libraries(test_motion_controller robot_control_cpp::robot_control_core)
+target_link_libraries(test_motion_controller robot_control_cpp::robot_motion)
 install(TARGETS test_motion_controller
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -36,7 +36,7 @@ install(TARGETS test_motion_controller
 add_executable(test_ik_solver
   test/test_ik_solver.cpp
 )
-target_link_libraries(test_ik_solver robot_control_cpp::robot_control_core)
+target_link_libraries(test_ik_solver robot_control_cpp::robot_kinematics)
 install(TARGETS test_ik_solver
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -45,7 +45,7 @@ install(TARGETS test_ik_solver
 add_executable(test_robot_node
   test/test_robot_node.cpp
 )
-target_link_libraries(test_robot_node robot_control_cpp::robot_control_nodes)
+target_link_libraries(test_robot_node robot_control_cpp::robot_nodes)
 install(TARGETS test_robot_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -54,7 +54,7 @@ install(TARGETS test_robot_node
 add_executable(test_camera_tf
   test/test_camera_tf.cpp
 )
-target_link_libraries(test_camera_tf robot_control_cpp::robot_control_nodes)
+target_link_libraries(test_camera_tf robot_control_cpp::robot_nodes)
 install(TARGETS test_camera_tf
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -63,7 +63,7 @@ install(TARGETS test_camera_tf
 add_executable(demo_grasp_tcp
   demo/demo_grasp_tcp.cpp
 )
-target_link_libraries(demo_grasp_tcp robot_control_cpp::robot_control_nodes)
+target_link_libraries(demo_grasp_tcp robot_control_cpp::robot_nodes)
 install(TARGETS demo_grasp_tcp
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -72,7 +72,7 @@ install(TARGETS demo_grasp_tcp
 add_executable(demo_camera
   demo/demo_camera.cpp
 )
-target_link_libraries(demo_camera robot_control_cpp::robot_control_nodes)
+target_link_libraries(demo_camera robot_control_cpp::robot_nodes)
 install(TARGETS demo_camera
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
