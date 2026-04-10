@@ -328,9 +328,13 @@ PYBIND11_MODULE(_core, m) {
   py::class_<GraspTaskManager, std::shared_ptr<GraspTaskManager>>(
       m, "GraspTaskManager")
       .def(py::init<std::shared_ptr<IRobotController>,
-                    std::shared_ptr<IVisionProcessor>, double, double,
+                    std::shared_ptr<IVisionProcessor>,
+                    const std::string&, const std::string&,
+                    double, double,
                     const std::array<double, 3>&>(),
            py::arg("robot"), py::arg("vision"),
+           py::arg("base_frame") = "panda_link0",
+           py::arg("camera_frame") = "camera_color_optical_frame",
            py::arg("approach_height") = 0.15,
            py::arg("grasp_height_offset") = 0.02,
            py::arg("grasp_rpy") =

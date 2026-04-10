@@ -169,7 +169,8 @@ int main(int argc, char* argv[]) {
     auto vision = robot_control::VisionProcessorNode::create(
         detector, robot_control::TopicConfig());
     auto manager = std::make_shared<robot_control::GraspTaskManager>(
-        ctrl, vision, 0.15, 0.02,
+        ctrl, vision, "panda_link0", "camera_color_optical_frame",
+        0.15, 0.02,
         std::array<double, 3>{M_PI, 0.0, M_PI});
 
     // 光学坐标系 Z 朝前（朝下），[0, 0, 0.1] = 相机正下方 0.1m
