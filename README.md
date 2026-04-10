@@ -45,21 +45,32 @@ sudo apt install ros-jazzy-rclcpp ros-jazzy-sensor-msgs ros-jazzy-geometry-msgs 
 ```
 isaac_ros_project/
 ├── src/
-│   ├── robot_control_cpp/          # C++ 核心库包（纯库）
+│   ├── robot_control_cpp/          # C++ 核心库包（纯库，4 个 CMake target）
 │   │   ├── include/robot_control_cpp/
-│   │   │   ├── config.hpp                  # TopicConfig + ControlConstants
-│   │   │   ├── robot_profile.hpp           # RobotProfile / GripperProfile / TcpConfig
-│   │   │   ├── i_robot_controller.hpp      # IRobotController 抽象接口
-│   │   │   ├── i_vision_processor.hpp      # IVisionProcessor 抽象接口
-│   │   │   ├── ik_solver.hpp               # IK/FK 求解器（KDL + DLS）
-│   │   │   ├── trajectory_planner.hpp      # S 曲线轨迹规划器
-│   │   │   ├── color_detector.hpp          # CameraInterface + ColorDetector
-│   │   │   ├── robot_motion_controller.hpp # RobotMotionController + MotionIOBridge
-│   │   │   ├── grasp_task_manager.hpp      # GraspTaskManager 状态机
-│   │   │   ├── robot_controller_node.hpp   # RobotControllerNode（ROS2）
-│   │   │   ├── vision_processor_node.hpp   # VisionProcessorNode（ROS2）
-│   │   │   └── panda_profile.hpp           # Panda 专用配置
-│   │   └── src/                            # 实现文件
+│   │   │   ├── panda_profile.hpp           # Panda 专用配置
+│   │   │   ├── kinematics/                 # robot_kinematics target（零 ROS 依赖）
+│   │   │   │   ├── robot_profile.hpp       # RobotProfile / GripperProfile / TcpConfig
+│   │   │   │   ├── ik_solver.hpp            # IK/FK 求解器（KDL + DLS）
+│   │   │   │   └── trajectory_planner.hpp  # S 曲线轨迹规划器
+│   │   │   ├── motion/                     # robot_motion target（依赖 kinematics）
+│   │   │   │   ├── control_constants.hpp   # 通用控制常量
+│   │   │   │   ├── i_robot_controller.hpp  # IRobotController 抽象接口
+│   │   │   │   ├── motion_io_bridge.hpp    # MotionIOBridge 接口
+│   │   │   │   └── robot_motion_controller.hpp
+│   │   │   ├── vision/                     # robot_vision target（零 ROS 依赖）
+│   │   │   │   ├── i_vision_processor.hpp  # IVisionProcessor 抽象接口
+│   │   │   │   ├── camera_interface.hpp    # CameraInterface 基类
+│   │   │   │   └── color_detector.hpp      # ColorDetector（OpenCV HSV）
+│   │   │   └── nodes/                      # robot_nodes target（依赖 motion + vision）
+│   │   │       ├── topic_config.hpp        # TopicConfig + CameraExtrinsics
+│   │   │       ├── grasp_task_manager.hpp  # GraspTaskManager 状态机
+│   │   │       ├── robot_controller_node.hpp
+│   │   │       └── vision_processor_node.hpp
+│   │   └── src/
+│   │       ├── kinematics/  ik_solver.cpp / trajectory_planner.cpp
+│   │       ├── motion/      robot_motion_controller.cpp
+│   │       ├── vision/      color_detector.cpp
+│   │       └── nodes/       robot_controller_node.cpp / vision_processor_node.cpp / grasp_task_manager.cpp
 │   │
 │   ├── robot_control_cpp_py/       # pybind11 Python 绑定包
 │   │   ├── src/bindings.cpp                # 绑定代码
@@ -101,26 +112,33 @@ isaac_ros_project/
 │  Layer 3: Python Binding (pybind11)                      │
 │  script/ 代码通过 C++ 后端控制机器人                     │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 2: ROS 2 C++ Wrapper Nodes                        │
+│  Layer 2: robot_nodes（唯一有 ROS 依赖的 target）        │
 │  ┌──────────────────────┐ ┌───────────────────────────┐  │
 │  │ RobotControllerNode  │ │ VisionProcessorNode       │  │
-│  │ + RosMotionBridge    │ │ + ApproximateTime Sync    │  │
+│  │ + RosMotionBridge    │ │ + GraspTaskManager        │  │
 │  └──────────┬───────────┘ └──────────┬────────────────┘  │
 ├─────────────┼────────────────────────┼───────────────────┤
-│  Layer 1: Pure C++ Core(无 ROS 依赖) │                   │
-│  ┌──────────▼────────────────────────▼───────────────┐   │
-│  │ IKSolver (KDL + DLS) │ RobotMotionController       │   │
-│  │ SCurvePlanner        │ GraspTaskManager            │   │
-│  │ ColorDetector        │                             │   │
-│  └───────────────────────────────────────────────────┘   │
+│  Layer 1: Pure C++ Core (无 ROS 依赖)                    │
+│  ┌──────────▼──────────┐ ┌─────────▼──────────────────┐  │
+│  │ robot_kinematics     │ │ robot_vision               │  │
+│  │ IKSolver (KDL + DLS)│ │ ColorDetector (OpenCV HSV) │  │
+│  │ SCurvePlanner        │ │ CameraInterface            │  │
+│  │ RobotProfile         │ │ IVisionProcessor           │  │
+│  └──────────┬──────────┘ └────────────────────────────┘  │
+│             │                                             │
+│  ┌──────────▼──────────────────────────────────────────┐ │
+│  │ robot_motion                                        │ │
+│  │ RobotMotionController + IRobotController             │ │
+│  │ MotionIOBridge                                      │ │
+│  └─────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### 包间依赖
 
 ```
-robot_control_test ──→ robot_control_cpp
-robot_control_cpp_py ──→ robot_control_cpp
+robot_control_test ──→ robot_control_cpp（链接 robot_kinematics / robot_motion / robot_nodes）
+robot_control_cpp_py ──→ robot_control_cpp（链接全部 4 个 target）
 script/*.py ──→ robot_control_cpp_py（运行时）
 ```
 
@@ -140,8 +158,10 @@ colcon build --base-paths src --packages-select robot_control_test    # C++ 测�
 ```
 
 **编译产物：**
-- `install/robot_control_cpp/lib/librobot_control_core.so` — Layer 1 核心库
-- `install/robot_control_cpp/lib/librobot_control_nodes.so` — Layer 2 ROS2 节点库
+- `install/robot_control_cpp/lib/librobot_kinematics.so` — IK + 轨迹规划
+- `install/robot_control_cpp/lib/librobot_motion.so` — 运动控制器
+- `install/robot_control_cpp/lib/librobot_vision.so` — 视觉处理
+- `install/robot_control_cpp/lib/librobot_nodes.so` — ROS2 节点
 - `install/robot_control_cpp_py/` — pybind11 Python 模块
 
 ## 运行

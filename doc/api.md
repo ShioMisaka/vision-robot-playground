@@ -1,6 +1,17 @@
 # API 接口文档
 
-本文档涵盖 C++ 核心库（Layer 1 & 2）和 Python 绑定（Layer 3）的完整接口参考。
+本文档涵盖 C++ 核心库（4 target 架构）和 Python 绑定（pybind11）的完整接口参考。
+
+## CMake Target 架构
+
+```
+robot_kinematics   — IK + 轨迹规划（零 ROS 依赖）
+robot_vision       — 颜色检测 + 视觉接口（零 ROS 依赖）
+robot_motion       — 运动控制器 + 接口（依赖 kinematics）
+robot_nodes        — ROS2 节点 + 任务管理（依赖 motion + vision）
+```
+
+各 target 对应头文件子目录：`include/robot_control_cpp/{kinematics,motion,vision,nodes}/`
 
 ---
 
@@ -26,7 +37,7 @@
 
 ### TcpConfig — TCP 工具偏移
 
-**头文件**: `robot_profile.hpp`
+**头文件**: `kinematics/robot_profile.hpp`
 
 ```cpp
 struct TcpConfig {
@@ -41,7 +52,7 @@ struct TcpConfig {
 
 ### RobotProfile — 机器人描述
 
-**头文件**: `robot_profile.hpp`
+**头文件**: `kinematics/robot_profile.hpp`
 
 ```cpp
 struct RobotProfile {
@@ -67,7 +78,7 @@ struct RobotProfile {
 
 ### GripperProfile — 夹爪参数
 
-**头文件**: `robot_profile.hpp`
+**头文件**: `kinematics/robot_profile.hpp`
 
 ```cpp
 struct GripperProfile {
@@ -84,7 +95,7 @@ struct GripperProfile {
 
 ### TopicConfig — ROS2 话题配置
 
-**头文件**: `config.hpp`
+**头文件**: `nodes/topic_config.hpp`
 
 ```cpp
 struct TopicConfig {
@@ -102,7 +113,7 @@ struct TopicConfig {
 
 ### DetectionResult — 视觉检测结果
 
-**头文件**: `i_vision_processor.hpp`
+**头文件**: `vision/i_vision_processor.hpp`
 
 ```cpp
 struct DetectionResult {
@@ -126,7 +137,7 @@ struct DetectionResult {
 
 ### GraspState — 抓取任务状态
 
-**头文件**: `grasp_task_manager.hpp`
+**头文件**: `nodes/grasp_task_manager.hpp`
 
 ```cpp
 enum class GraspState {
@@ -152,7 +163,7 @@ rc.GraspState.ERROR         # 错误
 
 ## 控制常量
 
-**头文件**: `config.hpp` · **Python**: `rc` 模块级常量
+**头文件**: `motion/control_constants.hpp` · **Python**: `rc` 模块级常量
 
 | 常量 | 值 | 单位 | 说明 |
 |------|----|------|------|
@@ -173,7 +184,7 @@ rc.GraspState.ERROR         # 错误
 
 ## IKSolver — 运动学求解器
 
-**头文件**: `ik_solver.hpp` · **依赖**: KDL, Eigen3, urdf（**不依赖 rclcpp**）
+**头文件**: `kinematics/ik_solver.hpp` · **Target**: `robot_kinematics` · **依赖**: KDL, Eigen3, urdf（**不依赖 rclcpp**）
 
 ### 构造
 
@@ -240,7 +251,7 @@ dof: int = ik.get_dof()  # 返回 7
 
 ## RobotMotionController — 运动控制器
 
-**头文件**: `robot_motion_controller.hpp` · 实现 `IRobotController` 接口
+**头文件**: `motion/robot_motion_controller.hpp` · **Target**: `robot_motion` · 实现 `IRobotController` 接口
 
 ### 获取方式
 
@@ -394,7 +405,7 @@ result: list[float] | None = ctrl.lookup_transform(
 
 ## ColorDetector — 颜色检测器
 
-**头文件**: `color_detector.hpp` · 继承 `CameraInterface`
+**头文件**: `vision/color_detector.hpp` · **Target**: `robot_vision` · 继承 `CameraInterface`
 
 ### 构造
 
@@ -434,7 +445,7 @@ xyz: list[float] = rc.pixel_to_3d(
 
 ## GraspTaskManager — 抓取状态机
 
-**头文件**: `grasp_task_manager.hpp`
+**头文件**: `nodes/grasp_task_manager.hpp` · **Target**: `robot_nodes`
 
 ### 构造
 
@@ -442,6 +453,8 @@ xyz: list[float] = rc.pixel_to_3d(
 task = rc.GraspTaskManager(
     robot: rc.RobotMotionController,       # 运动控制器
     vision: rc.VisionProcessorNode,         # 视觉处理器
+    base_frame: str = "panda_link0",        # 基座坐标系名称
+    camera_frame: str = "camera_color_optical_frame",  # 相机坐标系名称
     approach_height: float = 0.15,          # 接近高度 (m)
     grasp_height_offset: float = 0.02,      # 抓取高度微调 (m)
     grasp_rpy: list[float] = [3.14159, 0.0, 3.14159]  # 抓取姿态 (rad)
@@ -474,7 +487,7 @@ IDLE → DETECTING → APPROACHING → DESCENDING → GRASPING → LIFTING → D
 
 ## RobotControllerNode — ROS2 控制节点
 
-**头文件**: `robot_controller_node.hpp`
+**头文件**: `nodes/robot_controller_node.hpp` · **Target**: `robot_nodes`
 
 ### 工厂方法
 
@@ -522,7 +535,7 @@ logger.error("错误")
 
 ## VisionProcessorNode — ROS2 视觉节点
 
-**头文件**: `vision_processor_node.hpp`
+**头文件**: `nodes/vision_processor_node.hpp` · **Target**: `robot_nodes`
 
 ### 工厂方法
 
@@ -751,7 +764,7 @@ pybind11 绑定中，所有阻塞方法自动释放 Python GIL：
 
 ```cpp
 #pragma once
-#include "robot_control_cpp/robot_profile.hpp"
+#include "robot_control_cpp/kinematics/robot_profile.hpp"
 
 namespace robot_control::profiles {
 
@@ -843,9 +856,11 @@ finally:
 
 ```cmake
 add_executable(test_my_feature test/test_my_feature.cpp)
-target_link_libraries(test_my_feature robot_control_cpp::robot_control_core)
+target_link_libraries(test_my_feature robot_control_cpp::robot_kinematics)
+# 或需要运动控制器:
+# target_link_libraries(test_my_feature robot_control_cpp::robot_motion)
 # 或需要 ROS2 节点:
-# target_link_libraries(test_my_feature robot_control_cpp::robot_control_nodes)
+# target_link_libraries(test_my_feature robot_control_cpp::robot_nodes)
 install(TARGETS test_my_feature RUNTIME DESTINATION lib/${PROJECT_NAME})
 ```
 
