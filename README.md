@@ -118,17 +118,17 @@ isaac_ros_project/
 │  │ + RosMotionBridge    │ │ + GraspTaskManager        │  │
 │  └──────────┬───────────┘ └──────────┬────────────────┘  │
 ├─────────────┼────────────────────────┼───────────────────┤
-│  Layer 1: Pure C++ Core (无 ROS 依赖)                    │
-│  ┌──────────▼──────────┐ ┌─────────▼──────────────────┐  │
-│  │ robot_kinematics     │ │ robot_vision               │  │
+│  Layer 1: Pure C++ Core (无 ROS 依赖)│                   │
+│  ┌──────────▼──────────┐ ┌───────────▼────────────────┐  │
+│  │ robot_kinematics    │ │ robot_vision               │  │
 │  │ IKSolver (KDL + DLS)│ │ ColorDetector (OpenCV HSV) │  │
-│  │ SCurvePlanner        │ │ CameraInterface            │  │
-│  │ RobotProfile         │ │ IVisionProcessor           │  │
+│  │ SCurvePlanner       │ │ CameraInterface            │  │
+│  │ RobotProfile        │ │ IVisionProcessor           │  │
 │  └──────────┬──────────┘ └────────────────────────────┘  │
-│             │                                             │
+│             │                                            │
 │  ┌──────────▼──────────────────────────────────────────┐ │
 │  │ robot_motion                                        │ │
-│  │ RobotMotionController + IRobotController             │ │
+│  │ RobotMotionController + IRobotController            │ │
 │  │ MotionIOBridge                                      │ │
 │  └─────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
@@ -266,7 +266,7 @@ rc.rclcpp_shutdown()
 
 ## 详细文档
 
-完整 API 接口文档见 [doc/api.md](doc/api.md)，涵盖：
+完整 API 接口文档见 [docs/api.md](docs/api.md)，涵盖：
 - C++ API 参考（所有公开类、方法签名）
 - Python 绑定 API 参考（类型映射、使用示例）
 - 开发指南（添加新机器人、替换视觉算法）
