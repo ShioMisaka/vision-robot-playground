@@ -103,7 +103,7 @@ src/
     package.xml                   # depend on robot_control_cpp
 
   # === ROS2 自定义消息包 ===
-  robot_control_msgs/
+  robot_control_msgs/              # 原始服务接口（保留，向后兼容）
     srv/
       SolveIK.srv                 # IK 求解服务
       MoveJoint.srv               # 关节运动服务
@@ -113,6 +113,21 @@ src/
       GoHome.srv                  # 回 Home 服务
       SetSpeed.srv                # 速度设置服务
       GetRobotState.srv           # 状态查询服务
+    CMakeLists.txt
+    package.xml
+
+  # === 示教器接口包 ===
+  arm_control_interfaces/         # 标准化示教器接口（Actions + Services + Messages）
+    action/
+      MoveJ.action                # 关节/笛卡尔运动 Action（带反馈）
+      MoveL.action                # 线性运动 Action（带反馈）
+    srv/
+      SetTCP.srv                  # 设置 TCP 工具坐标系
+      SetSpeedRatio.srv           # 设置全局速度比（0.0-1.0）
+      RobotCmd.srv                # 机器人命令（STOP/EMERGENCY_STOP/CLEAR_FAULT）
+    msg/
+      RobotStatus.msg             # 机器人状态（状态机 + 遥测）
+      JogCommand.msg              # Jog 点动速度命令
     CMakeLists.txt
     package.xml
 
@@ -166,7 +181,10 @@ urdf/
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图（uint16 mm 或 float32 m） |
 
-## ROS2 Services（robot_controller_node）
+## ROS2 Services（robot_controller_node - 兼容层）
+
+**保留用于向后兼容和 Python 脚本**。示教器应使用 Actions。
+
 | Service | 类型 | 说明 |
 |---------|------|------|
 | `~/solve_ik` | SolveIK | IK 求解（xyz, rpy → joint_angles） |
@@ -178,48 +196,138 @@ urdf/
 | `~/set_speed` | SetSpeed | 设置速度（mode: 0=moveJ, 1=moveL, percent: 0-100） |
 | `~/get_state` | GetRobotState | 查询状态（关节角、位姿、夹爪、TCP） |
 
+## ROS2 Actions（robot_controller_node - 示教器接口）
+
+**来自 arm_control_interfaces 包**，提供带进度反馈的非阻塞运动控制。
+
+| Action | 说明 |
+|--------|------|
+| `~/move_j` | MoveJ — 关节空间/笛卡尔空间运动（支持 IK） |
+| `~/move_l` | MoveL — 线性插值运动 |
+
+**Action 反馈字段：**
+- `progress` — 0.0~1.0 进度百分比
+- `current_joint_angles` — 当前关节角
+- `estimated_time_remaining` — 预计剩余时间（秒）
+
+## ROS2 Services（robot_controller_node - 示教器专用）
+
+**来自 arm_control_interfaces 包**，供示教器调用。
+
+| Service | 类型 | 说明 |
+|---------|------|------|
+| `~/set_tcp` | SetTCP | 设置当前 TCP 工具坐标系名称 |
+| `~/set_speed_ratio` | SetSpeedRatio | 设置全局速度比（0.0-1.0），与模式速度复合 |
+| `~/robot_cmd` | RobotCmd | 机器人命令：STOP（停止）、EMERGENCY_STOP（急停）、CLEAR_FAULT（清除故障） |
+
+## ROS2 Messages（arm_control_interfaces）
+
+| Message | 类型 | 说明 |
+|---------|------|------|
+| `RobotStatus` | Pub（10Hz） | 机器人状态（状态机、速度比、错误码、关节角、位姿、夹爪、TCP） |
+| `JogCommand` | Sub | Jog 点动命令（6 轴速度：vx,vy,vz,vroll,vpitch,vyaw） |
+
+## 状态机（RobotStateMachine）
+
+**状态定义：**
+- `kIdle` — 空闲，可接受新命令
+- `kMoving` — 运动中（Action 执行）
+- `kTeaching` — 示教模式（Jog 点动）
+- `kStopping` — 停止中（减速到停止）
+- `kFault` — 故障状态（需 CLEAR_FAULT 恢复）
+
+**有效转换：**
+- kIdle → kMoving/kTeaching（命令触发）
+- kMoving → kIdle/kStopping/kFault（完成/停止/错误）
+- kTeaching → kIdle/kStopping/kFault（停止/超时/急停）
+- kStopping → kIdle/kFault（停止完成/急停）
+- kFault → kIdle（CLEAR_FAULT）
+- **任意状态 → kFault**（EMERGENCY_STOP，最高优先级）
+
+**Jog 看门狗：** 200ms 无 JogCommand 则自动停止（kTeaching → kIdle）。
+
+## 速度复合规则
+
+有效速度 = 模式速度（SetSpeed 设置） × 全局速度比（SetSpeedRatio 设置）
+
+示例：模式速度 50% × 全局比 0.8 = 有效速度 40%
+
 ## 常用命令
 ```bash
-# 编译消息定义
+# === 编译消息定义 ===
+# 原始服务接口（保留，向后兼容）
 colcon build --base-paths src --packages-select robot_control_msgs
 
-# 编译 C++ 核心库（含 Service Server）
+# 示教器接口包（Actions + Services + Messages）
+colcon build --base-paths src --packages-select arm_control_interfaces
+
+# === 编译核心库 ===
 colcon build --base-paths src --packages-select robot_control_cpp
 
-# 编译示教器（需先编译 msgs + core）
+# === 编译示教器（需先编译 msgs + interfaces + core）===
 source install/setup.zsh
 colcon build --base-paths src --packages-select teaching_pendant
 
-# 编译 pybind11 绑定包（需先编译核心库）
+# === 编译 pybind11 绑定包 ===
 source install/setup.zsh
 colcon build --base-paths src --packages-select robot_control_cpp_py
 
-# 编译测试与演示
+# === 编译测试与演示 ===
 colcon build --base-paths src --packages-select robot_control_test
 
-# 一键编译全部
-colcon build --base-paths src --packages-up-to robot_control_cpp_py
+# === 一键编译全部 ===
+colcon build --base-paths src
 
-# 编译示教器及其依赖
+# === 编译示教器及其依赖（推荐）===
 colcon build --base-paths src --packages-up-to teaching_pendant
 
-# 运行 C++ 演示（需要 Isaac Sim）
+# === Action CLI 测试 ===
+# 发送 MoveJ Goal（笛卡尔模式，带 IK）
+ros2 action send /move_j arm_control_interfaces/action/MoveJ "
+  mode: 1
+  position: {x: 0.5, y: 0.0, z: 0.3}
+  orientation: {x: 0.0, y: -1.57, z: -1.57}
+  speed_ratio: 0.5
+  finger_width: 0.04
+"
+
+# 取消 Action
+ros2 action cancel /move_j
+
+# 查看 Action 反馈
+ros2 action feedback /move_j
+
+# === Service CLI 测试 ===
+# 设置全局速度比
+ros2 service call /robot_controller_node/set_speed_ratio arm_control_interfaces/srv/SetSpeedRatio "{ratio: 0.8}"
+
+# 急停
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 1}"
+
+# 清除故障
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 2}"
+
+# === 运行演示 ===
+# C++ 演示（需要 Isaac Sim）
 ros2 run robot_control_test demo_grasp_tcp
 
-# 运行 Python 演示（C++ 后端，需要 Isaac Sim）
+# Python 演示（C++ 后端，需要 Isaac Sim）
 python3 script/test_move_cpp.py
 python3 script/test_grasp_tcp_cpp.py
 python3 script/test_vision_cpp.py
 
-# 运行 Python 演示（纯 Python 后端）
+# Python 演示（纯 Python 后端）
 python3 script/test_move.py
 python3 script/test_vision.py
 
-# 查看 ROS2 话题
-ros2 topic list
-
-# 运行示教器（需要 Isaac Sim + robot_controller_node 运行中）
+# === 运行示教器 ===
+# 需要 Isaac Sim + robot_controller_node 运行中
 ros2 run teaching_pendant teaching_pendant
+
+# === 查看系统状态 ===
+ros2 topic list
+ros2 topic echo /robot_controller_node/status
+ros2 action list
 ```
 
 ## Python 绑定使用模式

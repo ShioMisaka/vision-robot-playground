@@ -25,6 +25,7 @@ robot_nodes        — ROS2 节点 + 任务管理（依赖 motion + vision）
 - [GraspTaskManager — 抓取状态机](#grasptaskmanager--抓取状态机)
 - [RobotControllerNode — ROS2 控制节点](#robotcontrollernode--ros2-控制节点)
 - [VisionProcessorNode — ROS2 视觉节点](#visionprocessornode--ros2-视觉节点)
+- [示教器接口 — arm_control_interfaces](#示教器接口--arm_control_interfaces)
 - [Profile 工厂函数](#profile-工厂函数)
 - [Python 绑定完整参考](#python-绑定完整参考)
 - [C++ / Python 类型映射](#c--python-类型映射)
@@ -158,6 +159,45 @@ rc.GraspState.LIFTING       # 提升中
 rc.GraspState.DONE          # 完成
 rc.GraspState.ERROR         # 错误
 ```
+
+---
+
+### RobotState — 机器人状态枚举
+
+**头文件**: `nodes/robot_state.hpp`
+
+```cpp
+enum class RobotState : uint8_t {
+  kIdle = 0,
+  kMoving = 1,
+  kTeaching = 2,
+  kStopping = 3,
+  kFault = 4,
+};
+```
+
+**Python**: `rc.RobotState` 枚举
+
+```python
+rc.RobotState.IDLE          # 0 - 空闲
+rc.RobotState.MOVING        # 1 - 运动中
+rc.RobotState.TEACHING      # 2 - 示教模式
+rc.RobotState.STOPPING      # 3 - 停止中
+rc.RobotState.FAULT         # 4 - 故障
+```
+
+### TrajectoryPoint — 轨迹点
+
+**头文件**: `nodes/trajectory_executor.hpp`
+
+```cpp
+struct TrajectoryPoint {
+  std::vector<double> positions;  // 关节位置
+  double time_from_start;         // 从开始的时间（秒）
+};
+```
+
+**Python**: `rc.TrajectoryPoint`
 
 ---
 
@@ -573,6 +613,295 @@ logger: rc.Logger = vision.get_logger()
 ### 图像同步
 
 内部使用 `message_filters::ApproximateTime` 策略同步 RGB + 深度图像，时间容差 0.1s，队列大小 10。
+
+---
+
+## RobotStateMachine — 机器人状态机
+
+**头文件**: `nodes/robot_state.hpp` · **Target**: `robot_nodes`
+
+线程安全的状态机，用于示教器模式下的状态管理。
+
+### 方法
+
+#### `state` — 获取当前状态
+
+```python
+state: rc.RobotState = state_machine.state()
+```
+
+#### `transition_to` — 状态转移
+
+```cpp
+bool transition_to(RobotState target);
+```
+
+尝试转移到目标状态，如果转换无效则返回 false。
+
+#### `force_state` — 强制设置状态
+
+```cpp
+void force_state(RobotState new_state);
+```
+
+绕过状态转换验证，直接设置状态（用于 EMERGENCY_STOP）。
+
+#### `is_valid_transition` — 检查转换有效性
+
+```cpp
+static bool is_valid_transition(RobotState from, RobotState to);
+```
+
+---
+
+## TrajectoryExecutor — 非阻塞轨迹执行器
+
+**头文件**: `nodes/trajectory_executor.hpp` · **Target**: `robot_nodes`
+
+非阻塞轨迹执行器，用于 Action 的进度反馈。
+
+### 方法
+
+#### `start` — 启动轨迹执行
+
+```cpp
+void start(const std::vector<TrajectoryPoint>& trajectory,
+           const RobotProfile& profile,
+           const GripperProfile& gripper,
+           const std::string& tcp_name,
+           std::shared_ptr<MotionIOBridge> bridge);
+```
+
+启动预规划轨迹的执行，不阻塞调用线程。
+
+#### `get_progress` — 获取进度
+
+```cpp
+bool get_progress(double& out_progress,
+                  std::vector<double>& out_current_angles,
+                  double& out_time_remaining) const;
+```
+
+返回当前执行进度。如果无活跃轨迹，返回 false。
+
+#### `cancel` — 取消轨迹
+
+```cpp
+void cancel();
+```
+
+请求取消，触发受控减速停止。
+
+#### `is_active` — 检查活跃状态
+
+```cpp
+bool is_active() const;
+```
+
+#### `wait_for_completion` — 等待完成
+
+```cpp
+bool wait_for_completion(double timeout_seconds = 30.0);
+```
+
+阻塞等待轨迹执行完成或超时。
+
+---
+
+## 示教器接口 — arm_control_interfaces
+
+标准化 ROS2 接口包，提供 Actions（带反馈）、Services 和 Messages 用于示教器集成。
+
+### 包信息
+
+- **包名**: `arm_control_interfaces`
+- **依赖**: `rclcpp_action`, `geometry_msgs`, `action_msgs`
+- **安装位置**: `src/arm_control_interfaces/`
+
+### Actions
+
+#### MoveJ.action — 关节/笛卡尔运动
+
+**Goal 字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `mode` | uint8 | 0=JOINT_SPACE（关节角），1=CARTESIAN（笛卡尔） |
+| `joint_angles` | float64[7] | 关节目标角度（mode=0 时使用） |
+| `position` | geometry_msgs/Point | 目标位置 xyz（mode=1 时使用） |
+| `orientation` | geometry_msgs/Vector3 | 目标姿态 RPY（mode=1 时使用） |
+| `speed_ratio` | float64 | 速度比 0.0-1.0 |
+| `finger_width` | float64 | 夹爪目标宽度（m） |
+
+**Result 字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | bool | 是否成功 |
+| `message` | string | 结果消息 |
+| `final_joint_angles` | float64[7] | 最终关节角 |
+| `final_tcp_pose` | float64[6] | 最终 TCP 位姿 [x,y,z,roll,pitch,yaw] |
+
+**Feedback 字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `progress` | float64 | 进度 0.0-1.0 |
+| `current_joint_angles` | float64[7] | 当前关节角 |
+| `estimated_time_remaining` | float64 | 预计剩余时间（秒） |
+
+#### MoveL.action — 线性运动
+
+**Goal 字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `position` | geometry_msgs/Point | 目标位置 xyz |
+| `orientation` | geometry_msgs/Vector3 | 目标姿态 RPY |
+| `frame` | string | 参考坐标系（默认 "base"） |
+| `speed_ratio` | float64 | 速度比 0.0-1.0 |
+| `finger_width` | float64 | 夹爪目标宽度（m） |
+
+**Result 字段：** 同 MoveJ
+
+**Feedback 字段：** 同 MoveJ
+
+### Services
+
+#### SetTCP.srv — 设置 TCP
+
+**Request：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | TCP 名称（如 "hand", "grasptarget"） |
+
+**Response：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | bool | 是否成功 |
+| `message` | string | 结果消息 |
+
+#### SetSpeedRatio.srv — 设置全局速度比
+
+**Request：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ratio` | float64 | 全局速度比 0.0-1.0 |
+
+**Response：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | bool | 是否成功 |
+| `message` | string | 结果消息 |
+
+**复合规则：** `effective_speed = per_mode_speed * ratio`
+
+#### RobotCmd.srv — 机器人命令
+
+**Request：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `command` | uint8 | 0=STOP, 1=EMERGENCY_STOP, 2=CLEAR_FAULT |
+
+**Response：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | bool | 是否成功 |
+| `message` | string | 结果消息 |
+
+### Messages
+
+#### RobotStatus.msg — 机器人状态
+
+**发布频率：** 10Hz
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `state` | uint8 | 状态机状态（0=IDLE, 1=MOVING, 2=TEACHING, 3=STOPPING, 4=FAULT） |
+| `speed_ratio` | float64 | 当前全局速度比 |
+| `error_code` | int32 | 错误码（0=无错误） |
+| `error_message` | string | 错误消息 |
+| `joint_angles` | float64[7] | 当前关节角（rad） |
+| `tcp_pose` | float64[6] | 当前 TCP 位姿 [x,y,z,roll,pitch,yaw] |
+| `finger_width` | float64 | 夹爪宽度（m） |
+| `tcp_name` | string | 当前 TCP 名称 |
+| `is_connected` | bool | 是否已连接 |
+
+#### JogCommand.msg — Jog 点动命令
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `mode` | uint8 | 0=CARTESIAN_JOG（笛卡尔点动） |
+| `velocity` | float64[6] | 速度 [vx,vy,vz,vroll,vpitch,vyaw] |
+| `stamp` | builtin_interfaces/Time | 时间戳 |
+
+### 状态机
+
+**RobotState 枚举：**
+
+```cpp
+enum class RobotState : uint8_t {
+  kIdle = 0,       // 空闲
+  kMoving = 1,     // 运动中
+  kTeaching = 2,   // 示教模式
+  kStopping = 3,   // 停止中
+  kFault = 4,      // 故障
+};
+```
+
+**有效转换：**
+
+| From | To | 触发条件 |
+|------|----|----|
+| kIdle | kMoving | MoveJ/MoveL Goal 接受 |
+| kIdle | kTeaching | 首个 JogCommand 接收 |
+| kMoving | kIdle | 运动完成 |
+| kMoving | kStopping | STOP 命令或 Action 取消 |
+| kMoving | kFault | 执行错误或 EMERGENCY_STOP |
+| kTeaching | kIdle | 零速度 jog 或显式停止 |
+| kTeaching | kStopping | 看门狗超时（200ms） |
+| kTeaching | kFault | EMERGENCY_STOP |
+| kStopping | kIdle | 停止成功 |
+| kStopping | kFault | 减速失败或 EMERGENCY_STOP |
+| kFault | kIdle | CLEAR_FAULT 命令 |
+| **任意** | kFault | EMERGENCY_STOP（最高优先级） |
+
+### CLI 使用示例
+
+```bash
+# 发送 MoveJ Goal（笛卡尔模式）
+ros2 action send /move_j arm_control_interfaces/action/MoveJ "
+  mode: 1
+  position: {x: 0.5, y: 0.0, z: 0.3}
+  orientation: {x: 0.0, y: -1.57, z: -1.57}
+  speed_ratio: 0.5
+  finger_width: 0.04
+"
+
+# 查看反馈
+ros2 action feedback /move_j
+
+# 取消 Action
+ros2 action cancel /move_j
+
+# 设置全局速度比
+ros2 service call /robot_controller_node/set_speed_ratio arm_control_interfaces/srv/SetSpeedRatio "{ratio: 0.8}"
+
+# 急停
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 1}"
+
+# 清除故障
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 2}"
+
+# 监听状态
+ros2 topic echo /robot_controller_node/status
+```
 
 ---
 

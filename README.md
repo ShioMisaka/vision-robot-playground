@@ -12,6 +12,7 @@
 - **TF2 集成**: 自动发布末端执行器 TF 变换链，支持坐标系变换查询
 - **多机器人扩展**: 通过 `RobotProfile` 配置驱动，核心库无需修改
 - **Python 绑定**: pybind11 将 C++ 核心库暴露给 Python，脚本可直接调用 C++ 后端
+- **示教器接口**: 标准化 ROS2 Actions（MoveJ/MoveL）带进度反馈，状态机保护，Jog 点动，急停与看门狗
 
 ## 环境要求
 
@@ -45,6 +46,21 @@ sudo apt install ros-jazzy-rclcpp ros-jazzy-sensor-msgs ros-jazzy-geometry-msgs 
 ```
 isaac_ros_project/
 ├── src/
+│   ├── robot_control_msgs/          # 原始服务接口（保留，向后兼容）
+│   │   └── srv/                     # 8 个 Service（SolveIK, MoveJoint, MovePose 等）
+│   │
+│   ├── arm_control_interfaces/      # 示教器接口包（Actions + Services + Messages）
+│   │   ├── action/                  # Actions（带进度反馈）
+│   │   │   ├── MoveJ.action         # 关节/笛卡尔运动 Action
+│   │   │   └── MoveL.action         # 线性运动 Action
+│   │   ├── srv/                     # Services
+│   │   │   ├── SetTCP.srv           # 设置 TCP
+│   │   │   ├── SetSpeedRatio.srv    # 全局速度比
+│   │   │   └── RobotCmd.srv         # STOP/EMERGENCY_STOP/CLEAR_FAULT
+│   │   └── msg/                     # Messages
+│   │       ├── RobotStatus.msg      # 状态 + 遥测（10Hz 发布）
+│   │       └── JogCommand.msg       # Jog 点动命令
+│   │
 │   ├── robot_control_cpp/          # C++ 核心库包（纯库，4 个 CMake target）
 │   │   ├── include/robot_control_cpp/
 │   │   │   ├── profiles/                   # 机器人配置文件
@@ -64,6 +80,8 @@ isaac_ros_project/
 │   │   │   │   └── color_detector.hpp      # ColorDetector（OpenCV HSV）
 │   │   │   └── nodes/                      # robot_nodes target（依赖 motion + vision）
 │   │   │       ├── topic_config.hpp        # TopicConfig + CameraExtrinsics
+│   │   │       ├── robot_state.hpp         # RobotStateMachine 状态机
+│   │   │       ├── trajectory_executor.hpp # 非阻塞轨迹执行器
 │   │   │       ├── grasp_task_manager.hpp  # GraspTaskManager 状态机
 │   │   │       ├── robot_controller_node.hpp
 │   │   │       └── vision_processor_node.hpp
@@ -86,7 +104,14 @@ isaac_ros_project/
 │   │   └── demo/
 │   │       └── demo_grasp_tcp.cpp          # TCP 抓取演示
 │   │
-│   └── *.py                        # Python 原始模块（保留供参考）
+│   └── teaching_pendant/           # Qt5 示教器包
+│       ├── include/teaching_pendant/
+│       │   ├── pendant_node.hpp            # ROS2 节点（Action/Service 客户端）
+│       │   └── main_window.hpp             # Qt5 主窗口
+│       └── src/
+│           ├── pendant_node.cpp            # 通信后端实现
+│           ├── main_window.cpp             # GUI 实现
+│           └── main.cpp                    # 入口
 │
 ├── script/
 │   ├── test_move_cpp.py            # Python + C++ 后端：IK 位姿控制
@@ -98,7 +123,12 @@ isaac_ros_project/
 │   ├── test_joint_state.py         # 关节状态读取
 │   └── test_camera.py              # 相机图像显示
 │
-├── doc/
+├── docs/
+│   ├── superpowers/                # 开发流程文档
+│   │   ├── specs/                  # 设计规格
+│   │   │   └── 2026-04-10-pendant-interface-design.md
+│   │   └── plans/                  # 实现计划
+│   │       └── 2026-04-10-pendant-interface.md
 │   └── api.md                      # 完整 API 接口文档
 ├── urdf/
 │   └── panda.urdf                  # Franka Panda URDF 模型
@@ -148,22 +178,28 @@ script/*.py ──→ robot_control_cpp_py（运行时）
 ```bash
 source /opt/ros/jazzy/setup.zsh
 
-# 一键编译全部（核心库 + 绑定 + 测试）
-colcon build --base-paths src --packages-up-to robot_control_cpp_py
+# 一键编译全部（核心库 + 绑定 + 测试 + 示教器）
+colcon build --base-paths src
 
-# 或分步编译
-colcon build --base-paths src --packages-select robot_control_cpp     # 核心库
+# 或分步编译（按依赖顺序）
+colcon build --base-paths src --packages-select robot_control_msgs        # 原始服务接口
+colcon build --base-paths src --packages-select arm_control_interfaces    # 示教器接口
+colcon build --base-paths src --packages-select robot_control_cpp         # C++ 核心库
 source install/setup.zsh
-colcon build --base-paths src --packages-select robot_control_cpp_py  # Python 绑定
-colcon build --base-paths src --packages-select robot_control_test    # C++ 测试
+colcon build --base-paths src --packages-select robot_control_cpp_py      # Python 绑定
+colcon build --base-paths src --packages-select robot_control_test        # C++ 测试
+colcon build --base-paths src --packages-select teaching_pendant          # Qt5 示教器
 ```
 
 **编译产物：**
+- `install/robot_control_msgs/` — ROS2 服务定义
+- `install/arm_control_interfaces/` — ROS2 Actions/Services/Messages 定义
 - `install/robot_control_cpp/lib/librobot_kinematics.so` — IK + 轨迹规划
 - `install/robot_control_cpp/lib/librobot_motion.so` — 运动控制器
 - `install/robot_control_cpp/lib/librobot_vision.so` — 视觉处理
 - `install/robot_control_cpp/lib/librobot_nodes.so` — ROS2 节点
 - `install/robot_control_cpp_py/` — pybind11 Python 模块
+- `install/teaching_pendant/lib/teaching_pendant` — Qt5 示教器可执行文件
 
 ## 运行
 
@@ -264,10 +300,84 @@ rc.rclcpp_shutdown()
 | `/joint_states` | sensor_msgs/JointState | Sub | Isaac Sim 关节反馈 |
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图 |
+| `/robot_controller_node/status` | arm_control_interfaces/RobotStatus | Pub | 机器人状态（10Hz） |
+| `/jog_command` | arm_control_interfaces/JogCommand | Sub | Jog 点动命令 |
+
+## 示教器接口（arm_control_interfaces）
+
+标准化 ROS2 接口，用于连接示教器与机器人控制节点。
+
+### Actions
+
+**MoveJ** — 关节/笛卡尔空间运动，带进度反馈
+
+```bash
+# 发送 Goal（笛卡尔模式，IK 自动求解）
+ros2 action send /move_j arm_control_interfaces/action/MoveJ "
+  mode: 1
+  position: {x: 0.5, y: 0.0, z: 0.3}
+  orientation: {x: 0.0, y: -1.57, z: -1.57}
+  speed_ratio: 0.5
+  finger_width: 0.04
+"
+
+# 查看反馈
+ros2 action feedback /move_j
+
+# 取消运动
+ros2 action cancel /move_j
+```
+
+**MoveL** — 线性插值运动
+
+```bash
+ros2 action send /move_l arm_control_interfaces/action/MoveL "
+  position: {x: 0.4, y: 0.1, z: 0.25}
+  orientation: {x: 0.0, y: -1.57, z: -1.57}
+  frame: 'base'
+  speed_ratio: 0.3
+  finger_width: 0.04
+"
+```
+
+### Services
+
+```bash
+# 设置全局速度比（与模式速度复合）
+ros2 service call /robot_controller_node/set_speed_ratio arm_control_interfaces/srv/SetSpeedRatio "{ratio: 0.8}"
+
+# 急停（任意状态 → kFault）
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 1}"
+
+# 停止（减速停止）
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 0}"
+
+# 清除故障（kFault → kIdle）
+ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 2}"
+
+# 切换 TCP
+ros2 service call /robot_controller_node/set_tcp arm_control_interfaces/srv/SetTCP "{name: 'grasptarget'}"
+```
+
+### 状态机
+
+**状态：** kIdle → kMoving → kStopping → kFault（循环）
+
+- kIdle：空闲，可接受命令
+- kMoving：Action 执行中
+- kTeaching：Jog 点动模式
+- kStopping：减速停止
+- kFault：故障，需 CLEAR_FAULT
+
+**安全特性：**
+- Jog 看门狗：200ms 无命令自动停止
+- EMERGENCY_STOP：立即进入 kFault
+- Action 支持取消
 
 ## 详细文档
 
 完整 API 接口文档见 [docs/api.md](docs/api.md)，涵盖：
 - C++ API 参考（所有公开类、方法签名）
 - Python 绑定 API 参考（类型映射、使用示例）
+- 示教器接口（Actions、Services、Messages、状态机）
 - 开发指南（添加新机器人、替换视觉算法）
