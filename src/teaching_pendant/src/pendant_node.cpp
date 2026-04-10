@@ -1,6 +1,7 @@
 #include "teaching_pendant/pendant_node.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <iostream>
 
@@ -108,7 +109,8 @@ void PendantNode::init() {
 }
 
 PendantNode::~PendantNode() {
-  emergency_stop();
+  stop_joint_stream();
+  stop_jog();
   task_running_ = false;
   task_cv_.notify_all();
   if (task_thread_.joinable()) {
@@ -396,7 +398,67 @@ void PendantNode::jog_loop() {
 }
 
 void PendantNode::emergency_stop() {
+  pause_joint_stream();
   stop_jog();
+}
+
+// ===== Joint Stream Control =====
+
+void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
+  if (joint_stream_running_.load()) return;
+  {
+    std::lock_guard<std::mutex> lock(joint_stream_mutex_);
+    joint_stream_target_ = initial;
+    joint_stream_dirty_ = false;
+  }
+  joint_stream_running_ = true;
+  joint_stream_paused_ = false;
+  joint_stream_thread_ = std::thread([this]() {
+    while (joint_stream_running_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      if (joint_stream_paused_.load()) continue;
+      std::array<double, 7> target;
+      bool should_send = false;
+      {
+        std::lock_guard<std::mutex> lock(joint_stream_mutex_);
+        if (!joint_stream_dirty_) continue;
+        target = joint_stream_target_;
+        joint_stream_dirty_ = false;
+        should_send = true;
+      }
+      if (!should_send) continue;
+      if (!cli_move_joint_->service_is_ready()) continue;
+      auto req = std::make_shared<robot_control_msgs::srv::MoveJoint::Request>();
+      req->joint_angles.assign(target.begin(), target.end());
+      req->block = false;
+      auto future = cli_move_joint_->async_send_request(req);
+      if (future.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Joint stream send timeout");
+      }
+    }
+  });
+}
+
+void PendantNode::update_joint_target(const std::array<double, 7>& target) {
+  std::lock_guard<std::mutex> lock(joint_stream_mutex_);
+  joint_stream_target_ = target;
+  joint_stream_dirty_ = true;
+}
+
+void PendantNode::stop_joint_stream() {
+  joint_stream_running_ = false;
+  if (joint_stream_thread_.joinable()) {
+    joint_stream_thread_.join();
+  }
+}
+
+void PendantNode::pause_joint_stream() {
+  joint_stream_paused_ = true;
+}
+
+void PendantNode::resume_joint_stream() {
+  joint_stream_paused_ = false;
 }
 
 }  // namespace teaching_pendant

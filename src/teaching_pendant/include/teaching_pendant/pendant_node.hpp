@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <mutex>
@@ -85,6 +86,14 @@ public:
 
   void emergency_stop();
 
+  // === 关节实时流控 ===
+
+  void start_joint_stream(const std::array<double, 7>& initial);
+  void update_joint_target(const std::array<double, 7>& target);
+  void stop_joint_stream();
+  void pause_joint_stream();
+  void resume_joint_stream();
+
   // === 连接状态 ===
 
   bool is_robot_connected() const { return robot_connected_.load(); }
@@ -146,6 +155,14 @@ private:
   std::atomic<double> jog_direction_{0.0};
   std::atomic<uint8_t> jog_mode_{0};
   std::thread jog_thread_;
+
+  // Joint stream state
+  std::mutex joint_stream_mutex_;
+  std::array<double, 7> joint_stream_target_{};
+  bool joint_stream_dirty_ = false;
+  std::thread joint_stream_thread_;
+  std::atomic<bool> joint_stream_running_{false};
+  std::atomic<bool> joint_stream_paused_{false};
 
   // 后台任务队列
   std::mutex task_mutex_;
