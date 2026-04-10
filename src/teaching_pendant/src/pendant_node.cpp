@@ -421,10 +421,11 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
       bool should_send = false;
       {
         std::lock_guard<std::mutex> lock(joint_stream_mutex_);
-        if (!joint_stream_dirty_) continue;
-        target = joint_stream_target_;
-        joint_stream_dirty_ = false;
-        should_send = true;
+        if (joint_stream_dirty_) {
+          target = joint_stream_target_;
+          joint_stream_dirty_ = false;
+          should_send = true;
+        }
       }
       if (!should_send) continue;
       if (!cli_move_joint_->service_is_ready()) continue;
