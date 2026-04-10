@@ -428,7 +428,11 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
         }
       }
       if (!should_send) continue;
-      if (!cli_move_joint_->service_is_ready()) continue;
+      if (!cli_move_joint_->service_is_ready()) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+                             "Joint stream: move_joint service not ready");
+        continue;
+      }
       auto req = std::make_shared<robot_control_msgs::srv::MoveJoint::Request>();
       req->joint_angles.assign(target.begin(), target.end());
       req->block = false;
@@ -449,6 +453,7 @@ void PendantNode::update_joint_target(const std::array<double, 7>& target) {
 
 void PendantNode::stop_joint_stream() {
   joint_stream_running_ = false;
+  joint_stream_paused_ = false;
   if (joint_stream_thread_.joinable()) {
     joint_stream_thread_.join();
   }
