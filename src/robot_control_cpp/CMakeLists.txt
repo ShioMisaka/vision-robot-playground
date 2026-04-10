@@ -131,6 +131,8 @@ ament_export_dependencies(
   message_filters
   image_transport
   robot_control_msgs
+  rclcpp_action
+  arm_control_interfaces
   orocos_kdl
   urdfdom
   urdf
