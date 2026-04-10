@@ -78,6 +78,7 @@ add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
   src/nodes/vision_processor_node.cpp
   src/nodes/grasp_task_manager.cpp
+  src/nodes/robot_state.cpp
 )
 
 target_include_directories(robot_nodes PUBLIC
