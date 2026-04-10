@@ -5,6 +5,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QDoubleSpinBox>
+#include <QLineEdit>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QGridLayout>
@@ -37,7 +38,6 @@ private slots:
   void onCloseGripper();
   void onGoHome();
   void onEmergencyStop();
-  void onMoveJoint();
   void onMovePose();
   void onSetSpeedJ(int value);
   void onSetSpeedL(int value);
@@ -61,6 +61,17 @@ private:
   // Jog button helper
   QPushButton* createJogButton(const QString& text, int axis);
 
+  // Unit conversion helpers
+  static double radToDeg(double rad);
+  static double degToRad(double deg);
+  static int degToSlider(double deg);
+  static double sliderToDeg(int val);
+  void syncSliderToState(int joint, double rad);
+  void onJointSliderPressed(int joint);
+  void onJointSliderReleased(int joint);
+  void onJointEditFinished(int joint);
+  void onJointFollowTick();
+
   // ROS2 node
   std::shared_ptr<PendantNode> node_;
 
@@ -79,8 +90,13 @@ private:
   QLabel* label_robot_status_;
   QLabel* label_camera_status_;
 
-  // Joint control inputs
-  QDoubleSpinBox* spin_joint_[7];
+  // Joint slider controls
+  QSlider* slider_joint_[7];
+  QLineEdit* edit_joint_[7];
+  QTimer* joint_follow_timer_;
+  QTimer* lock_timer_[7];  // per-joint interaction lock timer
+  bool slider_is_controlled_[7] = {};
+  std::array<double, 7> last_streamed_joints_{};
 
   // Cartesian control inputs
   QDoubleSpinBox* spin_xyz_[3];
