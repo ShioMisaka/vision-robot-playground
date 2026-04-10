@@ -3,6 +3,17 @@
 #include <QPixmap>
 #include <QSizePolicy>
 #include <QFont>
+#include <cmath>
+
+namespace {
+
+// Panda joint limits in degrees (from panda_profile.hpp, converted)
+constexpr double kJointLowerDeg[7] = {
+    -166.0, -101.0, -166.0, -176.0, -166.0, -1.0, -166.0};
+constexpr double kJointUpperDeg[7] = {
+    166.0, 101.0, 166.0, -4.0, 166.0, 215.0, 166.0};
+
+}  // namespace
 
 namespace teaching_pendant {
 
@@ -40,6 +51,15 @@ MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
   refresh_timer_ = new QTimer(this);
   connect(refresh_timer_, &QTimer::timeout, this, &MainWindow::onRefreshState);
   refresh_timer_->start(200);  // 5Hz 异步查询
+
+  // 关节跟随定时器（50Hz）
+  joint_follow_timer_ = new QTimer(this);
+  connect(joint_follow_timer_, &QTimer::timeout, this, &MainWindow::onJointFollowTick);
+  joint_follow_timer_->start(20);
+
+  // 启动关节流控线程
+  std::array<double, 7> initial{};
+  node_->start_joint_stream(initial);
 
   // 初始状态
   label_robot_status_->setText("Disconnected");
@@ -147,30 +167,44 @@ QWidget* MainWindow::createControlPanel() {
   auto* h_layout = new QHBoxLayout(panel);
   h_layout->setSpacing(8);
 
-  // === 左侧：关节控制 ===
+  // === 左侧：关节控制（Slider + 角度输入）===
   auto* joint_group = new QGroupBox("Joint Control", this);
   auto* joint_layout = new QGridLayout(joint_group);
+  joint_layout->setColumnStretch(1, 1);  // slider stretches
 
   for (int i = 0; i < 7; ++i) {
     joint_layout->addWidget(new QLabel(QString("J%1:").arg(i + 1)), i, 0);
 
-    spin_joint_[i] = new QDoubleSpinBox(this);
-    spin_joint_[i]->setRange(-3.14159, 3.14159);
-    spin_joint_[i]->setDecimals(3);
-    spin_joint_[i]->setSingleStep(0.01);
-    spin_joint_[i]->setMinimumWidth(80);
-    joint_layout->addWidget(spin_joint_[i], i, 1);
+    slider_joint_[i] = new QSlider(Qt::Horizontal, this);
+    slider_joint_[i]->setRange(
+        degToSlider(kJointLowerDeg[i]),
+        degToSlider(kJointUpperDeg[i]));
+    slider_joint_[i]->setValue(0);
+    slider_joint_[i]->setTracking(true);
+    joint_layout->addWidget(slider_joint_[i], i, 1);
 
-    label_joints_[i] = new QLabel("0.000");
-    label_joints_[i]->setMinimumWidth(70);
-    label_joints_[i]->setFont(QFont("Monospace"));
-    joint_layout->addWidget(label_joints_[i], i, 2);
+    edit_joint_[i] = new QLineEdit("0.0°", this);
+    edit_joint_[i]->setFixedWidth(70);
+    edit_joint_[i]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    QFont mono("Monospace");
+    edit_joint_[i]->setFont(mono);
+    joint_layout->addWidget(edit_joint_[i], i, 2);
+
+    lock_timer_[i] = new QTimer(this);
+    lock_timer_[i]->setSingleShot(true);
+    lock_timer_[i]->setInterval(2000);
+
+    const int joint_idx = i;
+
+    connect(slider_joint_[joint_idx], &QSlider::sliderPressed, this,
+            [this, joint_idx]() { onJointSliderPressed(joint_idx); });
+    connect(slider_joint_[joint_idx], &QSlider::sliderReleased, this,
+            [this, joint_idx]() { onJointSliderReleased(joint_idx); });
+    connect(edit_joint_[joint_idx], &QLineEdit::editingFinished, this,
+            [this, joint_idx]() { onJointEditFinished(joint_idx); });
+    connect(lock_timer_[joint_idx], &QTimer::timeout, this,
+            [this, joint_idx]() { slider_is_controlled_[joint_idx] = false; });
   }
-
-  auto* btn_move_joint = new QPushButton("Move Joints", this);
-  btn_move_joint->setStyleSheet("padding: 6px; font-weight: bold;");
-  connect(btn_move_joint, &QPushButton::clicked, this, &MainWindow::onMoveJoint);
-  joint_layout->addWidget(btn_move_joint, 7, 0, 1, 3);
 
   h_layout->addWidget(joint_group, 2);
 
@@ -355,15 +389,6 @@ void MainWindow::onEmergencyStop() {
       "font-weight: bold; border: 2px solid #ff0000;");
 }
 
-void MainWindow::onMoveJoint() {
-  if (estop_active_.load()) return;
-  std::vector<double> angles;
-  for (int i = 0; i < 7; ++i) {
-    angles.push_back(spin_joint_[i]->value());
-  }
-  node_->async_move_joint(angles);
-}
-
 void MainWindow::onMovePose() {
   if (estop_active_.load()) return;
   std::array<double, 3> xyz{
@@ -395,9 +420,7 @@ void MainWindow::onJogRelease() {
 }
 
 void MainWindow::onRefreshState() {
-  if (estop_active_.load()) return;
-
-  // 综合话题订阅和服务可用性更新机器人连接状态
+  // Connection status updates even during e-stop
   bool robot_topic = node_->is_robot_connected();
   bool services = node_->are_services_ready();
   if (robot_topic && services) {
@@ -411,10 +434,8 @@ void MainWindow::onRefreshState() {
     label_robot_status_->setStyleSheet("color: red; font-weight: bold;");
   }
 
-  // 服务未就绪时跳过状态轮询，避免任务队列堆积超时任务
   if (!services) return;
 
-  // 异步查询状态，完成后通过 invokeMethod 更新 GUI
   node_->async_get_state(
       [this](bool success,
              const std::vector<double>& joints,
@@ -424,7 +445,8 @@ void MainWindow::onRefreshState() {
         if (!success) return;
         QMetaObject::invokeMethod(this, [this, joints, pose, finger, tcp]() {
           for (int i = 0; i < 7 && i < (int)joints.size(); ++i) {
-            label_joints_[i]->setText(QString::number(joints[i], 'f', 3));
+            syncSliderToState(i, joints[i]);
+            last_streamed_joints_[i] = joints[i];
           }
           for (int i = 0; i < 6; ++i) {
             label_pose_[i]->setText(QString::number(pose[i], 'f', 4));
@@ -433,6 +455,89 @@ void MainWindow::onRefreshState() {
           label_tcp_->setText(QString::fromStdString(tcp));
         });
       });
+}
+
+// ===== Joint slider slot implementations =====
+
+void MainWindow::syncSliderToState(int joint, double rad) {
+  if (slider_is_controlled_[joint]) return;
+  double deg = radToDeg(rad);
+  slider_joint_[joint]->blockSignals(true);
+  slider_joint_[joint]->setValue(degToSlider(deg));
+  slider_joint_[joint]->blockSignals(false);
+  edit_joint_[joint]->setText(QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
+}
+
+void MainWindow::onJointSliderPressed(int joint) {
+  slider_is_controlled_[joint] = true;
+  lock_timer_[joint]->stop();
+}
+
+void MainWindow::onJointSliderReleased(int joint) {
+  lock_timer_[joint]->start();
+}
+
+void MainWindow::onJointEditFinished(int joint) {
+  if (estop_active_.load()) return;
+
+  QString text = edit_joint_[joint]->text();
+  text.remove(QString::fromUtf8("\u00B0"));
+  bool ok = false;
+  double deg = text.toDouble(&ok);
+  if (!ok) return;
+
+  deg = std::max(kJointLowerDeg[joint], std::min(kJointUpperDeg[joint], deg));
+
+  slider_joint_[joint]->blockSignals(true);
+  slider_joint_[joint]->setValue(degToSlider(deg));
+  slider_joint_[joint]->blockSignals(false);
+
+  edit_joint_[joint]->setText(QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
+
+  std::array<double, 7> target{};
+  for (int i = 0; i < 7; ++i) {
+    target[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
+  }
+  node_->update_joint_target(target);
+  last_streamed_joints_ = target;
+
+  slider_is_controlled_[joint] = true;
+  lock_timer_[joint]->start();
+}
+
+void MainWindow::onJointFollowTick() {
+  if (estop_active_.load()) return;
+
+  std::array<double, 7> target{};
+  bool changed = false;
+  for (int i = 0; i < 7; ++i) {
+    target[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
+    if (std::abs(target[i] - last_streamed_joints_[i]) > 0.003) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    node_->update_joint_target(target);
+    last_streamed_joints_ = target;
+  }
+}
+
+// ===== Unit conversion helpers =====
+
+double MainWindow::radToDeg(double rad) {
+  return rad * 180.0 / M_PI;
+}
+
+double MainWindow::degToRad(double deg) {
+  return deg * M_PI / 180.0;
+}
+
+int MainWindow::degToSlider(double deg) {
+  return static_cast<int>(std::round(deg * 100.0));
+}
+
+double MainWindow::sliderToDeg(int val) {
+  return val / 100.0;
 }
 
 }  // namespace teaching_pendant
