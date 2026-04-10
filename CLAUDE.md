@@ -21,10 +21,23 @@ Python 脚本通过 pybind11 调用 C++ 后端。
 ```
 Layer 3: Python Binding (pybind11)           ← script/ 通过 C++ 后端控制机器人
 Layer 2: ROS 2 C++ Wrapper Nodes            ← rclcpp 节点（通信适配层）
-Layer 1: Pure C++ Core Library (无 ROS 依赖) ← IK、运动控制、颜色检测、状态机
+Layer 1: Pure C++ Core Library (无 ROS 依赖) ← 4 个 CMake target
+```
+
+### CMake Target 分层
+```
+robot_kinematics   ← IK + 轨迹规划（零 ROS 依赖，仅 KDL + Eigen）
+       ▲
+robot_vision       ← 颜色检测 + 视觉接口（零 ROS 依赖，仅 OpenCV + Eigen）
+       ▲
+robot_motion       ← 运动控制器 + 接口（依赖 kinematics）
+       ▲
+robot_nodes        ← ROS2 节点 + 任务管理（依赖 motion + vision）
 ```
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦，ROS2 节点实现该接口
+- `robot_kinematics` 和 `robot_vision` 是叶子节点，可独立复用和测试
+- `robot_nodes` 是唯一有 ROS 依赖的 target
 - 新增机器人只需定义 `RobotProfile`，核心库无需修改
 - Python 脚本使用 `rclcpp`（通过 pybind11），不能同时使用 `rclpy`
 
@@ -42,23 +55,31 @@ src/
   # === C++ 核心库包（纯库，无可执行文件）===
   robot_control_cpp/
     include/robot_control_cpp/
-      config.hpp                  # 话题配置 TopicConfig + 通用常量 ControlConstants
-      robot_profile.hpp           # RobotProfile / GripperProfile / TcpConfig / MotionLimits（多机器人）
-      i_robot_controller.hpp      # 运动控制抽象接口 IRobotController
-      i_vision_processor.hpp      # 视觉处理抽象接口 IVisionProcessor
-      ik_solver.hpp               # IK/FK 求解器（KDL + DLS 阻尼最小二乘法）
-      trajectory_planner.hpp      # S 曲线轨迹规划器（七段式，Jerk 连续）
-      color_detector.hpp          # CameraInterface 基类 + ColorDetector（OpenCV HSV）
-      robot_motion_controller.hpp # 通用运动控制器 + MotionIOBridge 接口
-      grasp_task_manager.hpp      # 抓取状态机 GraspTaskManager
-      robot_controller_node.hpp   # ROS2 机器人控制节点 RobotControllerNode
-      vision_processor_node.hpp   # ROS2 视觉处理节点 VisionProcessorNode
-      panda_profile.hpp           # Panda 专用配置（扩展新机器人参考）
+      panda_profile.hpp                           # Panda 专用配置
+      kinematics/
+        robot_profile.hpp                         # RobotProfile / GripperProfile / TcpConfig / MotionLimits
+        ik_solver.hpp                              # IK/FK 求解器（KDL + DLS）
+        trajectory_planner.hpp                     # S 曲线轨迹规划器（七段式，Jerk 连续）
+      motion/
+        control_constants.hpp                     # 通用控制常量
+        i_robot_controller.hpp                    # 运动控制抽象接口 IRobotController
+        motion_io_bridge.hpp                      # IO 桥接接口 MotionIOBridge
+        robot_motion_controller.hpp               # 通用运动控制器
+      vision/
+        i_vision_processor.hpp                    # 视觉处理抽象接口 IVisionProcessor
+        camera_interface.hpp                      # CameraInterface 基类
+        color_detector.hpp                        # ColorDetector（OpenCV HSV）
+      nodes/
+        topic_config.hpp                          # ROS2 话题配置 TopicConfig + CameraExtrinsics
+        grasp_task_manager.hpp                    # 抓取状态机 GraspTaskManager
+        robot_controller_node.hpp                 # ROS2 机器人控制节点
+        vision_processor_node.hpp                 # ROS2 视觉处理节点
     src/
-      ik_solver.cpp / trajectory_planner.cpp / color_detector.cpp
-      robot_motion_controller.cpp / grasp_task_manager.cpp
-      robot_controller_node.cpp / vision_processor_node.cpp
-    CMakeLists.txt                # 导出 robot_control_cpp::robot_control_core/nodes
+      kinematics/    ik_solver.cpp / trajectory_planner.cpp
+      motion/        robot_motion_controller.cpp
+      vision/        color_detector.cpp
+      nodes/         robot_controller_node.cpp / vision_processor_node.cpp / grasp_task_manager.cpp
+    CMakeLists.txt                # 4 target: robot_kinematics / robot_motion / robot_vision / robot_nodes
     package.xml
 
   # === pybind11 Python 绑定包 ===
@@ -76,7 +97,7 @@ src/
       test_robot_node.cpp         # 集成测试（需 Isaac Sim）
     demo/
       demo_grasp_tcp.cpp          # TCP 抓取演示
-    CMakeLists.txt                # find_package(robot_control_cpp) 链接库
+    CMakeLists.txt                # find_package(robot_control_cpp) 链接对应 target
     package.xml                   # depend on robot_control_cpp
 
 script/
