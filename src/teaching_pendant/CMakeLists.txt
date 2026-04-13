@@ -29,7 +29,21 @@ add_executable(teaching_pendant
   src/main.cpp
   src/pendant_node.cpp
   src/main_window.cpp
+  # Panels
+  src/panels/connection_bar.cpp
+  src/panels/camera_panel.cpp
+  src/panels/robot_state_bar.cpp
+  src/panels/joint_control_panel.cpp
+  src/panels/cartesian_panel.cpp
+  src/panels/function_panel.cpp
+  # Headers (for AUTOMOC)
   include/teaching_pendant/main_window.hpp
+  include/teaching_pendant/panels/connection_bar.hpp
+  include/teaching_pendant/panels/camera_panel.hpp
+  include/teaching_pendant/panels/robot_state_bar.hpp
+  include/teaching_pendant/panels/joint_control_panel.hpp
+  include/teaching_pendant/panels/cartesian_panel.hpp
+  include/teaching_pendant/panels/function_panel.hpp
 )
 
 target_include_directories(teaching_pendant PUBLIC
