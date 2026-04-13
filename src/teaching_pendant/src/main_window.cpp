@@ -445,8 +445,10 @@ void MainWindow::onRefreshState() {
         if (!success) return;
         QMetaObject::invokeMethod(this, [this, joints, pose, finger, tcp]() {
           for (int i = 0; i < 7 && i < (int)joints.size(); ++i) {
-            syncSliderToState(i, joints[i]);
-            last_streamed_joints_[i] = joints[i];
+            if (!slider_is_controlled_[i]) {
+              syncSliderToState(i, joints[i]);
+              last_streamed_joints_[i] = joints[i];
+            }
           }
           for (int i = 0; i < 6; ++i) {
             label_pose_[i]->setText(QString::number(pose[i], 'f', 4));
@@ -484,7 +486,12 @@ void MainWindow::onJointEditFinished(int joint) {
   text.remove(QString::fromUtf8("\u00B0"));
   bool ok = false;
   double deg = text.toDouble(&ok);
-  if (!ok) return;
+  if (!ok) {
+    // Restore to current slider position
+    deg = sliderToDeg(slider_joint_[joint]->value());
+    edit_joint_[joint]->setText(QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
+    return;
+  }
 
   deg = std::max(kJointLowerDeg[joint], std::min(kJointUpperDeg[joint], deg));
 
