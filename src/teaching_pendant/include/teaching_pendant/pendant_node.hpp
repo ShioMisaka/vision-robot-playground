@@ -164,6 +164,10 @@ private:
   std::atomic<bool> joint_stream_running_{false};
   std::atomic<bool> joint_stream_paused_{false};
 
+  // Direct joint command publisher (bypasses service layer for low-latency streaming)
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;
+  std::atomic<double> current_finger_{0.04};  // updated by async_get_state
+
   // 后台任务队列
   std::mutex task_mutex_;
   std::condition_variable task_cv_;

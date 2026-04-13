@@ -88,6 +88,10 @@ void PendantNode::init() {
     }
   });
 
+  // 直接发布关节指令（低延迟，绕过 service 层）
+  joint_cmd_pub_ = create_publisher<sensor_msgs::msg::JointState>(
+      "/joint_command", 10);
+
   // 服务发现定时器：周期性检查所有关键服务的 DDS 可用性
   discovery_timer_ = create_wall_timer(
       std::chrono::milliseconds(500),
@@ -228,6 +232,7 @@ void PendantNode::async_get_state(std::function<void(
       pose[i] = res->tcp_pose[i];
     }
     if (callback) callback(true, joints, pose, res->finger_width, res->tcp_name);
+    current_finger_ = res->finger_width;
   });
 }
 
@@ -414,6 +419,12 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_running_ = true;
   joint_stream_paused_ = false;
   joint_stream_thread_ = std::thread([this]() {
+    // Panda joint names + gripper names
+    const std::vector<std::string> joint_names = {
+        "panda_joint1", "panda_joint2", "panda_joint3",
+        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7",
+        "panda_finger_joint1", "panda_finger_joint2"};
+
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
       if (joint_stream_paused_.load()) continue;
@@ -428,19 +439,19 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
         }
       }
       if (!should_send) continue;
-      if (!cli_move_joint_->service_is_ready()) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
-                             "Joint stream: move_joint service not ready");
-        continue;
+
+      // 直接发布到 /joint_command，绕过 service 层
+      sensor_msgs::msg::JointState msg;
+      msg.header.stamp = now();
+      msg.name = joint_names;
+      msg.position.reserve(9);
+      for (int i = 0; i < 7; ++i) {
+        msg.position.push_back(target[i]);
       }
-      auto req = std::make_shared<robot_control_msgs::srv::MoveJoint::Request>();
-      req->joint_angles.assign(target.begin(), target.end());
-      req->block = false;
-      auto future = cli_move_joint_->async_send_request(req);
-      if (future.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                             "Joint stream send timeout");
-      }
+      double finger = current_finger_.load();
+      msg.position.push_back(finger);
+      msg.position.push_back(finger);
+      joint_cmd_pub_->publish(msg);
     }
   });
 }
