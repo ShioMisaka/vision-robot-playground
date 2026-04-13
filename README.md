@@ -139,10 +139,6 @@ isaac_ros_project/
 │
 ├── docs/
 │   ├── superpowers/                # 开发流程文档
-│   │   ├── specs/                  # 设计规格
-│   │   │   └── 2026-04-10-pendant-interface-design.md
-│   │   └── plans/                  # 实现计划
-│   │       └── 2026-04-10-pendant-interface.md
 │   └── api.md                      # 完整 API 接口文档
 ├── urdf/
 │   └── panda.urdf                  # Franka Panda URDF 模型
@@ -214,6 +210,15 @@ colcon build --base-paths src --packages-select teaching_pendant          # Qt5 
 - `install/robot_control_cpp/lib/librobot_nodes.so` — ROS2 节点
 - `install/robot_control_cpp_py/` — pybind11 Python 模块
 - `install/teaching_pendant/lib/teaching_pendant` — Qt5 示教器可执行文件
+
+### 导出编译数据库（IDE 代码补全）
+
+生成 `compile_commands.json` 用于 clangd、ccls 等 LSP 服务：
+
+```bash
+colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+ln -s build/robot_control_cpp/compile_commands.json ./
+```
 
 ## 运行
 
