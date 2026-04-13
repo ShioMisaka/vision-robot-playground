@@ -82,7 +82,6 @@ private:
 
   // State display
   QLabel* label_pose_[6];  // X, Y, Z, R, P, Y
-  QLabel* label_joints_[7];
   QLabel* label_finger_;
   QLabel* label_tcp_;
 
