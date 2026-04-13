@@ -135,10 +135,24 @@ src/
   teaching_pendant/
     include/teaching_pendant/
       pendant_node.hpp            # ROS2 节点（service client + subscriber）
-      main_window.hpp             # Qt5 主窗口
+      main_window.hpp             # Qt5 主窗口（薄编排层）
+      panels/                     # Panel 组件（UI + 逻辑自包含）
+        connection_bar.hpp        # 连接状态指示
+        camera_panel.hpp          # 相机画面显示
+        robot_state_bar.hpp       # 位姿/夹爪/TCP 显示
+        joint_control_panel.hpp   # 关节滑块 + 编辑 + 流控
+        cartesian_panel.hpp       # XYZ/RPY + Jog + 运动模式
+        function_panel.hpp        # 速度/夹爪/GoHome/E-STOP
     src/
       pendant_node.cpp            # 通信后端实现
-      main_window.cpp             # GUI 实现
+      main_window.cpp             # 主窗口编排层
+      panels/                     # Panel 实现
+        connection_bar.cpp
+        camera_panel.cpp
+        robot_state_bar.cpp
+        joint_control_panel.cpp
+        cartesian_panel.cpp
+        function_panel.cpp
       main.cpp                    # 入口（Qt + ROS2 线程整合）
     CMakeLists.txt                # Qt5 + ROS2
     package.xml
@@ -363,3 +377,65 @@ rc.rclcpp_shutdown()
 - 新增机器人：在 `include/robot_control_cpp/profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
 - pybind11 绑定中所有阻塞方法必须释放 GIL（`py::call_guard<py::gil_scoped_release>()`）
 - Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy
+
+## 示教器 GUI 架构（teaching_pendant）
+
+Qt5 示教器采用 **Panel 架构**，将单体 MainWindow 拆分为 6 个独立 Panel widget：
+
+### Panel 组成
+
+| Panel | 职责 | 依赖 |
+|-------|------|------|
+| `ConnectionBar` | Robot/Camera 连接状态显示 | 无（纯 UI） |
+| `CameraPanel` | 相机画面 + RGB/Depth 切换 + E-STOP 视觉状态 | 无（纯 UI） |
+| `RobotStateBar` | 位姿/夹爪/TCP 数值显示 | 无（纯 UI） |
+| `JointControlPanel` | 7 关节滑块 + 角度编辑 + 50Hz 流控 | `PendantNode` |
+| `CartesianPanel` | XYZ/RPY 输入 + Jog 12 轴按钮 + 运动模式选择 | `PendantNode` |
+| `FunctionPanel` | moveJ/moveL 速度滑块 + 夹爪/GoHome/E-STOP 按钮 | `PendantNode` |
+
+### 架构图
+
+```
+MainWindow (薄编排层, ~100 行)
+├── setupUi(): 创建并布局 6 个 Panel
+├── onRefreshState(): 5Hz 轮询状态，分发到各 Panel
+└── 回调中继:
+    ├── PendantNode::connection_callback → ConnectionBar
+    ├── PendantNode::image_callback → CameraPanel (cv::Mat→QImage 转换)
+    └── PendantNode::async_get_state → RobotStateBar + JointControlPanel
+
+跨 Panel 通信（Qt 信号）:
+FunctionPanel::estopChanged(bool) ──→ JointControlPanel::onEstopChanged
+                                  ├──→ CartesianPanel::onEstopChanged
+                                  └──→ CameraPanel::onEstopChanged
+
+JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
+```
+
+### 设计原则
+
+1. **Panel 自包含**: 每个 Panel 独立管理自己的 UI 创建 + 逻辑，无跨 Panel 直接调用
+2. **直接 ROS2 调用**: 需要 ROS2 通信的 Panel（Joint/Cartesian/Function）持有 `shared_ptr<PendantNode>`，直接调用 async 接口
+3. **信号广播**: 全局状态（E-STOP）通过 Qt 信号从 FunctionPanel 广播到其他 Panel
+4. **MainWindow 编排**: MainWindow 仅做面板布局、回调中继、状态轮询分发
+5. **线程安全**: ROS2 回调通过 `QMetaObject::invokeMethod` 跨线程调用 Panel 槽函数
+
+### 关节流控机制
+
+`JointControlPanel` 实现低延迟关节指令流：
+
+1. **首帧同步**: 首次 `onStateUpdated` 触发时，发出 `jointStreamReady` 信号 → MainWindow 调用 `PendantNode::start_joint_stream()`
+2. **50Hz 定时器**: `joint_follow_timer_` 以 20ms 间隔检测滑块变化，调用 `PendantNode::update_joint_target()`
+3. **后台发布线程**: `PendantNode` 后台线程以 50Hz 将目标值发布到 `/joint_command` topic（绕过 service 层）
+4. **交互锁机制**: 用户拖动滑块/编辑角度时，对应关节的自动更新暂停 2 秒（`lock_timer_`），避免抖动
+
+### 扩展新 Panel
+
+添加新 Panel 步骤：
+
+1. 创建 `include/teaching_pendant/panels/xxx_panel.hpp` + `src/panels/xxx_panel.cpp`
+2. 继承 `QWidget`，添加 `Q_OBJECT` 宏
+3. 构造函数接收 `std::shared_ptr<PendantNode>`（如需 ROS2 通信）
+4. 在 `MainWindow::setupUi()` 中创建并布局
+5. 如需 E-STOP 通知，连接 `function_panel_->estopChanged` 到新 Panel 的 `onEstopChanged` 槽
+6. 更新 `CMakeLists.txt` 的 `add_executable` 源文件列表（AUTOMOC 需要头文件）

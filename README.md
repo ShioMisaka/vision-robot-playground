@@ -107,10 +107,24 @@ isaac_ros_project/
 │   └── teaching_pendant/           # Qt5 示教器包
 │       ├── include/teaching_pendant/
 │       │   ├── pendant_node.hpp            # ROS2 节点（Action/Service 客户端）
-│       │   └── main_window.hpp             # Qt5 主窗口
+│       │   ├── main_window.hpp             # Qt5 主窗口（薄编排层）
+│       │   └── panels/                     # Panel 组件（UI + 逻辑自包含）
+│       │       ├── connection_bar.hpp      # 连接状态显示
+│       │       ├── camera_panel.hpp        # 相机画面 + RGB/Depth
+│       │       ├── robot_state_bar.hpp     # 位姿/夹爪/TCP 显示
+│       │       ├── joint_control_panel.hpp # 关节滑块 + 编辑 + 流控
+│       │       ├── cartesian_panel.hpp     # XYZ/RPY + Jog + 运动模式
+│       │       └── function_panel.hpp      # 速度/夹爪/GoHome/E-STOP
 │       └── src/
 │           ├── pendant_node.cpp            # 通信后端实现
-│           ├── main_window.cpp             # GUI 实现
+│           ├── main_window.cpp             # 主窗口编排层
+│           ├── panels/                     # Panel 实现
+│           │   ├── connection_bar.cpp
+│           │   ├── camera_panel.cpp
+│           │   ├── robot_state_bar.cpp
+│           │   ├── joint_control_panel.cpp
+│           │   ├── cartesian_panel.cpp
+│           │   └── function_panel.cpp
 │           └── main.cpp                    # 入口
 │
 ├── script/
