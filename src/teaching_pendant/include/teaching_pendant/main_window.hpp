@@ -96,6 +96,7 @@ private:
   QTimer* lock_timer_[7];  // per-joint interaction lock timer
   bool slider_is_controlled_[7] = {};
   std::array<double, 7> last_streamed_joints_{};
+  bool joint_stream_started_ = false;  // wait for first state refresh
 
   // Cartesian control inputs
   QDoubleSpinBox* spin_xyz_[3];

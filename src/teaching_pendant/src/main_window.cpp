@@ -52,14 +52,10 @@ MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
   connect(refresh_timer_, &QTimer::timeout, this, &MainWindow::onRefreshState);
   refresh_timer_->start(200);  // 5Hz 异步查询
 
-  // 关节跟随定时器（50Hz）
+  // 关节跟随定时器（50Hz）—— 等第一次状态刷新后再启动
   joint_follow_timer_ = new QTimer(this);
   connect(joint_follow_timer_, &QTimer::timeout, this, &MainWindow::onJointFollowTick);
-  joint_follow_timer_->start(20);
-
-  // 启动关节流控线程
-  std::array<double, 7> initial{};
-  node_->start_joint_stream(initial);
+  // 不在此启动，等 onRefreshState 首次成功后启动
 
   // 初始状态
   label_robot_status_->setText("Disconnected");
@@ -455,6 +451,13 @@ void MainWindow::onRefreshState() {
           }
           label_finger_->setText(QString::number(finger, 'f', 4));
           label_tcp_->setText(QString::fromStdString(tcp));
+
+          // 首次状态刷新成功后启动关节流控
+          if (!joint_stream_started_) {
+            joint_stream_started_ = true;
+            node_->start_joint_stream(last_streamed_joints_);
+            joint_follow_timer_->start(20);
+          }
         });
       });
 }
