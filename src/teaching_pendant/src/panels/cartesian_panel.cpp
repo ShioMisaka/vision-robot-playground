@@ -62,26 +62,32 @@ CartesianPanel::CartesianPanel(std::shared_ptr<PendantNode> node,
           &CartesianPanel::onMovePose);
   layout->addWidget(btn_move_pose);
 
-  // Jog buttons
+  // Jog buttons — two columns: XYZ (left) | RPY (right), +/- side by side
   auto* jog_group = new QGroupBox("Jog", this);
   auto* jog_layout = new QGridLayout(jog_group);
   jog_layout->setSpacing(2);
 
+  // XYZ column (left)
+  jog_layout->addWidget(new QLabel("XYZ"), 0, 0, 1, 2, Qt::AlignCenter);
   struct JogBtnDef {
     const char* text;
     int axis;
   };
-  JogBtnDef jog_btns[] = {
-      {"+X", 0}, {"-X", 1}, {"+Y", 2}, {"-Y", 3},
-      {"+Z", 4}, {"-Z", 5}, {"+R", 6}, {"-R", 7},
-      {"+P", 8}, {"-P", 9}, {"+Yw", 10}, {"-Yw", 11},
-  };
+  JogBtnDef xyz_btns[] = {{"+X", 0}, {"-X", 1}, {"+Y", 2}, {"-Y", 3}, {"+Z", 4}, {"-Z", 5}};
+  for (int i = 0; i < 6; ++i) {
+    int row = 1 + i / 2;
+    int col = i % 2;
+    jog_layout->addWidget(createJogButton(xyz_btns[i].text, xyz_btns[i].axis), row, col);
+  }
 
-  for (int i = 0; i < 12; ++i) {
-    auto* btn = createJogButton(jog_btns[i].text, jog_btns[i].axis);
-    int row = i / 4;
-    int col = i % 4;
-    jog_layout->addWidget(btn, row, col);
+  // RPY column (right), offset by 2 columns + spacing
+  jog_layout->setColumnMinimumWidth(2, 8);  // spacer
+  jog_layout->addWidget(new QLabel("RPY"), 0, 3, 1, 2, Qt::AlignCenter);
+  JogBtnDef rpy_btns[] = {{"+R", 6}, {"-R", 7}, {"+P", 8}, {"-P", 9}, {"+Yw", 10}, {"-Yw", 11}};
+  for (int i = 0; i < 6; ++i) {
+    int row = 1 + i / 2;
+    int col = 3 + i % 2;
+    jog_layout->addWidget(createJogButton(rpy_btns[i].text, rpy_btns[i].axis), row, col);
   }
 
   layout->addWidget(jog_group);
