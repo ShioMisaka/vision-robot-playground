@@ -33,6 +33,7 @@ private:
   QDoubleSpinBox* spin_xyz_[3];
   QDoubleSpinBox* spin_rpy_[3];
   QComboBox* combo_motion_mode_;
+  QComboBox* combo_frame_;
 
   std::atomic<bool> estop_active_{false};
 };

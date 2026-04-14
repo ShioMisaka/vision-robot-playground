@@ -25,6 +25,8 @@
 #include <robot_control_msgs/srv/set_speed.hpp>
 #include <robot_control_msgs/srv/get_robot_state.hpp>
 
+#include <arm_control_interfaces/msg/jog_command.hpp>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -49,6 +51,10 @@ public:
 
   /// 设置图像回调
   void set_image_callback(ImageCallback cb);
+
+  /// 设置 jog 停止回调（在 stop_jog 时触发，用于通知 UI 同步）
+  using JogStoppedCallback = std::function<void()>;
+  void set_jog_stopped_callback(JogStoppedCallback cb);
 
   // === 异步控制接口（后台线程执行，不阻塞调用方） ===
   // 完成回调在任意线程执行，Qt 侧需用 QMetaObject::invokeMethod
@@ -79,7 +85,11 @@ public:
 
   // === Jog 控制 ===
 
-  void start_jog(int axis, double direction, uint8_t mode);
+  /// @brief 开始 Jog（50Hz 发布 JogCommand）
+  /// @param axis 0~5: XYZ+/XYZ-/RPY+/RPY-... (velocity index)
+  /// @param mode 运动模式（未使用，保留）
+  /// @param frame 0=TCP, 1=Base
+  void start_jog(int axis, uint8_t mode, uint8_t frame);
   void stop_jog();
 
   // === 急停 ===
@@ -93,6 +103,9 @@ public:
   void stop_joint_stream();
   void pause_joint_stream();
   void resume_joint_stream();
+
+  /// @brief 从 jog IK 结果更新流目标（不受 jog_active_ 拦截）
+  void set_jog_stream_target(const std::array<double, 7>& target);
 
   // === 连接状态 ===
 
@@ -140,6 +153,7 @@ private:
   std::mutex cb_mutex_;
   ConnectionCallback conn_cb_;
   ImageCallback image_cb_;
+  JogStoppedCallback jog_stopped_cb_;
 
   // Connection state
   std::atomic<bool> robot_connected_{false};
@@ -150,11 +164,9 @@ private:
   rclcpp::TimerBase::SharedPtr discovery_timer_;
 
   // Jog state
-  std::atomic<bool> jog_running_{false};
-  std::atomic<int> jog_axis_{0};
-  std::atomic<double> jog_direction_{0.0};
-  std::atomic<uint8_t> jog_mode_{0};
-  std::thread jog_thread_;
+  rclcpp::Publisher<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_pub_;
+  rclcpp::TimerBase::SharedPtr jog_timer_;
+  arm_control_interfaces::msg::JogCommand jog_msg_{};
 
   // Joint stream state
   std::mutex joint_stream_mutex_;
@@ -163,10 +175,18 @@ private:
   std::thread joint_stream_thread_;
   std::atomic<bool> joint_stream_running_{false};
   std::atomic<bool> joint_stream_paused_{false};
+  std::atomic<bool> jog_active_{false};
+
+  // Jog IK result subscriber (from robot_controller_node)
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jog_result_sub_;
 
   // Direct joint command publisher (bypasses service layer for low-latency streaming)
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;
   std::atomic<double> current_finger_{0.04};  // updated by async_get_state
+
+  // Latest joint angles from /joint_states (for resync after jog)
+  std::mutex latest_joints_mutex_;
+  std::array<double, 7> latest_joints_{};
 
   // 后台任务队列
   std::mutex task_mutex_;

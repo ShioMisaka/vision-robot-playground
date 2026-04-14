@@ -23,6 +23,9 @@ public slots:
   void onStateUpdated(const std::vector<double>& joint_angles);
   void onEstopChanged(bool active);
 
+  /// Called when jog stops — resyncs command_target_ on next tick
+  void notifyJogStopped();
+
 signals:
   void jointStreamReady(const std::array<double, 7>& initial_joints);
 
@@ -45,8 +48,9 @@ private:
   QTimer* joint_follow_timer_;
   QTimer* lock_timer_[7];
   bool slider_is_controlled_[7] = {};
-  std::array<double, 7> last_streamed_joints_{};
+  std::array<double, 7> command_target_{};  // Actual target sent to robot (only changed by user)
   bool joint_stream_started_ = false;
+  bool resync_after_jog_ = false;
 
   std::atomic<bool> estop_active_{false};
 };

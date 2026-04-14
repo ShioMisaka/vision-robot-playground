@@ -55,6 +55,14 @@ MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
             node_->start_joint_stream(initial);
           });
 
+  // Jog stopped -> resync joint panel's command_target_
+  node_->set_jog_stopped_callback(
+      [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
+          joint_panel_->notifyJogStopped();
+        });
+      });
+
   // State refresh timer (5Hz)
   refresh_timer_ = new QTimer(this);
   connect(refresh_timer_, &QTimer::timeout, this, &MainWindow::onRefreshState);

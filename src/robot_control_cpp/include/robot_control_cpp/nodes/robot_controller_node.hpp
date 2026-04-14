@@ -259,6 +259,7 @@ private:
 
   // === Jog + watchdog ===
   rclcpp::Subscription<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jog_result_pub_;
   rclcpp::TimerBase::SharedPtr jog_watchdog_timer_;
   rclcpp::Time last_jog_time_;
 

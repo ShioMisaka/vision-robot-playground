@@ -520,6 +520,10 @@ void RobotControllerNode::init() {
         handle_jog_command(msg);
       }, jog_opts);
 
+  // === Jog result publisher (sends IK-computed joints to pendant) ===
+  jog_result_pub_ = create_publisher<sensor_msgs::msg::JointState>(
+      "~/jog_joint_result", 10);
+
   // === Jog watchdog (200ms) ===
   jog_watchdog_timer_ = create_wall_timer(
       std::chrono::milliseconds(200),
@@ -1160,59 +1164,99 @@ void RobotControllerNode::handle_jog_command(
   last_jog_time_ = this->now();
 
   double dt = 0.02;
-  auto current = bridge_->get_current_arm();
-  auto pose = controller_->get_end_effector_pose();
+  auto current_joints = bridge_->get_current_arm();
 
-  std::array<double, 3> delta = {
-      msg->velocity[0] * dt,
-      msg->velocity[1] * dt,
-      msg->velocity[2] * dt
-  };
-  std::array<double, 3> delta_rpy = {
-      msg->velocity[3] * dt,
-      msg->velocity[4] * dt,
-      msg->velocity[5] * dt
-  };
+  // FK: get current EE pose (guaranteed correct)
+  auto current_pose = ik_->forward(current_joints);
 
-  Eigen::Vector3d pos(pose[0], pose[1], pose[2]);
-  Eigen::Vector3d rpy(pose[3], pose[4], pose[5]);
-  Eigen::Matrix3d rot = (Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX()) *
-                         Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()) *
-                         Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()))
-                            .toRotationMatrix();
-  Eigen::Vector3d new_pos = pos + rot * Eigen::Vector3d(delta[0], delta[1], delta[2]);
+  // Build Cartesian position delta
+  double dx = msg->velocity[0] * dt;
+  double dy = msg->velocity[1] * dt;
+  double dz = msg->velocity[2] * dt;
+  double drx = msg->velocity[3] * dt;
+  double dry = msg->velocity[4] * dt;
+  double drz = msg->velocity[5] * dt;
 
-  Eigen::AngleAxisd d_roll(delta_rpy[0], Eigen::Vector3d::UnitX());
-  Eigen::AngleAxisd d_pitch(delta_rpy[1], Eigen::Vector3d::UnitY());
-  Eigen::AngleAxisd d_yaw(delta_rpy[2], Eigen::Vector3d::UnitZ());
-  Eigen::Matrix3d d_rot = (d_yaw * d_pitch * d_roll).toRotationMatrix();
-  Eigen::Matrix3d new_rot = d_rot * rot;
+  // TCP frame: rotate velocity from body frame to base frame
+  if (msg->frame == arm_control_interfaces::msg::JogCommand::TCP_FRAME) {
+    // R = Rz(yaw) * Ry(pitch) * Rx(roll) — matches KDL GetRPY convention
+    Eigen::Matrix3d R =
+        (Eigen::AngleAxisd(current_pose[5], Eigen::Vector3d::UnitZ()) *
+         Eigen::AngleAxisd(current_pose[4], Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd(current_pose[3], Eigen::Vector3d::UnitX()))
+            .toRotationMatrix();
+    Eigen::Vector3d v_tcp(dx, dy, dz);
+    Eigen::Vector3d w_tcp(drx, dry, drz);
+    Eigen::Vector3d v_base = R * v_tcp;
+    Eigen::Vector3d w_base = R * w_tcp;
+    dx = v_base.x(); dy = v_base.y(); dz = v_base.z();
+    drx = w_base.x(); dry = w_base.y(); drz = w_base.z();
+  }
 
-  auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
-  Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
-  Eigen::AngleAxisd e_roll(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
-  Eigen::AngleAxisd e_pitch(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
-  Eigen::AngleAxisd e_yaw(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
-  T_tcp.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
-  T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
+  // Target pose = current pose + delta (linear approx, valid for small dt)
+  std::array<double, 3> target_xyz = {
+      current_pose[0] + dx,
+      current_pose[1] + dy,
+      current_pose[2] + dz};
+  std::array<double, 3> target_rpy = {
+      current_pose[3] + drx,
+      current_pose[4] + dry,
+      current_pose[5] + drz};
 
-  Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
-  T_target.block<3,3>(0,0) = new_rot;
-  T_target(0,3) = new_pos.x(); T_target(1,3) = new_pos.y(); T_target(2,3) = new_pos.z();
+  // Solve IK from current actual position (not cached last_result)
+  auto result = ik_->solve_from(target_xyz, target_rpy, current_joints);
 
-  Eigen::Matrix4d hand_target = T_target * T_tcp.inverse();
-  Eigen::Vector3d h_xyz = hand_target.block<3,1>(0,3);
-  Eigen::Vector3d h_rpy = hand_target.block<3,3>(0,0).eulerAngles(0,1,2);
+  // === DEBUG: log jog computation (throttled to 2Hz) ===
+  static auto last_dbg = std::chrono::steady_clock::now();
+  static int jog_pub_count = 0;
+  jog_pub_count++;
+  auto now_dbg = std::chrono::steady_clock::now();
+  if ((now_dbg - last_dbg) > std::chrono::milliseconds(500)) {
+    last_dbg = now_dbg;
+    std::cout << "[JOG DBG] vel=[" << msg->velocity[0] << "," << msg->velocity[1]
+              << "," << msg->velocity[2] << "," << msg->velocity[3] << ","
+              << msg->velocity[4] << "," << msg->velocity[5]
+              << "] frame=" << (int)msg->frame
+              << " pub_count=" << jog_pub_count << std::endl;
+    std::cout << "[JOG DBG] FK pose: xyz=[" << current_pose[0] << ","
+              << current_pose[1] << "," << current_pose[2] << "] rpy=["
+              << current_pose[3] << "," << current_pose[4] << ","
+              << current_pose[5] << "]" << std::endl;
+    std::cout << "[JOG DBG] target: xyz=[" << target_xyz[0] << ","
+              << target_xyz[1] << "," << target_xyz[2] << "] rpy=["
+              << target_rpy[0] << "," << target_rpy[1] << ","
+              << target_rpy[2] << "]" << std::endl;
+    if (result) {
+      auto verify = ik_->forward(*result);
+      std::cout << "[JOG DBG] IK OK -> verify FK: xyz=[" << verify[0] << ","
+                << verify[1] << "," << verify[2] << "] rpy=[" << verify[3]
+                << "," << verify[4] << "," << verify[5] << "] joints=[";
+      for (int i = 0; i < 7; ++i) std::cout << (*result)[i] << (i<6?",":"");
+      std::cout << "]" << std::endl;
+    } else {
+      std::cout << "[JOG DBG] IK FAILED" << std::endl;
+    }
+    std::cout << "[JOG DBG] jog_result_pub topic: " << jog_result_pub_->get_topic_name()
+              << " subs=" << jog_result_pub_->get_subscription_count() << std::endl;
+  }
 
-  auto ik_result = ik_->solve(
-      std::array<double,3>{h_xyz.x(), h_xyz.y(), h_xyz.z()},
-      std::array<double,3>{h_rpy.x(), h_rpy.y(), h_rpy.z()});
-
-  if (ik_result) {
-    bridge_->publish_command(*ik_result, bridge_->get_current_finger());
+  if (result) {
+    // Publish IK result to pendant via topic (pendant's stream publishes to /joint_command)
+    sensor_msgs::msg::JointState jog_result;
+    jog_result.header.stamp = this->now();
+    for (int i = 0; i < 7; ++i) {
+      jog_result.name.push_back(profile_.joint_names[i]);
+      jog_result.position.push_back((*result)[i]);
+    }
+    double finger = bridge_->get_current_finger();
+    for (size_t i = profile_.dof; i < profile_.all_joint_names.size(); ++i) {
+      jog_result.name.push_back(profile_.all_joint_names[i]);
+      jog_result.position.push_back(finger);
+    }
+    jog_result_pub_->publish(jog_result);
   } else {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                         "Jog: IK failed, skipping step");
+                         "Jog: IK solve failed, skipping step");
   }
 }
 

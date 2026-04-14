@@ -69,17 +69,23 @@ JointControlPanel::JointControlPanel(std::shared_ptr<PendantNode> node,
 }
 
 void JointControlPanel::onStateUpdated(const std::vector<double>& joint_angles) {
+  // Sync slider DISPLAY to actual state (visual feedback only)
+  // Do NOT update command_target_ — the robot must hold the last commanded position
   for (int i = 0; i < 7 && i < static_cast<int>(joint_angles.size()); ++i) {
     if (!slider_is_controlled_[i]) {
       syncSliderToState(i, joint_angles[i]);
-      last_streamed_joints_[i] = joint_angles[i];
     }
   }
 
+  // Start joint stream on first state update
   if (!joint_stream_started_ && !joint_angles.empty()) {
     joint_stream_started_ = true;
-    emit jointStreamReady(last_streamed_joints_);
-    joint_follow_timer_->start(20);
+    // Initialize command_target_ from actual state
+    for (int i = 0; i < 7; ++i) {
+      command_target_[i] = joint_angles[i];
+    }
+    emit jointStreamReady(command_target_);
+    joint_follow_timer_->start(20);  // 50Hz
   }
 }
 
@@ -129,12 +135,9 @@ void JointControlPanel::onJointEditFinished(int joint) {
   edit_joint_[joint]->setText(
       QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
 
-  std::array<double, 7> target{};
-  for (int i = 0; i < 7; ++i) {
-    target[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
-  }
-  node_->update_joint_target(target);
-  last_streamed_joints_ = target;
+  // Update command target for this joint
+  command_target_[joint] = degToRad(deg);
+  node_->update_joint_target(command_target_);
 
   slider_is_controlled_[joint] = true;
   lock_timer_[joint]->start();
@@ -143,18 +146,30 @@ void JointControlPanel::onJointEditFinished(int joint) {
 void JointControlPanel::onJointFollowTick() {
   if (estop_active_.load()) return;
 
-  std::array<double, 7> target{};
-  bool changed = false;
+  // After jog stops, resync command_target_ to actual state (via slider display)
+  if (resync_after_jog_) {
+    resync_after_jog_ = false;
+    for (int i = 0; i < 7; ++i) {
+      if (!slider_is_controlled_[i]) {
+        command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
+      }
+    }
+    node_->update_joint_target(command_target_);
+    return;
+  }
+
+  // For controlled joints: read target from slider (user input)
+  // For non-controlled joints: keep command_target_ unchanged (hold position)
   for (int i = 0; i < 7; ++i) {
-    target[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
-    if (std::abs(target[i] - last_streamed_joints_[i]) > 0.003) {
-      changed = true;
+    if (slider_is_controlled_[i]) {
+      command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
     }
   }
-  if (changed) {
-    node_->update_joint_target(target);
-    last_streamed_joints_ = target;
-  }
+  node_->update_joint_target(command_target_);
+}
+
+void JointControlPanel::notifyJogStopped() {
+  resync_after_jog_ = true;
 }
 
 double JointControlPanel::radToDeg(double rad) {

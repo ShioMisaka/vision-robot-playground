@@ -92,6 +92,21 @@ void PendantNode::init() {
   joint_cmd_pub_ = create_publisher<sensor_msgs::msg::JointState>(
       "/joint_command", 10);
 
+  // Jog 命令发布器（50Hz 速度指令）
+  jog_pub_ = create_publisher<arm_control_interfaces::msg::JogCommand>(
+      service_prefix_ + "/jog_command", 10);
+
+  // Jog IK 结果订阅（robot_controller_node 解算后发回的关节角）
+  jog_result_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+      service_prefix_ + "/jog_joint_result", 10,
+      [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
+        std::array<double, 7> joints{};
+        for (int i = 0; i < 7 && i < static_cast<int>(msg->position.size()); ++i) {
+          joints[i] = msg->position[i];
+        }
+        set_jog_stream_target(joints);
+      });
+
   // 服务发现定时器：周期性检查所有关键服务的 DDS 可用性
   discovery_timer_ = create_wall_timer(
       std::chrono::milliseconds(500),
@@ -134,6 +149,11 @@ void PendantNode::set_image_callback(ImageCallback cb) {
   image_cb_ = std::move(cb);
 }
 
+void PendantNode::set_jog_stopped_callback(JogStoppedCallback cb) {
+  std::lock_guard<std::mutex> lock(cb_mutex_);
+  jog_stopped_cb_ = std::move(cb);
+}
+
 // ===== 后台任务队列 =====
 
 void PendantNode::post_task(std::function<void()> task) {
@@ -147,9 +167,17 @@ void PendantNode::post_task(std::function<void()> task) {
 // ===== Joint State Callback（仅连接检测） =====
 
 void PendantNode::joint_state_callback(
-    const sensor_msgs::msg::JointState::SharedPtr /*msg*/) {
+    const sensor_msgs::msg::JointState::SharedPtr msg) {
   bool was_connected = robot_connected_.load();
   robot_connected_ = true;
+
+  // Cache latest arm joint angles for resync after jog
+  {
+    std::lock_guard<std::mutex> lock(latest_joints_mutex_);
+    for (int i = 0; i < 7 && i < static_cast<int>(msg->position.size()); ++i) {
+      latest_joints_[i] = msg->position[i];
+    }
+  }
 
   if (!was_connected) {
     std::lock_guard<std::mutex> lock(cb_mutex_);
@@ -348,57 +376,58 @@ void PendantNode::async_set_speed(uint8_t mode, double percent) {
 
 // ===== Jog Control =====
 
-void PendantNode::start_jog(int axis, double direction, uint8_t mode) {
-  if (jog_running_.load()) stop_jog();
+void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
+  stop_jog();
 
-  jog_axis_ = axis;
-  jog_direction_ = direction;
-  jog_mode_ = mode;
-  jog_running_ = true;
+  // Mark jog as active — stream keeps running but update_joint_target()
+  // from JointControlPanel is blocked so it won't overwrite jog targets
+  jog_active_ = true;
 
-  jog_thread_ = std::thread([this]() { jog_loop(); });
+  // Build JogCommand: axis maps to velocity[0..5]
+  // axis 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z,6=+R,7=-R,8=+P,9=-P,10=+Yw,11=-Yw
+  jog_msg_ = arm_control_interfaces::msg::JogCommand();
+  jog_msg_.frame = frame;
+
+  double jog_speed = 0.05;       // 50 mm/s for XYZ
+  double jog_rpy_speed = 0.2;    // ~11 deg/s for RPY
+
+  if (axis < 6) {
+    int idx = axis / 2;
+    double sign = (axis % 2 == 0) ? 1.0 : -1.0;
+    jog_msg_.velocity[idx] = jog_speed * sign;
+  } else {
+    int rpy_idx = (axis - 6) / 2;
+    double sign = ((axis - 6) % 2 == 0) ? 1.0 : -1.0;
+    jog_msg_.velocity[3 + rpy_idx] = jog_rpy_speed * sign;
+  }
+
+  // 50Hz timer publishes JogCommand
+  jog_timer_ = create_wall_timer(
+      std::chrono::milliseconds(20),
+      [this]() {
+        jog_msg_.stamp = now();
+        jog_pub_->publish(jog_msg_);
+      });
 }
 
 void PendantNode::stop_jog() {
-  jog_running_ = false;
-  if (jog_thread_.joinable()) {
-    jog_thread_.join();
-  }
-}
-
-void PendantNode::jog_loop() {
-  int axis = jog_axis_.load();
-  double dir = jog_direction_.load();
-
-  double delta = 0.005;      // 5mm per step
-  double rpy_delta = 0.02;   // ~1.1 deg per step
-
-  while (jog_running_.load()) {
-    if (!cli_move_linear_->service_is_ready()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      continue;
+  if (jog_timer_) {
+    jog_timer_.reset();
+    // Mark jog as inactive — JointControlPanel can update stream target again
+    jog_active_ = false;
+    // Before JointControlPanel takes over, update target to current actual
+    // position so the stream doesn't pull the robot back to pre-jog position
+    {
+      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+      joint_stream_target_ = latest_joints_;
+      joint_stream_dirty_ = true;
     }
-
-    std::array<double, 3> d{0, 0, 0};
-    if (axis < 6) {
-      int idx = axis / 2;
-      double sign = (axis % 2 == 0) ? 1.0 : -1.0;
-      d[idx] = delta * sign * dir;
-    } else {
-      int rpy_idx = (axis - 6) / 2;
-      double sign = ((axis - 6) % 2 == 0) ? 1.0 : -1.0;
-      d[rpy_idx] = rpy_delta * sign * dir;
+    // Notify UI to resync command_target_ on next tick
+    {
+      std::lock_guard<std::mutex> lock(cb_mutex_);
+      if (jog_stopped_cb_) jog_stopped_cb_();
     }
-
-    auto req = std::make_shared<robot_control_msgs::srv::MoveLinear::Request>();
-    req->delta = {d[0], d[1], d[2]};
-    req->frame = "base";
-    auto future = cli_move_linear_->async_send_request(req);
-    if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000,
-                           "Jog service call timeout");
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 }
 
@@ -419,7 +448,6 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_running_ = true;
   joint_stream_paused_ = false;
   joint_stream_thread_ = std::thread([this]() {
-    // Panda joint names + gripper names
     const std::vector<std::string> joint_names = {
         "panda_joint1", "panda_joint2", "panda_joint3",
         "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7",
@@ -428,19 +456,16 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
       if (joint_stream_paused_.load()) continue;
+
+      // Always publish at 50Hz — Isaac Sim needs continuous position
+      // commands to hold joints against gravity
       std::array<double, 7> target;
-      bool should_send = false;
       {
         std::lock_guard<std::mutex> lock(joint_stream_mutex_);
-        if (joint_stream_dirty_) {
-          target = joint_stream_target_;
-          joint_stream_dirty_ = false;
-          should_send = true;
-        }
+        target = joint_stream_target_;
+        joint_stream_dirty_ = false;
       }
-      if (!should_send) continue;
 
-      // 直接发布到 /joint_command，绕过 service 层
       sensor_msgs::msg::JointState msg;
       msg.header.stamp = now();
       msg.name = joint_names;
@@ -457,6 +482,15 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
 }
 
 void PendantNode::update_joint_target(const std::array<double, 7>& target) {
+  // During jog, block updates from JointControlPanel to avoid overwriting
+  // jog IK results — the jog result subscriber uses set_jog_stream_target()
+  if (jog_active_.load()) return;
+  std::lock_guard<std::mutex> lock(joint_stream_mutex_);
+  joint_stream_target_ = target;
+  joint_stream_dirty_ = true;
+}
+
+void PendantNode::set_jog_stream_target(const std::array<double, 7>& target) {
   std::lock_guard<std::mutex> lock(joint_stream_mutex_);
   joint_stream_target_ = target;
   joint_stream_dirty_ = true;

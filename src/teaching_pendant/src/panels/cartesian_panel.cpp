@@ -1,5 +1,6 @@
 #include "teaching_pendant/panels/cartesian_panel.hpp"
 #include "teaching_pendant/pendant_node.hpp"
+#include <arm_control_interfaces/msg/jog_command.hpp>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -16,7 +17,7 @@ CartesianPanel::CartesianPanel(std::shared_ptr<PendantNode> node,
   auto* group = new QGroupBox("Cartesian Control", this);
   auto* layout = new QVBoxLayout(group);
 
-  // Motion mode
+  // Motion mode + Frame selector
   auto* mode_layout = new QHBoxLayout();
   mode_layout->addWidget(new QLabel("Mode:"));
   combo_motion_mode_ = new QComboBox(this);
@@ -24,6 +25,14 @@ CartesianPanel::CartesianPanel(std::shared_ptr<PendantNode> node,
   combo_motion_mode_->addItem("moveL");
   combo_motion_mode_->setCurrentIndex(0);
   mode_layout->addWidget(combo_motion_mode_);
+
+  mode_layout->addSpacing(12);
+  mode_layout->addWidget(new QLabel("Frame:"));
+  combo_frame_ = new QComboBox(this);
+  combo_frame_->addItem("Base");
+  combo_frame_->addItem("TCP");
+  combo_frame_->setCurrentIndex(0);
+  mode_layout->addWidget(combo_frame_);
   mode_layout->addStretch();
   layout->addLayout(mode_layout);
 
@@ -113,8 +122,13 @@ void CartesianPanel::onMovePose() {
 
 void CartesianPanel::onJogPress(int axis) {
   if (estop_active_.load()) return;
-  uint8_t mode = static_cast<uint8_t>(combo_motion_mode_->currentIndex());
-  node_->start_jog(axis, 1.0, mode);
+  // combo: index 0="Base", 1="TCP"
+  // JogCommand: TCP_FRAME=0, BASE_FRAME=1
+  // So Base→1, TCP→0
+  uint8_t frame = (combo_frame_->currentIndex() == 0)
+                      ? arm_control_interfaces::msg::JogCommand::BASE_FRAME
+                      : arm_control_interfaces::msg::JogCommand::TCP_FRAME;
+  node_->start_jog(axis, 0, frame);
 }
 
 void CartesianPanel::onJogRelease() {

@@ -245,4 +245,59 @@ Eigen::Matrix4d IKSolver::forward_matrix(
   return m;
 }
 
+std::optional<std::vector<double>> IKSolver::velocity_ik(
+    const std::vector<double>& current_joints,
+    const std::array<double, 6>& cartesian_delta) const {
+  int dof = impl_->profile.dof;
+  KDL::JntArray q(dof);
+  for (int i = 0; i < dof; ++i) {
+    q(i) = current_joints[i];
+  }
+
+  KDL::Twist twist(
+      KDL::Vector(cartesian_delta[0], cartesian_delta[1], cartesian_delta[2]),
+      KDL::Vector(cartesian_delta[3], cartesian_delta[4], cartesian_delta[5]));
+
+  KDL::JntArray dq(dof);
+  int ret = impl_->ik_vel_solver->CartToJnt(q, twist, dq);
+
+  if (ret < 0) return std::nullopt;
+
+  std::vector<double> result(dof);
+  for (int i = 0; i < dof; ++i) {
+    result[i] = current_joints[i] + dq(i);
+  }
+  return result;
+}
+
+std::optional<std::vector<double>> IKSolver::solve_from(
+    const std::array<double, 3>& xyz,
+    const std::optional<std::array<double, 3>>& rpy,
+    const std::vector<double>& initial_guess) const {
+  int dof = impl_->profile.dof;
+  KDL::JntArray q_init(dof);
+  for (int i = 0; i < dof; ++i) {
+    q_init(i) = initial_guess[i];
+  }
+
+  KDL::Frame target_frame;
+  if (rpy.has_value()) {
+    target_frame.M = KDL::Rotation::RPY((*rpy)[0], (*rpy)[1], (*rpy)[2]);
+  }
+  target_frame.p = KDL::Vector(xyz[0], xyz[1], xyz[2]);
+
+  KDL::JntArray q_out(dof);
+  int ret = impl_->ik_solver->CartToJnt(q_init, target_frame, q_out);
+
+  if (ret < 0) return std::nullopt;
+
+  std::vector<double> angles(dof);
+  for (int i = 0; i < dof; ++i) {
+    angles[i] = q_out(i);
+  }
+
+  // Do NOT update last_result — jog uses actual position as guess
+  return angles;
+}
+
 }  // namespace robot_control

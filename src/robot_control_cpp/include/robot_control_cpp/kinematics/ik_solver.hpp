@@ -47,6 +47,26 @@ public:
   /// @brief 获取主动关节数
   int get_dof() const;
 
+  /// @brief 基于雅可比伪逆的速度 IK（单步，非迭代）
+  /// 直接将笛卡尔速度转换为关节增量：dq = J^+ * twist
+  /// @param current_joints 当前关节角度
+  /// @param cartesian_delta 6D 笛卡尔增量 [dx,dy,dz,dr,dp,dyaw]（base frame）
+  /// @return 新关节角度，失败返回 nullopt
+  std::optional<std::vector<double>> velocity_ik(
+      const std::vector<double>& current_joints,
+      const std::array<double, 6>& cartesian_delta) const;
+
+  /// @brief 从指定初始猜测求解 IK（不修改 last_result 缓存）
+  /// 适用于 Jog 等需要从当前实际关节位置开始求解的场景
+  /// @param xyz 目标位置 [x, y, z]（米）
+  /// @param rpy 目标姿态 [roll, pitch, yaw]（弧度）
+  /// @param initial_guess 初始关节角度猜测
+  /// @return 关节角度，求解失败返回 nullopt
+  std::optional<std::vector<double>> solve_from(
+      const std::array<double, 3>& xyz,
+      const std::optional<std::array<double, 3>>& rpy,
+      const std::vector<double>& initial_guess) const;
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
