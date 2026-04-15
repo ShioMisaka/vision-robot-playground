@@ -1,0 +1,640 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+' ============================================================
+' Enums & Structs (robot_control_cpp)
+' ============================================================
+
+package "robot_control_cpp" {
+
+  package "kinematics" {
+
+    enum MotionMode {
+      kMoveJ
+      kMoveL
+    }
+
+    struct MotionLimits {
+      + max_vel : double
+      + max_acc : double
+      + max_jerk : double
+    }
+
+    struct TcpConfig {
+      + offset_xyz : array<double,3>
+      + offset_rpy : array<double,3>
+    }
+
+    struct RobotProfile {
+      + name : string
+      + urdf_path : string
+      + dof : int
+      + joint_names : vector<string>
+      + all_joint_names : vector<string>
+      + joint_limits_lower : vector<double>
+      + joint_limits_upper : vector<double>
+      + home_joints : vector<double>
+      + ik_default_guess : vector<double>
+      + base_frame : string
+      + hand_frame : string
+      + tcp_frames : map<string, TcpConfig>
+      + default_tcp : string
+      + joint_limits : MotionLimits
+      + cartesian_limits : MotionLimits
+    }
+
+    struct GripperProfile {
+      + type : string
+      + min_width : double
+      + max_width : double
+      + dof : int
+    }
+
+    RobotProfile *-- TcpConfig
+    RobotProfile *-- MotionLimits
+
+    class IKSolver {
+      + solve(xyz, rpy?) : optional<vector<double>>
+      + forward(joint_angles) : array<double,6>
+      + forward_matrix(joint_angles) : Matrix4d
+      + get_dof() : int
+      + velocity_ik(current_joints, cartesian_delta) : optional<vector<double>>
+      + solve_from(xyz, rpy, initial_guess) : optional<vector<double>>
+      --
+      - impl_ : unique_ptr<Impl>
+    }
+
+    IKSolver ..> RobotProfile : <<uses>>
+
+    struct TrajectoryPoint {
+      + t : double
+      + pos : double
+      + vel : double
+      + acc : double
+    }
+
+    class SCurvePlanner {
+      + {static} plan(q0, q1, limits, dt) : vector<TrajectoryPoint>
+    }
+
+    SCurvePlanner ..> MotionLimits
+    SCurvePlanner ..> TrajectoryPoint
+
+    class TrajectoryPlanner {
+      + {static} plan_joint(q_start, q_end, limits, dt) : vector<vector<double>>
+    }
+
+    TrajectoryPlanner ..> MotionLimits
+
+  }
+
+  package "vision" {
+
+    struct DetectionResult {
+      + detected : bool
+      + xyz : Vector3d
+      + uv : Vector2i
+      + confidence : double
+    }
+
+    interface IVisionProcessor {
+      + get_latest_result() : optional<DetectionResult>
+      + wait_for_detection(timeout) : optional<DetectionResult>
+    }
+
+    class CameraInterface {
+      + {abstract} process_image(rgb, depth) : DetectionResult
+      + {static} pixel_to_3d(u, v, depth, fx, fy, cx, cy) : Vector3d
+    }
+
+    CameraInterface ..> DetectionResult
+
+    class ColorDetector {
+      + detect(bgr_image) : optional<Vector2i>
+      + draw_target(image, cx, cy, label) : void
+      + process_image(rgb, depth) : DetectionResult
+      + set_camera_intrinsics(fx, fy, cx, cy) : void
+      --
+      - lower_hsv_ : Scalar
+      - upper_hsv_ : Scalar
+      - fx_ : double
+      - fy_ : double
+      - cx_ : double
+      - cy_ : double
+    }
+
+    ColorDetector --|> CameraInterface
+    CameraInterface <|-- ColorDetector
+
+  }
+
+  package "motion" {
+
+    struct ControlConstants {
+      + {static} kJointTolerance : double
+      + {static} kFingerTolerance : double
+      + {static} kMotionTimeout : double
+      + {static} kPollInterval : double
+      + {static} kSettleTime : double
+      + {static} kDefaultSteps : int
+      + {static} kDefaultStepTime : double
+      + {static} kImageSyncQueueSize : int
+      + {static} kImageSyncSlop : double
+      + {static} kFingerStableCount : int
+      + {static} kFingerStableTol : double
+      + {static} kReadyTimeout : double
+      + {static} kTrajectoryDt : double
+    }
+
+    interface IRobotController {
+      + set_arm(angles, block) : void
+      + set_gripper(width, block) : void
+      + open_gripper(block) : void
+      + close_gripper(block) : void
+      + move_to_pose(xyz, rpy, finger, steps, step_time, block) : void
+      + move_linear(delta, frame, finger, block) : void
+      + rotate_joint(index, delta_angle, block) : void
+      + go_home(block) : void
+      + get_joint_angles() : vector<double>
+      + get_end_effector_pose() : array<double,6>
+      + get_finger_width() : double
+      + set_tcp(name) : void
+      + get_current_tcp() : string
+      + lookup_transform(target, source, timeout) : optional<array<double,6>>
+      + moveJ(target_angles, block) : void
+      + moveJ(xyz, rpy, finger, block) : void
+      + moveL(xyz, rpy, finger, block) : void
+      + set_speed(mode, percent) : void
+      + get_speed(mode) : double
+    }
+
+    IRobotController ..> MotionMode
+
+    interface MotionIOBridge {
+      + publish_command(arm, finger) : void
+      + get_current_arm() : vector<double>
+      + get_current_finger() : double
+      + wait_for_motion(target_arm, finger, ...) : bool
+      + wait_for_finger_settle(stable_count, ...) : bool
+      + lookup_transform(target, source, timeout) : optional<array<double,6>>
+      + set_tcp_name(name) : void
+    }
+
+    class RobotMotionController {
+      + set_arm(angles, block) : void
+      + set_gripper(width, block) : void
+      + open_gripper(block) : void
+      + close_gripper(block) : void
+      + move_to_pose(xyz, rpy, ...) : void
+      + move_linear(delta, frame, ...) : void
+      + rotate_joint(index, delta_angle, block) : void
+      + go_home(block) : void
+      + get_joint_angles() : vector<double>
+      + get_end_effector_pose() : array<double,6>
+      + get_finger_width() : double
+      + set_tcp(name) : void
+      + get_current_tcp() : string
+      + lookup_transform(target, source, timeout) : optional<array<double,6>>
+      + moveJ(target_angles, block) : void
+      + moveJ(xyz, rpy, finger, block) : void
+      + moveL(xyz, rpy, finger, block) : void
+      + set_speed(mode, percent) : void
+      + get_speed(mode) : double
+      --
+      - ik_ : shared_ptr<IKSolver>
+      - profile_ : RobotProfile
+      - gripper_ : GripperProfile
+      - bridge_ : shared_ptr<MotionIOBridge>
+      - current_tcp_ : string
+      - current_tcp_config_ : TcpConfig
+      - grasping_ : bool
+      - movej_speed_ : double
+      - movel_speed_ : double
+    }
+
+    RobotMotionController --|> IRobotController
+    RobotMotionController *-- IKSolver
+    RobotMotionController *-- RobotProfile
+    RobotMotionController *-- GripperProfile
+    RobotMotionController o-- MotionIOBridge
+
+  }
+
+  package "nodes" {
+
+    struct CameraExtrinsics {
+      + xyz : array<double,3>
+      + rpy : array<double,3>
+    }
+
+    struct TopicConfig {
+      + joint_command : string
+      + joint_state : string
+      + camera_left : string
+      + camera_depth : string
+      + camera_frame : string
+      + camera_extrinsics : CameraExtrinsics
+    }
+
+    TopicConfig *-- CameraExtrinsics
+
+    enum GraspState {
+      kIdle
+      kDetecting
+      kApproaching
+      kDescending
+      kGrasping
+      kLifting
+      kDone
+      kError
+    }
+
+    class GraspTaskManager {
+      + run(timeout) : bool
+      + get_state() : GraspState
+      + transform_to_base(camera_xyz) : optional<array<double,3>>
+      --
+      - robot_ : shared_ptr<IRobotController>
+      - vision_ : shared_ptr<IVisionProcessor>
+      - base_frame_ : string
+      - camera_frame_ : string
+      - approach_height_ : double
+      - grasp_height_offset_ : double
+      - grasp_rpy_ : array<double,3>
+      - state_ : GraspState
+      - target_xyz_ : optional<array<double,3>>
+    }
+
+    GraspTaskManager o-- IRobotController
+    GraspTaskManager o-- IVisionProcessor
+    GraspTaskManager ..> GraspState
+
+    enum RobotState <<enumeration>> {
+      kIdle
+      kMoving
+      kTeaching
+      kStopping
+      kFault
+    }
+
+    class RobotStateMachine {
+      + state() : RobotState
+      + transition_to(target) : bool
+      + force_state(target) : void
+      + state_name(s) : const char*
+      + error_code() : int32_t
+      + error_message() : string
+      + set_error(code, message) : void
+      + clear_error() : void
+      --
+      - mutex_ : mutex
+      - state_ : RobotState
+      - error_code_ : int32_t
+      - error_message_ : string
+    }
+
+    RobotStateMachine ..> RobotState
+
+    struct TrajectoryStep {
+      + joint_positions : vector<double>
+      + time_from_start : double
+    }
+
+    class TrajectoryExecutor {
+      + start(trajectory, finger_width) : void
+      + get_progress(progress, current_angles, time_remaining) : bool
+      + cancel() : void
+      + is_active() : bool
+      + wait_for_completion(timeout) : bool
+      --
+      - publish_fn_ : function<void(vector<double>,double)>
+      - trajectory_ : vector<TrajectoryStep>
+      - finger_width_ : double
+      - total_duration_ : double
+      - mutex_ : mutex
+      - cv_ : condition_variable
+      - thread_ : thread
+      - active_ : atomic<bool>
+      - cancelled_ : atomic<bool>
+      - completed_ : atomic<bool>
+      - current_step_ : size_t
+    }
+
+    TrajectoryExecutor ..> TrajectoryStep
+
+    class VisionProcessorNode {
+      + {static} create(processor, topics) : shared_ptr<VisionProcessorNode>
+      + get_latest_result() : optional<DetectionResult>
+      + wait_for_detection(timeout) : optional<DetectionResult>
+      --
+      - processor_ : shared_ptr<CameraInterface>
+      - left_sub_ : unique_ptr<Subscriber<Image>>
+      - depth_sub_ : unique_ptr<Subscriber<Image>>
+      - sync_ : unique_ptr<Synchronizer<SyncPolicy>>
+      - result_mutex_ : mutex
+      - latest_result_ : optional<DetectionResult>
+      - has_result_ : bool
+      - result_cv_ : condition_variable
+    }
+
+    VisionProcessorNode --|> rclcpp::Node
+    VisionProcessorNode ..|> IVisionProcessor
+    VisionProcessorNode o-- CameraInterface
+    VisionProcessorNode ..> TopicConfig
+
+    class RosMotionBridge {
+      + publish_command(arm, finger) : void
+      + get_current_arm() : vector<double>
+      + get_current_finger() : double
+      + wait_for_motion(target_arm, ...) : bool
+      + wait_for_finger_settle(...) : bool
+      + lookup_transform(target, source, timeout) : optional<array<double,6>>
+      + set_tcp_name(name) : void
+      + update_joint_state(msg) : void
+      + get_tf_buffer() : shared_ptr<Buffer>
+      --
+      - node_ : Node::SharedPtr
+      - topics_ : TopicConfig
+      - profile_ : RobotProfile
+      - gripper_ : GripperProfile
+      - ik_ : shared_ptr<IKSolver>
+      - cmd_pub_ : Publisher<JointState>::SharedPtr
+      - tf_broadcaster_ : unique_ptr<TransformBroadcaster>
+      - static_tf_broadcaster_ : unique_ptr<StaticTransformBroadcaster>
+      - tf_buffer_ : shared_ptr<Buffer>
+      - tf_listener_ : shared_ptr<TransformListener>
+      - state_mutex_ : mutex
+      - current_arm_ : vector<double>
+      - current_finger_ : double
+      - current_tcp_name_ : string
+      - current_tcp_config_ : TcpConfig
+    }
+
+    RosMotionBridge ..|> MotionIOBridge
+    RosMotionBridge o-- rclcpp::Node
+    RosMotionBridge ..> TopicConfig
+    RosMotionBridge ..> RobotProfile
+    RosMotionBridge ..> GripperProfile
+    RosMotionBridge ..> IKSolver
+
+    class RobotControllerNode {
+      + {static} create(profile, gripper, topics) : shared_ptr<RobotControllerNode>
+      + wait_for_ready(timeout) : bool
+      + get_controller() : shared_ptr<RobotMotionController>
+      + get_tf_buffer() : shared_ptr<Buffer>
+      + get_bridge() : shared_ptr<RosMotionBridge>
+      + state_machine() : const RobotStateMachine&
+      --
+      - bridge_ : shared_ptr<RosMotionBridge>
+      - controller_ : shared_ptr<RobotMotionController>
+      - ik_ : shared_ptr<IKSolver>
+      - profile_ : RobotProfile
+      - gripper_ : GripperProfile
+      - topics_ : TopicConfig
+      - state_machine_ : RobotStateMachine
+      - trajectory_executor_ : unique_ptr<TrajectoryExecutor>
+      - global_speed_ratio_ : atomic<double>
+      ' ROS2 Subscribers
+      - joint_sub_ : Subscription<JointState>::SharedPtr
+      - jog_sub_ : Subscription<JogCommand>::SharedPtr
+      ' ROS2 Publishers
+      - jog_result_pub_ : Publisher<JointState>::SharedPtr
+      - status_pub_ : Publisher<RobotStatus>::SharedPtr
+      ' ROS2 Services (legacy)
+      - srv_ik_ : Service<SolveIK>::SharedPtr
+      - srv_move_joint_ : Service<MoveJoint>::SharedPtr
+      - srv_move_pose_ : Service<MovePose>::SharedPtr
+      - srv_move_linear_ : Service<MoveLinear>::SharedPtr
+      - srv_gripper_ : Service<ControlGripper>::SharedPtr
+      - srv_home_ : Service<GoHome>::SharedPtr
+      - srv_speed_ : Service<SetSpeed>::SharedPtr
+      - srv_state_ : Service<GetRobotState>::SharedPtr
+      ' ROS2 Action Servers
+      - movej_action_ : Server<MoveJ>::SharedPtr
+      - movel_action_ : Server<MoveL>::SharedPtr
+      ' ROS2 Pendant Services
+      - pendant_set_tcp_srv_ : Service<SetTCP>::SharedPtr
+      - set_speed_ratio_srv_ : Service<SetSpeedRatio>::SharedPtr
+      - robot_cmd_srv_ : Service<RobotCmd>::SharedPtr
+      ' ROS2 Timers
+      - jog_watchdog_timer_ : TimerBase::SharedPtr
+      - status_timer_ : TimerBase::SharedPtr
+      ' ROS2 Callback Groups
+      - state_cbg_ : CallbackGroup::SharedPtr
+      - pub_cbg_ : CallbackGroup::SharedPtr
+      ' Threads & sync
+      - movej_thread_ : thread
+      - movel_thread_ : thread
+      - shutdown_ : atomic<bool>
+      - ready_mutex_ : mutex
+      - ready_cv_ : condition_variable
+      - ready_ : bool
+    }
+
+    RobotControllerNode --|> rclcpp::Node
+    RobotControllerNode *-- RosMotionBridge
+    RobotControllerNode *-- RobotMotionController
+    RobotControllerNode *-- RobotStateMachine
+    RobotControllerNode *-- TrajectoryExecutor
+    RobotControllerNode ..> RobotProfile
+    RobotControllerNode ..> GripperProfile
+    RobotControllerNode ..> TopicConfig
+
+  }
+
+  package "profiles" {
+    note "profiles::panda() → RobotProfile\nprofiles::panda_gripper() → GripperProfile" as PandaProfile
+  }
+
+}
+
+' ============================================================
+' teaching_pendant
+' ============================================================
+
+package "teaching_pendant" {
+
+  class PendantNode {
+    + {static} create(prefix) : shared_ptr<PendantNode>
+    + set_connection_callback(cb) : void
+    + set_image_callback(cb) : void
+    + set_jog_stopped_callback(cb) : void
+    + async_get_state(callback) : void
+    + async_move_joint(angles, callback) : void
+    + async_move_pose(xyz, rpy, mode, finger, callback) : void
+    + async_open_gripper(callback) : void
+    + async_close_gripper(callback) : void
+    + async_go_home(callback) : void
+    + async_set_speed(mode, percent) : void
+    + start_jog(axis, mode, frame) : void
+    + stop_jog() : void
+    + emergency_stop() : void
+    + start_joint_stream(initial) : void
+    + update_joint_target(target) : void
+    + stop_joint_stream() : void
+    + pause_joint_stream() : void
+    + resume_joint_stream() : void
+    + set_jog_stream_target(target) : void
+    + is_robot_connected() : bool
+    + is_camera_connected() : bool
+    + are_services_ready() : bool
+    --
+    ' ROS2 Service Clients
+    - cli_ik_ : Client<SolveIK>::SharedPtr
+    - cli_move_joint_ : Client<MoveJoint>::SharedPtr
+    - cli_move_pose_ : Client<MovePose>::SharedPtr
+    - cli_move_linear_ : Client<MoveLinear>::SharedPtr
+    - cli_gripper_ : Client<ControlGripper>::SharedPtr
+    - cli_home_ : Client<GoHome>::SharedPtr
+    - cli_speed_ : Client<SetSpeed>::SharedPtr
+    - cli_state_ : Client<GetRobotState>::SharedPtr
+    ' ROS2 Subscribers
+    - joint_sub_ : Subscription<JointState>::SharedPtr
+    - rgb_sub_ : unique_ptr<Subscriber<Image>>
+    - depth_sub_ : unique_ptr<Subscriber<Image>>
+    - jog_result_sub_ : Subscription<JointState>::SharedPtr
+    ' ROS2 Publishers
+    - jog_pub_ : Publisher<JogCommand>::SharedPtr
+    - joint_cmd_pub_ : Publisher<JointState>::SharedPtr
+    ' ROS2 Timers
+    - jog_timer_ : TimerBase::SharedPtr
+    - discovery_timer_ : TimerBase::SharedPtr
+    ' ROS2 Sync
+    - sync_ : unique_ptr<Synchronizer<SyncPolicy>>
+    ' Callback state
+    - conn_cb_ : ConnectionCallback
+    - image_cb_ : ImageCallback
+    - jog_stopped_cb_ : JogStoppedCallback
+    ' Connection state
+    - robot_connected_ : atomic<bool>
+    - camera_connected_ : atomic<bool>
+    - services_ready_ : atomic<bool>
+    ' Jog state
+    - jog_msg_ : JogCommand
+    - jog_active_ : atomic<bool>
+    ' Joint stream
+    - joint_stream_target_ : array<double,7>
+    - joint_stream_thread_ : thread
+    - joint_stream_running_ : atomic<bool>
+    ' Task queue
+    - task_queue_ : vector<function<void()>>
+    - task_thread_ : thread
+    - task_running_ : atomic<bool>
+  }
+
+  PendantNode --|> rclcpp::Node
+
+  class MainWindow {
+    + MainWindow(node, parent)
+    --
+    - node_ : shared_ptr<PendantNode>
+    - connection_bar_ : ConnectionBar*
+    - camera_panel_ : CameraPanel*
+    - state_bar_ : RobotStateBar*
+    - joint_panel_ : JointControlPanel*
+    - cartesian_panel_ : CartesianPanel*
+    - function_panel_ : FunctionPanel*
+    - refresh_timer_ : QTimer*
+  }
+
+  MainWindow --|> QMainWindow
+  MainWindow *-- PendantNode
+  MainWindow *-- ConnectionBar
+  MainWindow *-- CameraPanel
+  MainWindow *-- RobotStateBar
+  MainWindow *-- JointControlPanel
+  MainWindow *-- CartesianPanel
+  MainWindow *-- FunctionPanel
+
+  class ConnectionBar {
+    + ConnectionBar(parent)
+    + onRobotConnectionChanged(connected, services_ready) : void
+    + onCameraConnectionChanged(connected) : void
+    --
+    - label_robot_status_ : QLabel*
+    - label_camera_status_ : QLabel*
+  }
+
+  ConnectionBar --|> QWidget
+
+  class CameraPanel {
+    + CameraPanel(parent)
+    + onImageReceived(image) : void
+    + onEstopChanged(active) : void
+    --
+    - image_label_ : QLabel*
+    - btn_toggle_ : QPushButton*
+    - show_depth_ : bool
+  }
+
+  CameraPanel --|> QWidget
+
+  class RobotStateBar {
+    + RobotStateBar(parent)
+    + onStateUpdated(pose, finger_width, tcp_name) : void
+    --
+    - label_pose_ : QLabel*[6]
+    - label_finger_ : QLabel*
+    - label_tcp_ : QLabel*
+  }
+
+  RobotStateBar --|> QWidget
+
+  class JointControlPanel {
+    + JointControlPanel(node, parent)
+    + onStateUpdated(joint_angles) : void
+    + onEstopChanged(active) : void
+    + notifyJogStopped() : void
+    --
+    - node_ : shared_ptr<PendantNode>
+    - slider_joint_ : QSlider*[7]
+    - edit_joint_ : QLineEdit*[7]
+    - joint_follow_timer_ : QTimer*
+    - lock_timer_ : QTimer*[7]
+    - command_target_ : array<double,7>
+    - estop_active_ : atomic<bool>
+  }
+
+  JointControlPanel --|> QWidget
+  JointControlPanel o-- PendantNode
+
+  class CartesianPanel {
+    + CartesianPanel(node, parent)
+    + onEstopChanged(active) : void
+    --
+    - node_ : shared_ptr<PendantNode>
+    - spin_xyz_ : QDoubleSpinBox*[3]
+    - spin_rpy_ : QDoubleSpinBox*[3]
+    - combo_motion_mode_ : QComboBox*
+    - combo_frame_ : QComboBox*
+    - estop_active_ : atomic<bool>
+  }
+
+  CartesianPanel --|> QWidget
+  CartesianPanel o-- PendantNode
+
+  class FunctionPanel {
+    + FunctionPanel(node, parent)
+    --
+    - node_ : shared_ptr<PendantNode>
+    - slider_speed_j_ : QSlider*
+    - slider_speed_l_ : QSlider*
+    - label_speed_j_ : QLabel*
+    - label_speed_l_ : QLabel*
+    - estop_active_ : atomic<bool>
+  }
+
+  FunctionPanel --|> QWidget
+  FunctionPanel o-- PendantNode
+
+  ' Qt signals
+  FunctionPanel --> JointControlPanel : estopChanged(bool)
+  FunctionPanel --> CartesianPanel : estopChanged(bool)
+  FunctionPanel --> CameraPanel : estopChanged(bool)
+  JointControlPanel --> PendantNode : start_joint_stream()
+}
+
+@enduml
