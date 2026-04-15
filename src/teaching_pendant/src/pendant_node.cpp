@@ -1,8 +1,5 @@
 #include "teaching_pendant/pendant_node.hpp"
 
-#include <Eigen/Core>
-#include <Eigen/Geometry>
-
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -23,8 +20,6 @@ PendantNode::PendantNode(const std::string& robot_service_prefix)
 
 void PendantNode::init() {
   // Service clients
-  cli_ik_ = create_client<robot_control_msgs::srv::SolveIK>(
-      service_prefix_ + "/solve_ik");
   cli_move_joint_ = create_client<robot_control_msgs::srv::MoveJoint>(
       service_prefix_ + "/move_joint");
   cli_move_pose_ = create_client<robot_control_msgs::srv::MovePose>(

@@ -16,7 +16,6 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
-#include <robot_control_msgs/srv/solve_ik.hpp>
 #include <robot_control_msgs/srv/move_joint.hpp>
 #include <robot_control_msgs/srv/move_pose.hpp>
 #include <robot_control_msgs/srv/move_linear.hpp>
@@ -137,7 +136,6 @@ private:
   std::string service_prefix_;
 
   // Service clients
-  rclcpp::Client<robot_control_msgs::srv::SolveIK>::SharedPtr cli_ik_;
   rclcpp::Client<robot_control_msgs::srv::MoveJoint>::SharedPtr cli_move_joint_;
   rclcpp::Client<robot_control_msgs::srv::MovePose>::SharedPtr cli_move_pose_;
   rclcpp::Client<robot_control_msgs::srv::MoveLinear>::SharedPtr cli_move_linear_;
