@@ -40,6 +40,7 @@
 #include "robot_control_cpp/nodes/topic_config.hpp"
 #include "robot_control_cpp/nodes/robot_state.hpp"
 #include "robot_control_cpp/nodes/trajectory_executor.hpp"
+#include "robot_control_cpp/motion/jog_controller.hpp"
 
 namespace robot_control {
 
@@ -209,6 +210,7 @@ private:
   // === Jog + watchdog ===
   void handle_jog_command(const arm_control_interfaces::msg::JogCommand::SharedPtr msg);
   void jog_watchdog_callback();
+  void jog_tick_callback();
 
   // === Status publisher ===
   void publish_status();
@@ -263,7 +265,11 @@ private:
   // === Jog + watchdog ===
   rclcpp::Subscription<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_sub_;
   rclcpp::TimerBase::SharedPtr jog_watchdog_timer_;
+  rclcpp::TimerBase::SharedPtr jog_tick_timer_;
   rclcpp::Time last_jog_time_;
+
+  // === Jog controller (pure C++ math) ===
+  std::unique_ptr<JogController> jog_controller_;
 
   // === Status publisher ===
   rclcpp::Publisher<arm_control_interfaces::msg::RobotStatus>::SharedPtr status_pub_;

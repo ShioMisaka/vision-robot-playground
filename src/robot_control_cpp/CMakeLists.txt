@@ -66,6 +66,7 @@ ament_target_dependencies(robot_vision
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
 add_library(robot_motion SHARED
   src/motion/robot_motion_controller.cpp
+  src/motion/jog_controller.cpp
 )
 
 target_include_directories(robot_motion PUBLIC

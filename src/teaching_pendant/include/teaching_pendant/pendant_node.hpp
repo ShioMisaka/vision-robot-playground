@@ -26,8 +26,8 @@
 #include <robot_control_msgs/srv/get_robot_state.hpp>
 
 #include <arm_control_interfaces/msg/jog_command.hpp>
-
-#include <robot_control_cpp/kinematics/ik_solver.hpp>
+#include <arm_control_interfaces/msg/robot_status.hpp>
+#include <arm_control_interfaces/srv/robot_cmd.hpp>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -44,8 +44,7 @@ public:
   using ImageCallback = std::function<void(const cv::Mat& rgb)>;
 
   static std::shared_ptr<PendantNode> create(
-      const std::string& robot_service_prefix = "robot_controller_node",
-      std::shared_ptr<robot_control::IKSolver> ik_solver = nullptr);
+      const std::string& robot_service_prefix = "robot_controller_node");
 
   ~PendantNode();
 
@@ -55,7 +54,7 @@ public:
   /// 设置图像回调
   void set_image_callback(ImageCallback cb);
 
-  /// 设置 jog 停止回调（在 stop_jog 时触发，用于通知 UI 同步）
+  /// 设置 jog 停止回调（RobotStatus 检测到 kIdle 时触发，用于通知 UI 同步）
   using JogStoppedCallback = std::function<void()>;
   void set_jog_stopped_callback(JogStoppedCallback cb);
 
@@ -86,13 +85,15 @@ public:
 
   void async_set_speed(uint8_t mode, double percent);
 
-  // === Jog 控制 ===
+  // === Jog 控制（仅发布 JogCommand 消息，IK 由 RobotControllerNode 处理） ===
 
-  /// @brief 开始 Jog（50Hz，本地雅可比速度 IK + 加减速斜坡）
-  /// @param axis 0~5: XYZ+/XYZ-/RPY+/RPY-... (velocity index)
+  /// @brief 启动 Jog（发布 JogCommand 消息）
+  /// @param axis 0~5: XYZ+/XYZ-/...  6~11: RPY+/RPY-...
   /// @param mode 运动模式（未使用，保留）
   /// @param frame 0=TCP, 1=Base
   void start_jog(int axis, uint8_t mode, uint8_t frame);
+
+  /// @brief 停止 Jog（发布零速度 JogCommand）
   void stop_jog();
 
   // === 急停 ===
@@ -107,9 +108,6 @@ public:
   void pause_joint_stream();
   void resume_joint_stream();
 
-  /// @brief 从 jog IK 结果更新流目标（不受 jog_active_ 拦截）
-  void set_jog_stream_target(const std::array<double, 7>& target);
-
   // === 连接状态 ===
 
   bool is_robot_connected() const { return robot_connected_.load(); }
@@ -117,8 +115,7 @@ public:
   bool are_services_ready() const { return services_ready_.load(); }
 
 private:
-  PendantNode(const std::string& robot_service_prefix,
-              std::shared_ptr<robot_control::IKSolver> ik_solver);
+  PendantNode(const std::string& robot_service_prefix);
 
   void init();
 
@@ -127,19 +124,17 @@ private:
       const sensor_msgs::msg::Image::ConstSharedPtr& rgb_msg,
       const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
-  /// Jog tick: 雅可比速度 IK → 关节增量积分 → 流目标更新
-  void jog_tick();
+  /// RobotStatus 订阅回调：检测 Jog 完成（kTeaching→kIdle）
+  void on_robot_status(const arm_control_interfaces::msg::RobotStatus::SharedPtr msg);
 
-  /// Jog 完全停止后的收尾（重新同步 + UI 通知）
-  void jog_finish();
+  /// 构建 JogCommand 速度消息
+  arm_control_interfaces::msg::JogCommand build_jog_command(
+      int axis, uint8_t frame) const;
 
   /// 将任务提交到后台线程池执行
   void post_task(std::function<void()> task);
 
   std::string service_prefix_;
-
-  // IK solver (shared with RobotControllerNode, direct call — no DDS)
-  std::shared_ptr<robot_control::IKSolver> ik_;
 
   // Service clients
   rclcpp::Client<robot_control_msgs::srv::SolveIK>::SharedPtr cli_ik_;
@@ -151,8 +146,14 @@ private:
   rclcpp::Client<robot_control_msgs::srv::SetSpeed>::SharedPtr cli_speed_;
   rclcpp::Client<robot_control_msgs::srv::GetRobotState>::SharedPtr cli_state_;
 
+  // E-STOP service client (forwards to RobotControllerNode)
+  rclcpp::Client<arm_control_interfaces::srv::RobotCmd>::SharedPtr cli_robot_cmd_;
+
   // Subscribers
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
+
+  // RobotStatus subscription
+  rclcpp::Subscription<arm_control_interfaces::msg::RobotStatus>::SharedPtr status_sub_;
 
   // Image sync
   std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> rgb_sub_;
@@ -175,19 +176,10 @@ private:
   std::atomic<bool> services_ready_{false};
   rclcpp::TimerBase::SharedPtr discovery_timer_;
 
-  // === Jog state ===
+  // === Jog publisher (sends JogCommand to RobotControllerNode) ===
   rclcpp::Publisher<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_pub_;
-  rclcpp::TimerBase::SharedPtr jog_timer_;
-  arm_control_interfaces::msg::JogCommand jog_msg_{};
-
-  // Jog S-curve ramp state (normalized 0..1 velocity scale)
-  // Three phases: jerk-up → constant accel → jerk-down
-  double jog_v_ = 0.0;            ///< current velocity scale (0..1)
-  double jog_a_ = 0.0;            ///< current acceleration of scale (1/s²)
-  bool jog_stopping_ = false;     ///< deceleration phase active
-
-  // Jog internal position tracking (NOT from feedback — avoids lag)
-  std::array<double, 7> jog_q_current_{};
+  std::atomic<bool> jog_active_{false};
+  uint8_t last_jog_frame_ = 1;  // BASE_FRAME
 
   // === Joint stream state ===
   std::mutex joint_stream_mutex_;
@@ -196,7 +188,6 @@ private:
   std::thread joint_stream_thread_;
   std::atomic<bool> joint_stream_running_{false};
   std::atomic<bool> joint_stream_paused_{false};
-  std::atomic<bool> jog_active_{false};
 
   // Direct joint command publisher (bypasses service layer for low-latency streaming)
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;

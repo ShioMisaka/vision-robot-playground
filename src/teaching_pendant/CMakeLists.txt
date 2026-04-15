@@ -15,6 +15,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(robot_control_msgs REQUIRED)
+find_package(arm_control_interfaces REQUIRED)
 find_package(robot_control_cpp REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
@@ -70,6 +71,7 @@ ament_target_dependencies(teaching_pendant
   cv_bridge
   message_filters
   robot_control_msgs
+  arm_control_interfaces
   OpenCV
 )
 

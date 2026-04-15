@@ -4,6 +4,7 @@
 #include "robot_control_cpp/nodes/robot_state.hpp"
 #include "robot_control_cpp/nodes/trajectory_executor.hpp"
 #include "robot_control_cpp/motion/control_constants.hpp"
+#include "robot_control_cpp/motion/jog_controller.hpp"
 
 #include <rclcpp_action/rclcpp_action.hpp>
 
@@ -524,6 +525,16 @@ void RobotControllerNode::init() {
   jog_watchdog_timer_ = create_wall_timer(
       std::chrono::milliseconds(200),
       [this]() { jog_watchdog_callback(); }, pub_cbg_);
+
+  // === Jog controller (pure C++ math) ===
+  JogConfig jog_cfg;
+  jog_cfg.dof = profile_.dof;
+  jog_controller_ = std::make_unique<JogController>(ik_, jog_cfg);
+
+  // === Jog tick timer (50Hz) ===
+  jog_tick_timer_ = create_wall_timer(
+      std::chrono::milliseconds(20),
+      [this]() { jog_tick_callback(); }, pub_cbg_);
 
   // === Status publisher (10Hz) ===
   status_pub_ = create_publisher<arm_control_interfaces::msg::RobotStatus>(
@@ -1144,12 +1155,34 @@ void RobotControllerNode::handle_robot_cmd(
 // ===== Jog + Watchdog =====
 
 void RobotControllerNode::handle_jog_command(
-    const arm_control_interfaces::msg::JogCommand::SharedPtr /*msg*/) {
-  // IK is now computed locally in the pendant — this callback only manages
-  // the state machine (kIdle → kTeaching) and resets the watchdog timer.
+    const arm_control_interfaces::msg::JogCommand::SharedPtr msg) {
   auto state = state_machine_.state();
   if (state != RobotState::kIdle && state != RobotState::kTeaching) {
     return;
+  }
+
+  // 检测零速度（停止指令）
+  bool all_zero = true;
+  for (int i = 0; i < 6; ++i) {
+    if (std::abs(msg->velocity[i]) > 1e-10) {
+      all_zero = false;
+      break;
+    }
+  }
+
+  if (all_zero) {
+    // 按钮释放: 进入减速
+    if (jog_controller_->is_active()) {
+      jog_controller_->stop();
+    }
+  } else {
+    // 按钮按下（或方向改变）: 启动/重启 Jog
+    if (jog_controller_->is_stopping()) {
+      jog_controller_->reset();
+    }
+    std::array<double, 6> vel;
+    std::copy(msg->velocity.begin(), msg->velocity.end(), vel.begin());
+    jog_controller_->start_raw(vel, msg->frame);
   }
 
   if (state == RobotState::kIdle) {
@@ -1159,13 +1192,48 @@ void RobotControllerNode::handle_jog_command(
   last_jog_time_ = this->now();
 }
 
+void RobotControllerNode::jog_tick_callback() {
+  if (!jog_controller_ || !jog_controller_->is_active()) return;
+
+  // Jog 活跃期间保持看门狗活跃（pendant 只发一次 JogCommand，
+  // 50Hz tick 本身就是心跳）
+  last_jog_time_ = this->now();
+
+  auto current = bridge_->get_current_arm();
+  std::array<double, 7> feedback{};
+  for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
+    feedback[i] = current[i];
+  }
+
+  jog_controller_->set_finger_width(bridge_->get_current_finger());
+
+  bool still_active = jog_controller_->tick(feedback,
+      [this](const std::vector<double>& arm, double finger) {
+        bridge_->publish_command(arm, finger);
+      });
+
+  if (!still_active) {
+    // Jog 减速完成: 发布最终保持位置，转回 kIdle
+    auto cmd = jog_controller_->get_commanded_joints();
+    std::vector<double> arm(cmd.begin(), cmd.end());
+    bridge_->publish_command(arm, bridge_->get_current_finger());
+    state_machine_.transition_to(RobotState::kIdle);
+  }
+}
+
 void RobotControllerNode::jog_watchdog_callback() {
   if (state_machine_.state() != RobotState::kTeaching) return;
 
   auto elapsed = (this->now() - last_jog_time_).seconds();
   if (elapsed > 0.2) {
     RCLCPP_WARN(this->get_logger(), "Jog watchdog: no command for %.2fs, stopping", elapsed);
-    bridge_->publish_command(bridge_->get_current_arm(), bridge_->get_current_finger());
+    auto current = bridge_->get_current_arm();
+    std::array<double, 7> fb{};
+    for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
+      fb[i] = current[i];
+    }
+    jog_controller_->emergency_stop(fb);
+    bridge_->publish_command(current, bridge_->get_current_finger());
     state_machine_.transition_to(RobotState::kIdle);
   }
 }
@@ -1174,6 +1242,17 @@ void RobotControllerNode::jog_watchdog_callback() {
 
 void RobotControllerNode::emergency_stop() {
   trajectory_executor_->cancel();
+
+  // 急停 Jog（如果活动）
+  if (jog_controller_ && jog_controller_->is_active()) {
+    auto current = bridge_->get_current_arm();
+    std::array<double, 7> fb{};
+    for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
+      fb[i] = current[i];
+    }
+    jog_controller_->emergency_stop(fb);
+  }
+
   bridge_->publish_command(bridge_->get_current_arm(), bridge_->get_current_finger());
   state_machine_.force_state(RobotState::kFault);
   state_machine_.set_error(100, "EMERGENCY_STOP activated");
@@ -1209,6 +1288,9 @@ void RobotControllerNode::publish_status() {
 
 RobotControllerNode::~RobotControllerNode() {
   shutdown_ = true;
+  if (jog_controller_) {
+    jog_controller_->reset();
+  }
   if (trajectory_executor_) {
     trajectory_executor_->cancel();
   }
