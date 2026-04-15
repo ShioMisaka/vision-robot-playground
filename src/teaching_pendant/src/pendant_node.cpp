@@ -370,6 +370,19 @@ void PendantNode::async_set_speed(uint8_t mode, double percent) {
 }
 
 // ===== Jog Control =====
+//
+// Architecture: 3-phase S-curve velocity profile + Jacobian velocity IK
+//
+//   Phase 1 (Jerk-up):   acceleration ramps from 0 to a_max at rate j_max
+//   Phase 2 (Const Acc): acceleration holds at a_max
+//   Phase 3 (Jerk-down): acceleration ramps from a_max to 0 at rate j_max
+//                         → velocity reaches v_max with zero derivative
+//
+//   Deceleration is the mirror image: a_max → 0 → -a_max → 0
+//
+//   Joint synchronization: after computing dq = J⁺ * dx, check each joint
+//   velocity against its physical limit and scale down the Cartesian delta
+//   if any joint would exceed its limit.
 
 void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
   if (!ik_) {
@@ -386,7 +399,8 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
   // Mark jog as active — update_joint_target() from JointControlPanel is blocked
   jog_active_ = true;
   jog_stopping_ = false;
-  jog_ramp_scale_ = 0.0;  // start acceleration ramp from zero
+  jog_v_ = 0.0;   // velocity scale starts at zero
+  jog_a_ = 0.0;   // acceleration starts at zero
 
   // Initialize internal commanded position from actual robot position
   {
@@ -412,7 +426,7 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
     jog_msg_.velocity[3 + rpy_idx] = jog_rpy_speed * sign;
   }
 
-  // 50Hz timer: Jacobian velocity IK + acceleration ramp
+  // 50Hz timer: Jacobian velocity IK + S-curve ramp
   jog_timer_ = create_wall_timer(
       std::chrono::milliseconds(20),
       [this]() { jog_tick(); });
@@ -420,25 +434,20 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
 
 void PendantNode::stop_jog() {
   if (!jog_timer_) return;
-  // Start deceleration phase — timer keeps running until ramp reaches zero
+  // Enter deceleration phase — timer keeps running until v reaches 0
   jog_stopping_ = true;
 }
 
 void PendantNode::jog_finish() {
-  // Called when deceleration ramp reaches zero (from jog_tick)
   jog_timer_.reset();
   jog_active_ = false;
   jog_stopping_ = false;
-  jog_ramp_scale_ = 0.0;
+  jog_v_ = 0.0;
+  jog_a_ = 0.0;
 
-  // Resync stream target to actual robot position
-  {
-    std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
-    std::lock_guard<std::mutex> slock(joint_stream_mutex_);
-    joint_stream_target_ = latest_joints_;
-    joint_stream_dirty_ = true;
-  }
-  // Notify UI to resync slider/command_target_ on next tick
+  // Stream target stays at last jog_q_current_ — no snap to feedback.
+  // JointControlPanel will take over from the next state update tick.
+
   {
     std::lock_guard<std::mutex> lock(cb_mutex_);
     if (jog_stopped_cb_) jog_stopped_cb_();
@@ -446,67 +455,135 @@ void PendantNode::jog_finish() {
 }
 
 void PendantNode::jog_tick() {
-  constexpr double dt = 0.02;              // 50Hz tick
-  constexpr double ramp_up_time = 0.2;     // 200ms to full speed
-  constexpr double ramp_down_time = 0.15;  // 150ms deceleration
+  constexpr double dt = 0.02;  // 50Hz
 
-  // === 1. Acceleration / Deceleration ramp ===
+  // === S-curve ramp parameters (normalized velocity 0..1) ===
+  // These control the shape of the velocity profile.
+  // With a_max=5.0 and j_max=50.0:
+  //   Jerk-up/down time: a_max/j_max = 0.1s each
+  //   Const-accel time:  (1.0 - 2*0.1*0.1*50/2) / 5.0 ≈ 0.1s
+  //   Total accel: ~0.3s, Total decel: ~0.3s
+  constexpr double a_max = 5.0;    // max acceleration of velocity scale (1/s²)
+  constexpr double j_max = 50.0;   // max jerk of velocity scale (1/s³)
+
+  // === 1. S-curve velocity ramp (jerk-limited acceleration control) ===
   if (jog_stopping_) {
-    jog_ramp_scale_ -= dt / ramp_down_time;
-    if (jog_ramp_scale_ <= 0.0) {
-      jog_ramp_scale_ = 0.0;
+    // --- Deceleration to v=0 ---
+    // Goal: reach v=0 with a=0 (no residual acceleration at stop)
+    // The "stopping distance" (velocity to shed during final jerk-up) is:
+    //   Δv_jerkup = a² / (2 * j_max)
+    // When v ≤ Δv_jerkup, enter final jerk-up phase.
+
+    if (jog_a_ < 0 && jog_v_ <= jog_a_ * jog_a_ / (2.0 * j_max) + 1e-8) {
+      // Final jerk-up phase: smoothly reduce |a| to 0
+      // Target: when a=0, v=0.  So: v ≈ a²/(2*j) → a = -sqrt(2*j*v)
+      double a_target = -std::sqrt(2.0 * j_max * std::max(0.0, jog_v_));
+      // Apply jerk limit to approach a_target
+      double da = a_target - jog_a_;
+      da = std::max(-j_max * dt, std::min(j_max * dt, da));
+      jog_a_ += da;
+    } else {
+      // Increase deceleration toward -a_max
+      double da = -a_max - jog_a_;
+      da = std::max(-j_max * dt, std::min(j_max * dt, da));
+      jog_a_ += da;
+    }
+
+    jog_v_ += jog_a_ * dt;
+    if (jog_v_ <= 0.0) {
+      jog_v_ = 0.0;
+      jog_a_ = 0.0;
       jog_finish();
       return;
     }
   } else {
-    jog_ramp_scale_ = std::min(1.0, jog_ramp_scale_ + dt / ramp_up_time);
+    // --- Acceleration to v=1.0 ---
+    // Goal: reach v=1.0 with a=0
+    // The velocity gained during final jerk-down is:
+    //   Δv_jerkdn = a² / (2 * j_max)
+    // When remaining Δv ≤ Δv_jerkdn, enter final jerk-down phase.
+
+    double dv_remaining = 1.0 - jog_v_;
+    if (jog_a_ > 0 && dv_remaining <= jog_a_ * jog_a_ / (2.0 * j_max) + 1e-8) {
+      // Final jerk-down phase: smoothly reduce a to 0
+      // Target: v + a²/(2*j) = 1.0 → a = sqrt(2*j*(1.0-v))
+      double a_target = std::sqrt(2.0 * j_max * std::max(0.0, dv_remaining));
+      double da = a_target - jog_a_;
+      da = std::max(-j_max * dt, std::min(j_max * dt, da));
+      jog_a_ += da;
+    } else {
+      // Increase acceleration toward a_max
+      double da = a_max - jog_a_;
+      da = std::max(-j_max * dt, std::min(j_max * dt, da));
+      jog_a_ += da;
+    }
+
+    jog_v_ += jog_a_ * dt;
+    if (jog_v_ >= 1.0) {
+      jog_v_ = 1.0;
+      jog_a_ = 0.0;
+    }
   }
 
-  // === 2. Scale velocity by ramp factor ===
+  // === 2. Scale Cartesian velocity by ramp ===
   std::array<double, 6> vel{};
   for (int i = 0; i < 6; ++i) {
-    vel[i] = jog_msg_.velocity[i] * jog_ramp_scale_;
+    vel[i] = jog_msg_.velocity[i] * jog_v_;
   }
 
   // === 3. Frame transformation (TCP → Base) ===
-  // For TCP frame: rotate velocity from EE body frame to base frame
-  // Uses forward_matrix() to get rotation matrix directly (avoids RPY gimbal lock)
   if (jog_msg_.frame == arm_control_interfaces::msg::JogCommand::TCP_FRAME) {
     std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
     Eigen::Matrix4d T = ik_->forward_matrix(q_vec);
-    Eigen::Matrix3d R = T.block<3, 3>(0, 0);  // base → EE rotation
+    Eigen::Matrix3d R = T.block<3, 3>(0, 0);
 
-    // v_base = R_ee * v_tcp  (rotate linear velocity)
     Eigen::Vector3d v_tcp(vel[0], vel[1], vel[2]);
     Eigen::Vector3d v_base = R * v_tcp;
     vel[0] = v_base.x(); vel[1] = v_base.y(); vel[2] = v_base.z();
 
-    // w_base = R_ee * w_tcp  (rotate angular velocity)
     Eigen::Vector3d w_tcp(vel[3], vel[4], vel[5]);
     Eigen::Vector3d w_base = R * w_tcp;
     vel[3] = w_base.x(); vel[4] = w_base.y(); vel[5] = w_base.z();
   }
 
-  // === 4. Compute Cartesian delta = velocity * dt ===
+  // === 4. Cartesian delta = velocity * dt ===
   std::array<double, 6> delta{};
   for (int i = 0; i < 6; ++i) {
     delta[i] = vel[i] * dt;
   }
 
-  // === 5. Velocity IK: dq = J^+ * delta, q_new = q_current + dq ===
-  // Uses KDL pseudo-inverse Jacobian (handles 7-DOF redundancy naturally)
+  // === 5. Velocity IK: dq = J⁺ * delta ===
   std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
   auto result = ik_->velocity_ik(q_vec, delta);
 
-  // === 6. Update internal commanded position and stream target ===
+  // === 6. Joint velocity limit enforcement (synchronization) ===
+  // If any joint velocity exceeds its physical limit, scale down the
+  // entire delta proportionally so ALL joints slow down together.
   if (result) {
+    // Panda joint velocity limits (rad/s)
+    constexpr double joint_vel_limits[7] = {
+        2.175, 2.175, 2.175, 2.175, 2.610, 2.610, 2.610};
+    double max_ratio = 0.0;
+    for (int i = 0; i < 7; ++i) {
+      double dq = std::abs((*result)[i] - jog_q_current_[i]);
+      double ratio = dq / (joint_vel_limits[i] * dt);
+      if (ratio > max_ratio) max_ratio = ratio;
+    }
+    if (max_ratio > 1.0) {
+      // Scale down to respect the most-limited joint
+      double scale = 1.0 / max_ratio;
+      for (int i = 0; i < 7; ++i) {
+        (*result)[i] = jog_q_current_[i] + ((*result)[i] - jog_q_current_[i]) * scale;
+      }
+    }
+
     for (int i = 0; i < 7; ++i) {
       jog_q_current_[i] = (*result)[i];
     }
     set_jog_stream_target(jog_q_current_);
   }
 
-  // === 7. Send JogCommand to robot_controller_node (state machine: kTeaching) ===
+  // === 7. Send JogCommand for state machine ===
   jog_msg_.stamp = now();
   jog_pub_->publish(jog_msg_);
 
@@ -517,23 +594,12 @@ void PendantNode::jog_tick() {
   auto now_dbg = std::chrono::steady_clock::now();
   if ((now_dbg - last_dbg) > std::chrono::milliseconds(500)) {
     last_dbg = now_dbg;
-    // Verify: FK of internal position vs. actual robot position
     auto pose_cmd = ik_->forward(q_vec);
-    std::array<double, 7> actual;
-    {
-      std::lock_guard<std::mutex> lock(latest_joints_mutex_);
-      actual = latest_joints_;
-    }
-    std::vector<double> actual_vec(actual.begin(), actual.end());
-    auto pose_actual = ik_->forward(actual_vec);
-
     std::cout << "[JOG] #" << tick_count
-              << " ramp=" << jog_ramp_scale_
-              << " frame=" << (int)jog_msg_.frame
-              << "\n  cmd  xyz=[" << pose_cmd[0] << "," << pose_cmd[1] << "," << pose_cmd[2] << "]"
+              << " v=" << jog_v_ << " a=" << jog_a_
+              << (jog_stopping_ ? " DECEL" : " ACCEL")
+              << "\n  cmd xyz=[" << pose_cmd[0] << "," << pose_cmd[1] << "," << pose_cmd[2] << "]"
               << " rpy=[" << pose_cmd[3] << "," << pose_cmd[4] << "," << pose_cmd[5] << "]"
-              << "\n  real xyz=[" << pose_actual[0] << "," << pose_actual[1] << "," << pose_actual[2] << "]"
-              << " rpy=[" << pose_actual[3] << "," << pose_actual[4] << "," << pose_actual[5] << "]"
               << "\n  vel=[" << vel[0] << "," << vel[1] << "," << vel[2] << ","
               << vel[3] << "," << vel[4] << "," << vel[5] << "]"
               << " IK=" << (result ? "OK" : "FAIL") << std::endl;
@@ -547,9 +613,9 @@ void PendantNode::emergency_stop() {
   }
   jog_active_ = false;
   jog_stopping_ = false;
-  jog_ramp_scale_ = 0.0;
+  jog_v_ = 0.0;
+  jog_a_ = 0.0;
   pause_joint_stream();
-  // Resync
   {
     std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
     std::lock_guard<std::mutex> slock(joint_stream_mutex_);

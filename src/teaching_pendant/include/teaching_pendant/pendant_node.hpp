@@ -180,10 +180,14 @@ private:
   rclcpp::TimerBase::SharedPtr jog_timer_;
   arm_control_interfaces::msg::JogCommand jog_msg_{};
 
+  // Jog S-curve ramp state (normalized 0..1 velocity scale)
+  // Three phases: jerk-up → constant accel → jerk-down
+  double jog_v_ = 0.0;            ///< current velocity scale (0..1)
+  double jog_a_ = 0.0;            ///< current acceleration of scale (1/s²)
+  bool jog_stopping_ = false;     ///< deceleration phase active
+
   // Jog internal position tracking (NOT from feedback — avoids lag)
   std::array<double, 7> jog_q_current_{};
-  double jog_ramp_scale_ = 0.0;   ///< 加减速斜坡 0.0 → 1.0
-  bool jog_stopping_ = false;     ///< 正在减速中
 
   // === Joint stream state ===
   std::mutex joint_stream_mutex_;
