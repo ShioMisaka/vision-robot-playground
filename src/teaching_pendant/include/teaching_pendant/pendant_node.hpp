@@ -27,6 +27,8 @@
 
 #include <arm_control_interfaces/msg/jog_command.hpp>
 
+#include <robot_control_cpp/kinematics/ik_solver.hpp>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -42,7 +44,8 @@ public:
   using ImageCallback = std::function<void(const cv::Mat& rgb)>;
 
   static std::shared_ptr<PendantNode> create(
-      const std::string& robot_service_prefix = "robot_controller_node");
+      const std::string& robot_service_prefix = "robot_controller_node",
+      std::shared_ptr<robot_control::IKSolver> ik_solver = nullptr);
 
   ~PendantNode();
 
@@ -85,7 +88,7 @@ public:
 
   // === Jog 控制 ===
 
-  /// @brief 开始 Jog（50Hz 发布 JogCommand）
+  /// @brief 开始 Jog（50Hz，本地雅可比速度 IK + 加减速斜坡）
   /// @param axis 0~5: XYZ+/XYZ-/RPY+/RPY-... (velocity index)
   /// @param mode 运动模式（未使用，保留）
   /// @param frame 0=TCP, 1=Base
@@ -114,20 +117,29 @@ public:
   bool are_services_ready() const { return services_ready_.load(); }
 
 private:
-  PendantNode(const std::string& robot_service_prefix);
+  PendantNode(const std::string& robot_service_prefix,
+              std::shared_ptr<robot_control::IKSolver> ik_solver);
 
   void init();
 
   void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
-  void image_callback(const sensor_msgs::msg::Image::ConstSharedPtr& rgb_msg,
-                      const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
+  void image_callback(
+      const sensor_msgs::msg::Image::ConstSharedPtr& rgb_msg,
+      const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
-  void jog_loop();
+  /// Jog tick: 雅可比速度 IK → 关节增量积分 → 流目标更新
+  void jog_tick();
+
+  /// Jog 完全停止后的收尾（重新同步 + UI 通知）
+  void jog_finish();
 
   /// 将任务提交到后台线程池执行
   void post_task(std::function<void()> task);
 
   std::string service_prefix_;
+
+  // IK solver (shared with RobotControllerNode, direct call — no DDS)
+  std::shared_ptr<robot_control::IKSolver> ik_;
 
   // Service clients
   rclcpp::Client<robot_control_msgs::srv::SolveIK>::SharedPtr cli_ik_;
@@ -163,12 +175,17 @@ private:
   std::atomic<bool> services_ready_{false};
   rclcpp::TimerBase::SharedPtr discovery_timer_;
 
-  // Jog state
+  // === Jog state ===
   rclcpp::Publisher<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_pub_;
   rclcpp::TimerBase::SharedPtr jog_timer_;
   arm_control_interfaces::msg::JogCommand jog_msg_{};
 
-  // Joint stream state
+  // Jog internal position tracking (NOT from feedback — avoids lag)
+  std::array<double, 7> jog_q_current_{};
+  double jog_ramp_scale_ = 0.0;   ///< 加减速斜坡 0.0 → 1.0
+  bool jog_stopping_ = false;     ///< 正在减速中
+
+  // === Joint stream state ===
   std::mutex joint_stream_mutex_;
   std::array<double, 7> joint_stream_target_{};
   bool joint_stream_dirty_ = false;
@@ -176,9 +193,6 @@ private:
   std::atomic<bool> joint_stream_running_{false};
   std::atomic<bool> joint_stream_paused_{false};
   std::atomic<bool> jog_active_{false};
-
-  // Jog IK result subscriber (from robot_controller_node)
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jog_result_sub_;
 
   // Direct joint command publisher (bypasses service layer for low-latency streaming)
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;

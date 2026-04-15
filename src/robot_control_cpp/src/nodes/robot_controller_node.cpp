@@ -520,10 +520,6 @@ void RobotControllerNode::init() {
         handle_jog_command(msg);
       }, jog_opts);
 
-  // === Jog result publisher (sends IK-computed joints to pendant) ===
-  jog_result_pub_ = create_publisher<sensor_msgs::msg::JointState>(
-      "~/jog_joint_result", 10);
-
   // === Jog watchdog (200ms) ===
   jog_watchdog_timer_ = create_wall_timer(
       std::chrono::milliseconds(200),
@@ -1148,12 +1144,11 @@ void RobotControllerNode::handle_robot_cmd(
 // ===== Jog + Watchdog =====
 
 void RobotControllerNode::handle_jog_command(
-    const arm_control_interfaces::msg::JogCommand::SharedPtr msg) {
+    const arm_control_interfaces::msg::JogCommand::SharedPtr /*msg*/) {
+  // IK is now computed locally in the pendant — this callback only manages
+  // the state machine (kIdle → kTeaching) and resets the watchdog timer.
   auto state = state_machine_.state();
   if (state != RobotState::kIdle && state != RobotState::kTeaching) {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                         "Jog ignored: robot state=%s",
-                         RobotStateMachine::state_name(state));
     return;
   }
 
@@ -1162,102 +1157,6 @@ void RobotControllerNode::handle_jog_command(
   }
 
   last_jog_time_ = this->now();
-
-  double dt = 0.02;
-  auto current_joints = bridge_->get_current_arm();
-
-  // FK: get current EE pose (guaranteed correct)
-  auto current_pose = ik_->forward(current_joints);
-
-  // Build Cartesian position delta
-  double dx = msg->velocity[0] * dt;
-  double dy = msg->velocity[1] * dt;
-  double dz = msg->velocity[2] * dt;
-  double drx = msg->velocity[3] * dt;
-  double dry = msg->velocity[4] * dt;
-  double drz = msg->velocity[5] * dt;
-
-  // TCP frame: rotate velocity from body frame to base frame
-  if (msg->frame == arm_control_interfaces::msg::JogCommand::TCP_FRAME) {
-    // R = Rz(yaw) * Ry(pitch) * Rx(roll) — matches KDL GetRPY convention
-    Eigen::Matrix3d R =
-        (Eigen::AngleAxisd(current_pose[5], Eigen::Vector3d::UnitZ()) *
-         Eigen::AngleAxisd(current_pose[4], Eigen::Vector3d::UnitY()) *
-         Eigen::AngleAxisd(current_pose[3], Eigen::Vector3d::UnitX()))
-            .toRotationMatrix();
-    Eigen::Vector3d v_tcp(dx, dy, dz);
-    Eigen::Vector3d w_tcp(drx, dry, drz);
-    Eigen::Vector3d v_base = R * v_tcp;
-    Eigen::Vector3d w_base = R * w_tcp;
-    dx = v_base.x(); dy = v_base.y(); dz = v_base.z();
-    drx = w_base.x(); dry = w_base.y(); drz = w_base.z();
-  }
-
-  // Target pose = current pose + delta (linear approx, valid for small dt)
-  std::array<double, 3> target_xyz = {
-      current_pose[0] + dx,
-      current_pose[1] + dy,
-      current_pose[2] + dz};
-  std::array<double, 3> target_rpy = {
-      current_pose[3] + drx,
-      current_pose[4] + dry,
-      current_pose[5] + drz};
-
-  // Solve IK from current actual position (not cached last_result)
-  auto result = ik_->solve_from(target_xyz, target_rpy, current_joints);
-
-  // === DEBUG: log jog computation (throttled to 2Hz) ===
-  static auto last_dbg = std::chrono::steady_clock::now();
-  static int jog_pub_count = 0;
-  jog_pub_count++;
-  auto now_dbg = std::chrono::steady_clock::now();
-  if ((now_dbg - last_dbg) > std::chrono::milliseconds(500)) {
-    last_dbg = now_dbg;
-    std::cout << "[JOG DBG] vel=[" << msg->velocity[0] << "," << msg->velocity[1]
-              << "," << msg->velocity[2] << "," << msg->velocity[3] << ","
-              << msg->velocity[4] << "," << msg->velocity[5]
-              << "] frame=" << (int)msg->frame
-              << " pub_count=" << jog_pub_count << std::endl;
-    std::cout << "[JOG DBG] FK pose: xyz=[" << current_pose[0] << ","
-              << current_pose[1] << "," << current_pose[2] << "] rpy=["
-              << current_pose[3] << "," << current_pose[4] << ","
-              << current_pose[5] << "]" << std::endl;
-    std::cout << "[JOG DBG] target: xyz=[" << target_xyz[0] << ","
-              << target_xyz[1] << "," << target_xyz[2] << "] rpy=["
-              << target_rpy[0] << "," << target_rpy[1] << ","
-              << target_rpy[2] << "]" << std::endl;
-    if (result) {
-      auto verify = ik_->forward(*result);
-      std::cout << "[JOG DBG] IK OK -> verify FK: xyz=[" << verify[0] << ","
-                << verify[1] << "," << verify[2] << "] rpy=[" << verify[3]
-                << "," << verify[4] << "," << verify[5] << "] joints=[";
-      for (int i = 0; i < 7; ++i) std::cout << (*result)[i] << (i<6?",":"");
-      std::cout << "]" << std::endl;
-    } else {
-      std::cout << "[JOG DBG] IK FAILED" << std::endl;
-    }
-    std::cout << "[JOG DBG] jog_result_pub topic: " << jog_result_pub_->get_topic_name()
-              << " subs=" << jog_result_pub_->get_subscription_count() << std::endl;
-  }
-
-  if (result) {
-    // Publish IK result to pendant via topic (pendant's stream publishes to /joint_command)
-    sensor_msgs::msg::JointState jog_result;
-    jog_result.header.stamp = this->now();
-    for (int i = 0; i < 7; ++i) {
-      jog_result.name.push_back(profile_.joint_names[i]);
-      jog_result.position.push_back((*result)[i]);
-    }
-    double finger = bridge_->get_current_finger();
-    for (size_t i = profile_.dof; i < profile_.all_joint_names.size(); ++i) {
-      jog_result.name.push_back(profile_.all_joint_names[i]);
-      jog_result.position.push_back(finger);
-    }
-    jog_result_pub_->publish(jog_result);
-  } else {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                         "Jog: IK solve failed, skipping step");
-  }
 }
 
 void RobotControllerNode::jog_watchdog_callback() {

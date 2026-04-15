@@ -1,5 +1,8 @@
 #include "teaching_pendant/pendant_node.hpp"
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -8,16 +11,19 @@
 namespace teaching_pendant {
 
 std::shared_ptr<PendantNode> PendantNode::create(
-    const std::string& robot_service_prefix) {
+    const std::string& robot_service_prefix,
+    std::shared_ptr<robot_control::IKSolver> ik_solver) {
   auto node = std::shared_ptr<PendantNode>(
-      new PendantNode(robot_service_prefix));
+      new PendantNode(robot_service_prefix, std::move(ik_solver)));
   node->init();
   return node;
 }
 
-PendantNode::PendantNode(const std::string& robot_service_prefix)
+PendantNode::PendantNode(const std::string& robot_service_prefix,
+                         std::shared_ptr<robot_control::IKSolver> ik_solver)
     : Node("teaching_pendant_node"),
-      service_prefix_(robot_service_prefix) {}
+      service_prefix_(robot_service_prefix),
+      ik_(std::move(ik_solver)) {}
 
 void PendantNode::init() {
   // Service clients
@@ -92,20 +98,9 @@ void PendantNode::init() {
   joint_cmd_pub_ = create_publisher<sensor_msgs::msg::JointState>(
       "/joint_command", 10);
 
-  // Jog 命令发布器（50Hz 速度指令）
+  // Jog 命令发布器（仅用于 robot_controller_node 状态机管理）
   jog_pub_ = create_publisher<arm_control_interfaces::msg::JogCommand>(
       service_prefix_ + "/jog_command", 10);
-
-  // Jog IK 结果订阅（robot_controller_node 解算后发回的关节角）
-  jog_result_sub_ = create_subscription<sensor_msgs::msg::JointState>(
-      service_prefix_ + "/jog_joint_result", 10,
-      [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
-        std::array<double, 7> joints{};
-        for (int i = 0; i < 7 && i < static_cast<int>(msg->position.size()); ++i) {
-          joints[i] = msg->position[i];
-        }
-        set_jog_stream_target(joints);
-      });
 
   // 服务发现定时器：周期性检查所有关键服务的 DDS 可用性
   discovery_timer_ = create_wall_timer(
@@ -377,19 +372,35 @@ void PendantNode::async_set_speed(uint8_t mode, double percent) {
 // ===== Jog Control =====
 
 void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
-  stop_jog();
+  if (!ik_) {
+    RCLCPP_WARN(get_logger(), "Jog unavailable: no IK solver");
+    return;
+  }
 
-  // Mark jog as active — stream keeps running but update_joint_target()
-  // from JointControlPanel is blocked so it won't overwrite jog targets
+  // If currently decelerating from previous jog, snap to current and restart
+  if (jog_stopping_ && jog_timer_) {
+    jog_timer_.reset();
+    jog_stopping_ = false;
+  }
+
+  // Mark jog as active — update_joint_target() from JointControlPanel is blocked
   jog_active_ = true;
+  jog_stopping_ = false;
+  jog_ramp_scale_ = 0.0;  // start acceleration ramp from zero
 
-  // Build JogCommand: axis maps to velocity[0..5]
+  // Initialize internal commanded position from actual robot position
+  {
+    std::lock_guard<std::mutex> lock(latest_joints_mutex_);
+    jog_q_current_ = latest_joints_;
+  }
+
+  // Build JogCommand velocity: axis maps to velocity[0..5]
   // axis 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z,6=+R,7=-R,8=+P,9=-P,10=+Yw,11=-Yw
   jog_msg_ = arm_control_interfaces::msg::JogCommand();
   jog_msg_.frame = frame;
 
-  double jog_speed = 0.05;       // 50 mm/s for XYZ
-  double jog_rpy_speed = 0.2;    // ~11 deg/s for RPY
+  const double jog_speed = 0.05;       // 50 mm/s for XYZ
+  const double jog_rpy_speed = 0.2;    // ~11 deg/s for RPY
 
   if (axis < 6) {
     int idx = axis / 2;
@@ -401,39 +412,150 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
     jog_msg_.velocity[3 + rpy_idx] = jog_rpy_speed * sign;
   }
 
-  // 50Hz timer publishes JogCommand
+  // 50Hz timer: Jacobian velocity IK + acceleration ramp
   jog_timer_ = create_wall_timer(
       std::chrono::milliseconds(20),
-      [this]() {
-        jog_msg_.stamp = now();
-        jog_pub_->publish(jog_msg_);
-      });
+      [this]() { jog_tick(); });
 }
 
 void PendantNode::stop_jog() {
-  if (jog_timer_) {
-    jog_timer_.reset();
-    // Mark jog as inactive — JointControlPanel can update stream target again
-    jog_active_ = false;
-    // Before JointControlPanel takes over, update target to current actual
-    // position so the stream doesn't pull the robot back to pre-jog position
-    {
-      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
-      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
-      joint_stream_target_ = latest_joints_;
-      joint_stream_dirty_ = true;
+  if (!jog_timer_) return;
+  // Start deceleration phase — timer keeps running until ramp reaches zero
+  jog_stopping_ = true;
+}
+
+void PendantNode::jog_finish() {
+  // Called when deceleration ramp reaches zero (from jog_tick)
+  jog_timer_.reset();
+  jog_active_ = false;
+  jog_stopping_ = false;
+  jog_ramp_scale_ = 0.0;
+
+  // Resync stream target to actual robot position
+  {
+    std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+    std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+    joint_stream_target_ = latest_joints_;
+    joint_stream_dirty_ = true;
+  }
+  // Notify UI to resync slider/command_target_ on next tick
+  {
+    std::lock_guard<std::mutex> lock(cb_mutex_);
+    if (jog_stopped_cb_) jog_stopped_cb_();
+  }
+}
+
+void PendantNode::jog_tick() {
+  constexpr double dt = 0.02;              // 50Hz tick
+  constexpr double ramp_up_time = 0.2;     // 200ms to full speed
+  constexpr double ramp_down_time = 0.15;  // 150ms deceleration
+
+  // === 1. Acceleration / Deceleration ramp ===
+  if (jog_stopping_) {
+    jog_ramp_scale_ -= dt / ramp_down_time;
+    if (jog_ramp_scale_ <= 0.0) {
+      jog_ramp_scale_ = 0.0;
+      jog_finish();
+      return;
     }
-    // Notify UI to resync command_target_ on next tick
-    {
-      std::lock_guard<std::mutex> lock(cb_mutex_);
-      if (jog_stopped_cb_) jog_stopped_cb_();
+  } else {
+    jog_ramp_scale_ = std::min(1.0, jog_ramp_scale_ + dt / ramp_up_time);
+  }
+
+  // === 2. Scale velocity by ramp factor ===
+  std::array<double, 6> vel{};
+  for (int i = 0; i < 6; ++i) {
+    vel[i] = jog_msg_.velocity[i] * jog_ramp_scale_;
+  }
+
+  // === 3. Frame transformation (TCP → Base) ===
+  // For TCP frame: rotate velocity from EE body frame to base frame
+  // Uses forward_matrix() to get rotation matrix directly (avoids RPY gimbal lock)
+  if (jog_msg_.frame == arm_control_interfaces::msg::JogCommand::TCP_FRAME) {
+    std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
+    Eigen::Matrix4d T = ik_->forward_matrix(q_vec);
+    Eigen::Matrix3d R = T.block<3, 3>(0, 0);  // base → EE rotation
+
+    // v_base = R_ee * v_tcp  (rotate linear velocity)
+    Eigen::Vector3d v_tcp(vel[0], vel[1], vel[2]);
+    Eigen::Vector3d v_base = R * v_tcp;
+    vel[0] = v_base.x(); vel[1] = v_base.y(); vel[2] = v_base.z();
+
+    // w_base = R_ee * w_tcp  (rotate angular velocity)
+    Eigen::Vector3d w_tcp(vel[3], vel[4], vel[5]);
+    Eigen::Vector3d w_base = R * w_tcp;
+    vel[3] = w_base.x(); vel[4] = w_base.y(); vel[5] = w_base.z();
+  }
+
+  // === 4. Compute Cartesian delta = velocity * dt ===
+  std::array<double, 6> delta{};
+  for (int i = 0; i < 6; ++i) {
+    delta[i] = vel[i] * dt;
+  }
+
+  // === 5. Velocity IK: dq = J^+ * delta, q_new = q_current + dq ===
+  // Uses KDL pseudo-inverse Jacobian (handles 7-DOF redundancy naturally)
+  std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
+  auto result = ik_->velocity_ik(q_vec, delta);
+
+  // === 6. Update internal commanded position and stream target ===
+  if (result) {
+    for (int i = 0; i < 7; ++i) {
+      jog_q_current_[i] = (*result)[i];
     }
+    set_jog_stream_target(jog_q_current_);
+  }
+
+  // === 7. Send JogCommand to robot_controller_node (state machine: kTeaching) ===
+  jog_msg_.stamp = now();
+  jog_pub_->publish(jog_msg_);
+
+  // === 8. Debug logging (throttled to 2Hz) ===
+  static auto last_dbg = std::chrono::steady_clock::now();
+  static int tick_count = 0;
+  tick_count++;
+  auto now_dbg = std::chrono::steady_clock::now();
+  if ((now_dbg - last_dbg) > std::chrono::milliseconds(500)) {
+    last_dbg = now_dbg;
+    // Verify: FK of internal position vs. actual robot position
+    auto pose_cmd = ik_->forward(q_vec);
+    std::array<double, 7> actual;
+    {
+      std::lock_guard<std::mutex> lock(latest_joints_mutex_);
+      actual = latest_joints_;
+    }
+    std::vector<double> actual_vec(actual.begin(), actual.end());
+    auto pose_actual = ik_->forward(actual_vec);
+
+    std::cout << "[JOG] #" << tick_count
+              << " ramp=" << jog_ramp_scale_
+              << " frame=" << (int)jog_msg_.frame
+              << "\n  cmd  xyz=[" << pose_cmd[0] << "," << pose_cmd[1] << "," << pose_cmd[2] << "]"
+              << " rpy=[" << pose_cmd[3] << "," << pose_cmd[4] << "," << pose_cmd[5] << "]"
+              << "\n  real xyz=[" << pose_actual[0] << "," << pose_actual[1] << "," << pose_actual[2] << "]"
+              << " rpy=[" << pose_actual[3] << "," << pose_actual[4] << "," << pose_actual[5] << "]"
+              << "\n  vel=[" << vel[0] << "," << vel[1] << "," << vel[2] << ","
+              << vel[3] << "," << vel[4] << "," << vel[5] << "]"
+              << " IK=" << (result ? "OK" : "FAIL") << std::endl;
   }
 }
 
 void PendantNode::emergency_stop() {
+  // Immediate stop — skip deceleration ramp
+  if (jog_timer_) {
+    jog_timer_.reset();
+  }
+  jog_active_ = false;
+  jog_stopping_ = false;
+  jog_ramp_scale_ = 0.0;
   pause_joint_stream();
-  stop_jog();
+  // Resync
+  {
+    std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+    std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+    joint_stream_target_ = latest_joints_;
+    joint_stream_dirty_ = true;
+  }
 }
 
 // ===== Joint Stream Control =====

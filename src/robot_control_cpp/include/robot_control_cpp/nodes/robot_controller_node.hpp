@@ -135,6 +135,9 @@ public:
   /// @brief 获取底层 IO bridge
   std::shared_ptr<RosMotionBridge> get_bridge() { return bridge_; }
 
+  /// @brief 获取 IK 求解器（供同进程节点直接调用，绕过 DDS）
+  std::shared_ptr<IKSolver> get_ik_solver() { return ik_; }
+
   /// @brief 获取状态机（只读）
   const RobotStateMachine& state_machine() const { return state_machine_; }
 
@@ -259,7 +262,6 @@ private:
 
   // === Jog + watchdog ===
   rclcpp::Subscription<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_sub_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jog_result_pub_;
   rclcpp::TimerBase::SharedPtr jog_watchdog_timer_;
   rclcpp::Time last_jog_time_;
 

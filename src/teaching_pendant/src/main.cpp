@@ -21,8 +21,9 @@ int main(int argc, char* argv[]) {
       robot_control::profiles::panda_gripper(),
       robot_control::TopicConfig());
 
-  // 创建示教器节点（Service Client）
-  auto pendant = teaching_pendant::PendantNode::create();
+  // 创建示教器节点（传入 IK 求解器用于本地 Jog 解算，绕过 DDS 延迟）
+  auto pendant = teaching_pendant::PendantNode::create(
+      "robot_controller_node", robot->get_ik_solver());
 
   // 两个节点共享同一个 MultiThreadedExecutor
   rclcpp::executors::MultiThreadedExecutor executor;
