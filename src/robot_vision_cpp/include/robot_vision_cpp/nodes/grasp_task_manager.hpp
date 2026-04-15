@@ -7,7 +7,7 @@
 #include <string>
 
 #include "robot_control_cpp/motion/i_robot_controller.hpp"
-#include "robot_control_cpp/vision/i_vision_processor.hpp"
+#include "robot_vision_cpp/vision/i_vision_processor.hpp"
 
 namespace robot_control {
 

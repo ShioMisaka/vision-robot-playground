@@ -3,7 +3,7 @@
 #include <Eigen/Core>
 #include <opencv2/core.hpp>
 
-#include "robot_control_cpp/vision/i_vision_processor.hpp"
+#include "robot_vision_cpp/vision/i_vision_processor.hpp"
 
 namespace robot_control {
 

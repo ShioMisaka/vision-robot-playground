@@ -11,13 +11,13 @@
 #include "robot_control_cpp/nodes/topic_config.hpp"
 #include "robot_control_cpp/kinematics/robot_profile.hpp"
 #include "robot_control_cpp/kinematics/ik_solver.hpp"
-#include "robot_control_cpp/vision/color_detector.hpp"
+#include "robot_vision_cpp/vision/color_detector.hpp"
 #include "robot_control_cpp/motion/i_robot_controller.hpp"
-#include "robot_control_cpp/vision/i_vision_processor.hpp"
+#include "robot_vision_cpp/vision/i_vision_processor.hpp"
 #include "robot_control_cpp/motion/robot_motion_controller.hpp"
-#include "robot_control_cpp/nodes/grasp_task_manager.hpp"
+#include "robot_vision_cpp/nodes/grasp_task_manager.hpp"
 #include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_control_cpp/nodes/vision_processor_node.hpp"
+#include "robot_vision_cpp/nodes/vision_processor_node.hpp"
 #include "robot_control_cpp/profiles/panda_profile.hpp"
 
 #include <Eigen/Core>

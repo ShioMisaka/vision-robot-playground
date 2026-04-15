@@ -16,13 +16,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(cv_bridge REQUIRED)
-find_package(message_filters REQUIRED)
-find_package(image_transport REQUIRED)
 find_package(robot_control_msgs REQUIRED)
 find_package(arm_control_interfaces REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(urdfdom REQUIRED)
@@ -48,21 +44,6 @@ ament_target_dependencies(robot_kinematics
   Eigen3
 )
 
-# ===== robot_vision: 视觉处理（零 ROS 依赖）=====
-add_library(robot_vision SHARED
-  src/vision/color_detector.cpp
-)
-
-target_include_directories(robot_vision PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-ament_target_dependencies(robot_vision
-  OpenCV
-  Eigen3
-)
-
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
 add_library(robot_motion SHARED
   src/motion/robot_motion_controller.cpp
@@ -76,11 +57,9 @@ target_include_directories(robot_motion PUBLIC
 
 target_link_libraries(robot_motion robot_kinematics)
 
-# ===== robot_nodes: ROS2 节点（依赖 motion + vision）=====
+# ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
-  src/nodes/vision_processor_node.cpp
-  src/nodes/grasp_task_manager.cpp
   src/nodes/robot_state.cpp
   src/nodes/trajectory_executor.cpp
 )
@@ -90,7 +69,7 @@ target_include_directories(robot_nodes PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_nodes robot_motion robot_vision)
+target_link_libraries(robot_nodes robot_motion)
 
 ament_target_dependencies(robot_nodes
   rclcpp
@@ -99,9 +78,6 @@ ament_target_dependencies(robot_nodes
   tf2_ros
   tf2
   tf2_geometry_msgs
-  cv_bridge
-  message_filters
-  image_transport
   robot_control_msgs
   rclcpp_action
   arm_control_interfaces
@@ -112,7 +88,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(TARGETS robot_kinematics robot_motion robot_vision robot_nodes
+install(TARGETS robot_kinematics robot_motion robot_nodes
   EXPORT robot_control_cpp_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -128,9 +104,6 @@ ament_export_dependencies(
   tf2_ros
   tf2
   tf2_geometry_msgs
-  cv_bridge
-  message_filters
-  image_transport
   robot_control_msgs
   rclcpp_action
   arm_control_interfaces
@@ -139,7 +112,6 @@ ament_export_dependencies(
   urdf
   kdl_parser
   Eigen3
-  OpenCV
 )
 
 ament_package()

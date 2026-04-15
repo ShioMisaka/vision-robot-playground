@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(robot_control_cpp REQUIRED)
+find_package(robot_vision_cpp REQUIRED)
 
 # Python3 必须在 pybind11 之前查找（包含 Development 用于编译）
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)
@@ -24,8 +25,9 @@ pybind11_add_module(_core MODULE
 target_link_libraries(_core PRIVATE
   robot_control_cpp::robot_kinematics
   robot_control_cpp::robot_motion
-  robot_control_cpp::robot_vision
   robot_control_cpp::robot_nodes
+  robot_vision_cpp::robot_vision_core
+  robot_vision_cpp::robot_vision_nodes
 )
 
 # ===== 安装 =====

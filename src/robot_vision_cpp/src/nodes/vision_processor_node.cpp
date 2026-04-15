@@ -1,4 +1,4 @@
-#include "robot_control_cpp/nodes/vision_processor_node.hpp"
+#include "robot_vision_cpp/nodes/vision_processor_node.hpp"
 #include "robot_control_cpp/nodes/topic_config.hpp"
 #include "robot_control_cpp/motion/control_constants.hpp"
 

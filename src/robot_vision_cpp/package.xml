@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_control_cpp</name>
+  <name>robot_vision_cpp</name>
   <version>0.1.0</version>
-  <description>C++ core library and ROS 2 nodes for robot control with vision-guided grasping</description>
+  <description>C++ vision library and ROS 2 nodes for robot vision-guided grasping</description>
   <maintainer email="user@example.com">user</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,16 +12,13 @@
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>tf2_ros</depend>
-  <depend>tf2</depend>
-  <depend>tf2_geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>message_filters</depend>
+  <depend>image_transport</depend>
   <depend>robot_control_msgs</depend>
-  <depend>rclcpp_action</depend>
   <depend>arm_control_interfaces</depend>
-  <depend>orocos_kdl</depend>
-  <depend>urdfdom</depend>
-  <depend>kdl_parser</depend>
   <depend>eigen</depend>
+  <depend>robot_control_cpp</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

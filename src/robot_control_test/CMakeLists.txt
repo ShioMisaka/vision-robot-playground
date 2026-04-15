@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ===== 依赖 =====
 find_package(ament_cmake REQUIRED)
 find_package(robot_control_cpp REQUIRED)
+find_package(robot_vision_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 
 # ===== 测试 =====
@@ -45,7 +46,7 @@ install(TARGETS test_ik_solver
 add_executable(test_robot_node
   test/test_robot_node.cpp
 )
-target_link_libraries(test_robot_node robot_control_cpp::robot_nodes)
+target_link_libraries(test_robot_node robot_control_cpp::robot_nodes robot_vision_cpp::robot_vision_nodes)
 install(TARGETS test_robot_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -54,7 +55,7 @@ install(TARGETS test_robot_node
 add_executable(test_camera_tf
   test/test_camera_tf.cpp
 )
-target_link_libraries(test_camera_tf robot_control_cpp::robot_nodes)
+target_link_libraries(test_camera_tf robot_control_cpp::robot_nodes robot_vision_cpp::robot_vision_nodes)
 install(TARGETS test_camera_tf
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -72,7 +73,7 @@ install(TARGETS demo_grasp_tcp
 add_executable(demo_camera
   demo/demo_camera.cpp
 )
-target_link_libraries(demo_camera robot_control_cpp::robot_nodes)
+target_link_libraries(demo_camera robot_control_cpp::robot_nodes robot_vision_cpp::robot_vision_nodes)
 install(TARGETS demo_camera
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
