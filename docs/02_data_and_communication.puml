@@ -1,0 +1,126 @@
+@startuml data_and_communication
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+title ROS2 通信与数据结构图\n配置注入路径 & 桥接实现
+
+' ===== 数据配置结构体 =====
+
+package "数据配置 (kinematics)" {
+
+  struct MotionLimits {
+    + max_vel : double
+    + max_acc : double
+    + max_jerk : double
+  }
+
+  struct TcpConfig {
+    + offset_xyz : array<double,3>
+    + offset_rpy : array<double,3>
+  }
+
+  struct RobotProfile {
+    + name : string
+    + dof : int
+    + joint_names : vector<string>
+    + joint_limits_lower : vector<double>
+    + joint_limits_upper : vector<double>
+    + home_joints : vector<double>
+    + base_frame : string
+    + hand_frame : string
+    + tcp_frames : map<string, TcpConfig>
+    + joint_limits : MotionLimits
+    + cartesian_limits : MotionLimits
+  }
+
+  struct GripperProfile {
+    + type : string
+    + min_width : double
+    + max_width : double
+  }
+
+  RobotProfile *-- TcpConfig
+  RobotProfile *-- "joint_limits" MotionLimits
+  RobotProfile *-- "cartesian_limits" MotionLimits
+}
+
+package "通信配置 (nodes)" {
+
+  struct CameraExtrinsics {
+    + xyz : array<double,3>
+    + rpy : array<double,3>
+  }
+
+  struct TopicConfig {
+    + joint_command : string
+    + joint_state : string
+    + camera_left : string
+    + camera_depth : string
+    + camera_frame : string
+    + camera_extrinsics : CameraExtrinsics
+  }
+
+  TopicConfig *-- CameraExtrinsics
+}
+
+' ===== 桥接层 =====
+
+interface MotionIOBridge <<interface>> {
+  + publish_command(arm, finger) : void
+  + get_current_arm() : vector<double>
+  + wait_for_motion(...) : bool
+  + lookup_transform(target, source, timeout) : optional
+}
+
+class RosMotionBridge {
+  - node_ : rclcpp::Node::SharedPtr
+  - cmd_pub_ : Publisher<JointState>::SharedPtr
+  - tf_broadcaster_ : unique_ptr<TransformBroadcaster>
+  - tf_buffer_ : shared_ptr<tf2_ros::Buffer>
+  - state_mutex_ : mutex
+  - current_arm_ : vector<double>
+  - current_finger_ : double
+}
+
+RosMotionBridge ..|> MotionIOBridge
+RosMotionBridge o-- rclcpp::Node
+
+' ===== 节点层（配置注入目标） =====
+
+class RobotControllerNode {
+  - bridge_ : shared_ptr<RosMotionBridge>
+  - controller_ : shared_ptr<RobotMotionController>
+  - ik_ : shared_ptr<IKSolver>
+  - profile_ : RobotProfile
+  - gripper_ : GripperProfile
+  - topics_ : TopicConfig
+}
+
+RobotControllerNode --|> rclcpp::Node
+RobotControllerNode *-- RosMotionBridge
+RobotControllerNode *-- "profile_" RobotProfile
+RobotControllerNode *-- "gripper_" GripperProfile
+RobotControllerNode *-- "topics_" TopicConfig
+
+RosMotionBridge ..> TopicConfig : topics_
+RosMotionBridge ..> RobotProfile : profile_
+
+' ===== 注入路径注释 =====
+
+note as N1
+  **配置注入路径：**
+
+  1. profiles::panda() → 创建 **RobotProfile**
+  2. profiles::panda_gripper() → 创建 **GripperProfile**
+  3. 用户构造 **TopicConfig**（话题名 + 相机外参）
+  4. RobotControllerNode::create(profile, gripper, topics)
+     → 内部构造 IKSolver(profile)
+     → 内部构造 RosMotionBridge(node, topics, ik, profile, gripper)
+     → 内部构造 RobotMotionController(ik, profile, gripper, bridge)
+end note
+
+N1 .. RobotControllerNode
+
+@enduml

@@ -1,0 +1,112 @@
+@startuml ui_architecture
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+title UI 架构图（前端示教器）\nPanel 组合关系 & PendantNode 通信中介
+
+' ===== 通信后端 =====
+
+class PendantNode {
+  + async_get_state(callback) : void
+  + async_move_joint(angles, callback) : void
+  + async_move_pose(xyz, rpy, ...) : void
+  + start_jog(axis, mode, frame) : void
+  + stop_jog() : void
+  + emergency_stop() : void
+  + start_joint_stream(initial) : void
+  + update_joint_target(target) : void
+  + set_connection_callback(cb) : void
+  + set_image_callback(cb) : void
+  ----
+  ' 所有 Panel 通过 shared_ptr<PendantNode>
+  ' 调用 async_* 接口与后端通信
+}
+
+PendantNode --|> rclcpp::Node
+
+' ===== 主窗口 =====
+
+class MainWindow <<QMainWindow>> {
+  + MainWindow(node, parent)
+  ----
+  ' 薄编排层：创建面板、布局、回调中继
+  ' 5Hz 轮询 onRefreshState() 分发状态
+}
+
+' ===== Panel 组件 =====
+
+class ConnectionBar <<QWidget>> {
+  + onRobotConnectionChanged(connected, services_ready)
+  + onCameraConnectionChanged(connected)
+}
+
+class CameraPanel <<QWidget>> {
+  + onImageReceived(image)
+  + onEstopChanged(active)
+}
+
+class RobotStateBar <<QWidget>> {
+  + onStateUpdated(pose, finger_width, tcp_name)
+}
+
+class JointControlPanel <<QWidget>> {
+  + onStateUpdated(joint_angles)
+  + onEstopChanged(active)
+  + notifyJogStopped()
+}
+
+class CartesianPanel <<QWidget>> {
+  + onEstopChanged(active)
+}
+
+class FunctionPanel <<QWidget>> {
+  + onSetSpeedJ(value)
+  + onOpenGripper()
+  + onGoHome()
+  + onEmergencyStop()
+}
+
+' ===== 组合关系：MainWindow 拥有所有 Panel =====
+
+MainWindow *-- PendantNode : node_
+MainWindow *-- ConnectionBar : connection_bar_
+MainWindow *-- CameraPanel : camera_panel_
+MainWindow *-- RobotStateBar : state_bar_
+MainWindow *-- JointControlPanel : joint_panel_
+MainWindow *-- CartesianPanel : cartesian_panel_
+MainWindow *-- FunctionPanel : function_panel_
+
+' ===== Panel 依赖 PendantNode 通信 =====
+
+JointControlPanel o-- PendantNode : node_
+CartesianPanel o-- PendantNode : node_
+FunctionPanel o-- PendantNode : node_
+
+' ===== Qt 信号广播 =====
+
+FunctionPanel --> JointControlPanel : «signal» estopChanged(bool)
+FunctionPanel --> CartesianPanel : «signal» estopChanged(bool)
+FunctionPanel --> CameraPanel : «signal» estopChanged(bool)
+JointControlPanel --> PendantNode : «signal» jointStreamReady → start_joint_stream()
+
+' ===== 架构说明 =====
+
+note as N1
+  **Panel 架构原则：**
+
+  1. **Panel 自包含** — 每个 Panel 独立管理 UI + 逻辑
+  2. **直接 ROS2 调用** — Joint/Cartesian/Function 持有
+     shared_ptr<PendantNode>，直接调用 async 接口
+  3. **信号广播** — E-STOP 等全局状态通过 Qt 信号
+     从 FunctionPanel 广播到其他 Panel
+  4. **MainWindow 编排** — 仅做面板布局、回调中继、
+     5Hz 状态轮询分发
+  5. **线程安全** — ROS2 回调通过 QMetaObject::invokeMethod
+     跨线程调用 Panel 槽函数
+end note
+
+N1 .. MainWindow
+
+@enduml

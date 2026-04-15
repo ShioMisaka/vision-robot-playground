@@ -1,0 +1,80 @@
+@startuml core_logic
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 80
+skinparam ranksep 80
+
+title 核心业务逻辑图（后端枢纽）\n四个核心类如何协同完成一次运动指令
+
+' ===== 接口定义 =====
+
+interface IRobotController <<interface>> {
+  + moveJ(target_angles, block) : void
+  + moveL(xyz, rpy, finger, block) : void
+  + go_home(block) : void
+}
+
+interface MotionIOBridge <<interface>> {
+  + publish_command(arm, finger) : void
+  + wait_for_motion(target, ...) : bool
+  + get_current_arm() : vector<double>
+}
+
+' ===== 核心类 =====
+
+class RobotControllerNode {
+  + {static} create(profile, gripper, topics) : shared_ptr
+  + get_controller() : shared_ptr<RobotMotionController>
+  + wait_for_ready(timeout) : bool
+  ----
+  ' 接收外部指令（ROS2 Service / Action）
+  ' 持有并调度底层 controller_ 和 bridge_
+}
+
+class RobotMotionController {
+  + moveJ(target_angles, block) : void
+  + moveL(xyz, rpy, finger, block) : void
+  + go_home(block) : void
+  ----
+  ' 运动控制中枢：调用 IKSolver 规划轨迹，
+  ' 通过 MotionIOBridge 下发关节指令
+}
+
+class IKSolver {
+  + solve(xyz, rpy) : optional<vector<double>>
+  + forward(joint_angles) : array<double,6>
+  + velocity_ik(joints, cartesian_delta) : optional<vector<double>>
+  ----
+  ' KDL 运动学引擎：IK/FK 求解
+}
+
+' ===== 关系 =====
+
+RobotControllerNode --|> rclcpp::Node
+RobotMotionController ..|> IRobotController
+
+RobotControllerNode *-- RobotMotionController : controller_
+RobotControllerNode *-- "RosMotionBridge\n(见维度二)" : bridge_
+RobotMotionController *-- IKSolver : ik_
+RobotMotionController o-- MotionIOBridge : bridge_
+
+' ===== 协作流程注释 =====
+
+note as N1
+  **一次 moveJ 指令的协作流程：**
+
+  1. **RobotControllerNode** 接收 ROS2 Service/Action 请求
+  2. 调用 **RobotMotionController::moveJ()**
+  3. MotionController 调用 **IKSolver::solve()** 将目标位姿转为关节角
+  4. MotionController 通过 S 曲线规划器计算轨迹点序列
+  5. 逐点调用 **MotionIOBridge::publish_command()** 下发关节指令
+  6. **MotionIOBridge::wait_for_motion()** 阻塞等待到达目标
+  7. 返回执行结果给 RobotControllerNode → 回复调用方
+end note
+
+N1 .. RobotControllerNode
+N1 .. RobotMotionController
+N1 .. IKSolver
+N1 .. MotionIOBridge
+
+@enduml
