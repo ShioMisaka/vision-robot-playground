@@ -67,6 +67,7 @@ src/
         i_robot_controller.hpp                    # 运动控制抽象接口 IRobotController
         motion_io_bridge.hpp                      # IO 桥接接口 MotionIOBridge
         robot_motion_controller.hpp               # 通用运动控制器
+        jog_controller.hpp                        # Jog 点动控制器（S-curve + 速度 IK + 关节限制）
       vision/
         i_vision_processor.hpp                    # 视觉处理抽象接口 IVisionProcessor
         camera_interface.hpp                      # CameraInterface 基类
@@ -78,7 +79,7 @@ src/
         vision_processor_node.hpp                 # ROS2 视觉处理节点
     src/
       kinematics/    ik_solver.cpp / trajectory_planner.cpp
-      motion/        robot_motion_controller.cpp
+      motion/        robot_motion_controller.cpp / jog_controller.cpp
       vision/        color_detector.cpp
       nodes/         robot_controller_node.cpp / vision_processor_node.cpp / grasp_task_manager.cpp
     CMakeLists.txt                # 4 target: robot_kinematics / robot_motion / robot_vision / robot_nodes
@@ -134,7 +135,7 @@ src/
   # === Qt5 示教器包 ===
   teaching_pendant/
     include/teaching_pendant/
-      pendant_node.hpp            # ROS2 节点（service client + subscriber）
+      pendant_node.hpp            # ROS2 节点（Jog 发布 JogCommand，关节流控发布 /joint_command）
       main_window.hpp             # Qt5 主窗口（薄编排层）
       panels/                     # Panel 组件（UI + 逻辑自包含）
         connection_bar.hpp        # 连接状态指示
@@ -239,7 +240,7 @@ urdf/
 | Message | 类型 | 说明 |
 |---------|------|------|
 | `RobotStatus` | Pub（10Hz） | 机器人状态（状态机、速度比、错误码、关节角、位姿、夹爪、TCP） |
-| `JogCommand` | Sub | Jog 点动命令（6 轴速度：vx,vy,vz,vroll,vpitch,vyaw） |
+| `JogCommand` | Sub | Jog 点动命令（6 轴速度 + 坐标系选择，由 RobotControllerNode 解析执行） |
 
 ## 状态机（RobotStateMachine）
 
@@ -258,7 +259,7 @@ urdf/
 - kFault → kIdle（CLEAR_FAULT）
 - **任意状态 → kFault**（EMERGENCY_STOP，最高优先级）
 
-**Jog 看门狗：** 200ms 无 JogCommand 则自动停止（kTeaching → kIdle）。
+**Jog 看门狗：** 200ms 无 JogCommand 则自动停止（kTeaching → kIdle）。正常 jog 时 50Hz tick 本身作为心跳刷新看门狗。
 
 ## 速度复合规则
 
@@ -402,7 +403,8 @@ MainWindow (薄编排层, ~100 行)
 └── 回调中继:
     ├── PendantNode::connection_callback → ConnectionBar
     ├── PendantNode::image_callback → CameraPanel (cv::Mat→QImage 转换)
-    └── PendantNode::async_get_state → RobotStateBar + JointControlPanel
+    ├── PendantNode::async_get_state → RobotStateBar + JointControlPanel
+    └── PendantNode::on_robot_status (kTeaching→kIdle) → jog_stopped_cb → JointControlPanel
 
 跨 Panel 通信（Qt 信号）:
 FunctionPanel::estopChanged(bool) ──→ JointControlPanel::onEstopChanged
@@ -411,6 +413,12 @@ FunctionPanel::estopChanged(bool) ──→ JointControlPanel::onEstopChanged
 
 JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
 ```
+
+### Jog 控制架构
+
+Jog 控制逻辑（S-curve 速度规划、Jacobian 速度 IK、坐标变换、关节限制）封装在
+`robot_control_cpp/motion/jog_controller.hpp`（纯 C++，无 ROS 依赖），由 `RobotControllerNode`
+通过 50Hz 定时器驱动。`PendantNode` 仅负责发布 `JogCommand` 消息和接收 `RobotStatus` 状态。
 
 ### 设计原则
 

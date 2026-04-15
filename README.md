@@ -12,7 +12,7 @@
 - **TF2 集成**: 自动发布末端执行器 TF 变换链，支持坐标系变换查询
 - **多机器人扩展**: 通过 `RobotProfile` 配置驱动，核心库无需修改
 - **Python 绑定**: pybind11 将 C++ 核心库暴露给 Python，脚本可直接调用 C++ 后端
-- **示教器接口**: 标准化 ROS2 Actions（MoveJ/MoveL）带进度反馈，状态机保护，Jog 点动，急停与看门狗
+- **示教器接口**: 标准化 ROS2 Actions（MoveJ/MoveL）带进度反馈，状态机保护，Jog 点动（S-curve 速度规划 + Jacobian 速度 IK），急停与看门狗
 
 ## 环境要求
 
@@ -73,7 +73,8 @@ isaac_ros_project/
 │   │   │   │   ├── control_constants.hpp   # 通用控制常量
 │   │   │   │   ├── i_robot_controller.hpp  # IRobotController 抽象接口
 │   │   │   │   ├── motion_io_bridge.hpp    # MotionIOBridge 接口
-│   │   │   │   └── robot_motion_controller.hpp
+│   │   │   │   ├── robot_motion_controller.hpp
+│   │   │   │   └── jog_controller.hpp      # Jog 点动控制器（S-curve + 速度 IK）
 │   │   │   ├── vision/                     # robot_vision target（零 ROS 依赖）
 │   │   │   │   ├── i_vision_processor.hpp  # IVisionProcessor 抽象接口
 │   │   │   │   ├── camera_interface.hpp    # CameraInterface 基类
@@ -87,7 +88,7 @@ isaac_ros_project/
 │   │   │       └── vision_processor_node.hpp
 │   │   └── src/
 │   │       ├── kinematics/  ik_solver.cpp / trajectory_planner.cpp
-│   │       ├── motion/      robot_motion_controller.cpp
+│   │       ├── motion/      robot_motion_controller.cpp / jog_controller.cpp
 │   │       ├── vision/      color_detector.cpp
 │   │       └── nodes/       robot_controller_node.cpp / vision_processor_node.cpp / grasp_task_manager.cpp
 │   │
@@ -106,7 +107,7 @@ isaac_ros_project/
 │   │
 │   └── teaching_pendant/           # Qt5 示教器包
 │       ├── include/teaching_pendant/
-│       │   ├── pendant_node.hpp            # ROS2 节点（Action/Service 客户端）
+│       │   ├── pendant_node.hpp            # ROS2 节点（发布 JogCommand，关节流控）
 │       │   ├── main_window.hpp             # Qt5 主窗口（薄编排层）
 │       │   └── panels/                     # Panel 组件（UI + 逻辑自包含）
 │       │       ├── connection_bar.hpp      # 连接状态显示
@@ -170,6 +171,7 @@ isaac_ros_project/
 │  ┌──────────▼──────────────────────────────────────────┐ │
 │  │ robot_motion                                        │ │
 │  │ RobotMotionController + IRobotController            │ │
+│  │ JogController (S-curve + Jacobian velocity IK)     │ │
 │  │ MotionIOBridge                                      │ │
 │  └─────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
@@ -205,7 +207,7 @@ colcon build --base-paths src --packages-select teaching_pendant          # Qt5 
 - `install/robot_control_msgs/` — ROS2 服务定义
 - `install/arm_control_interfaces/` — ROS2 Actions/Services/Messages 定义
 - `install/robot_control_cpp/lib/librobot_kinematics.so` — IK + 轨迹规划
-- `install/robot_control_cpp/lib/librobot_motion.so` — 运动控制器
+- `install/robot_control_cpp/lib/librobot_motion.so` — 运动控制器 + Jog 控制器
 - `install/robot_control_cpp/lib/librobot_vision.so` — 视觉处理
 - `install/robot_control_cpp/lib/librobot_nodes.so` — ROS2 节点
 - `install/robot_control_cpp_py/` — pybind11 Python 模块
@@ -320,7 +322,7 @@ rc.rclcpp_shutdown()
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图 |
 | `/robot_controller_node/status` | arm_control_interfaces/RobotStatus | Pub | 机器人状态（10Hz） |
-| `/jog_command` | arm_control_interfaces/JogCommand | Sub | Jog 点动命令 |
+| `/jog_command` | arm_control_interfaces/JogCommand | Sub | Jog 点动命令（由 RobotControllerNode 解析执行） |
 
 ## 示教器接口（arm_control_interfaces）
 
@@ -389,7 +391,7 @@ ros2 service call /robot_controller_node/set_tcp arm_control_interfaces/srv/SetT
 - kFault：故障，需 CLEAR_FAULT
 
 **安全特性：**
-- Jog 看门狗：200ms 无命令自动停止
+- Jog 看门狗：200ms 无命令自动停止（50Hz tick 正常运行时自动刷新看门狗）
 - EMERGENCY_STOP：立即进入 kFault
 - Action 支持取消
 
