@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <map>
 #include <string>
 #include <vector>
@@ -11,7 +12,8 @@ namespace robot_control::profiles {
 inline RobotProfile panda() {
   RobotProfile p;
   p.name = "panda";
-  p.urdf_path = "urdf/panda.urdf";
+  const std::string share_dir = ament_index_cpp::get_package_share_directory("robot_description");
+  p.urdf_path = share_dir + "/urdf/panda.urdf";
   p.dof = 7;
 
   p.joint_names = {

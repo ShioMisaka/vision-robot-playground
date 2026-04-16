@@ -18,6 +18,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(urdfdom REQUIRED)
@@ -41,6 +42,7 @@ ament_target_dependencies(robot_kinematics
   urdf
   kdl_parser
   Eigen3
+  ament_index_cpp
 )
 
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
@@ -79,6 +81,7 @@ ament_target_dependencies(robot_nodes
   tf2_geometry_msgs
   robot_msgs
   rclcpp_action
+  ament_index_cpp
 )
 
 # ===== 测试 =====
@@ -131,6 +134,7 @@ ament_export_dependencies(
   tf2_geometry_msgs
   robot_msgs
   rclcpp_action
+  ament_index_cpp
   orocos_kdl
   urdfdom
   urdf
