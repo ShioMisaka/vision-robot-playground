@@ -17,7 +17,7 @@
 import math
 import threading
 
-from robot_control_cpp_py import (
+from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
     RobotControllerNode,

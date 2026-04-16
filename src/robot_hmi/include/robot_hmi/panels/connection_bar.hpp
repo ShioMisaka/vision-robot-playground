@@ -3,7 +3,7 @@
 #include <QWidget>
 #include <QLabel>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 class ConnectionBar : public QWidget {
   Q_OBJECT
@@ -19,4 +19,4 @@ private:
   QLabel* label_camera_status_;
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

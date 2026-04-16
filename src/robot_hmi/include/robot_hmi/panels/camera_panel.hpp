@@ -5,7 +5,7 @@
 #include <QPushButton>
 #include <QImage>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 class CameraPanel : public QWidget {
   Q_OBJECT
@@ -25,4 +25,4 @@ private:
   bool show_depth_ = false;
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

@@ -1,4 +1,4 @@
-#include "robot_control_cpp/nodes/trajectory_executor.hpp"
+#include "robot_controller/nodes/trajectory_executor.hpp"
 
 #include <algorithm>
 #include <stdexcept>

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_control_cpp</name>
+  <name>robot_controller</name>
   <version>0.1.0</version>
   <description>C++ core library and ROS 2 nodes for robot control with vision-guided grasping</description>
   <maintainer email="user@example.com">user</maintainer>
@@ -15,9 +15,8 @@
   <depend>tf2_ros</depend>
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
-  <depend>robot_control_msgs</depend>
+  <depend>robot_msgs</depend>
   <depend>rclcpp_action</depend>
-  <depend>arm_control_interfaces</depend>
   <depend>orocos_kdl</depend>
   <depend>urdfdom</depend>
   <depend>kdl_parser</depend>

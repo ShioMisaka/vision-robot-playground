@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_vision_cpp</name>
+  <name>robot_vision</name>
   <version>0.1.0</version>
   <description>C++ vision library and ROS 2 nodes for robot vision-guided grasping</description>
   <maintainer email="user@example.com">user</maintainer>
@@ -15,10 +15,9 @@
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
   <depend>image_transport</depend>
-  <depend>robot_control_msgs</depend>
-  <depend>arm_control_interfaces</depend>
+  <depend>robot_msgs</depend>
   <depend>eigen</depend>
-  <depend>robot_control_cpp</depend>
+  <depend>robot_controller</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

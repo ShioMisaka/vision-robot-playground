@@ -1,12 +1,12 @@
-#include "teaching_pendant/panels/function_panel.hpp"
-#include "teaching_pendant/pendant_node.hpp"
+#include "robot_hmi/panels/function_panel.hpp"
+#include "robot_hmi/pendant_node.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QLabel>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 FunctionPanel::FunctionPanel(std::shared_ptr<PendantNode> node,
                              QWidget* parent)
@@ -108,4 +108,4 @@ void FunctionPanel::onEmergencyStop() {
   emit estopChanged(true);
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

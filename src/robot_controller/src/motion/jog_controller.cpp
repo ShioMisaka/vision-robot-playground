@@ -1,9 +1,9 @@
-#include "robot_control_cpp/motion/jog_controller.hpp"
+#include "robot_controller/motion/jog_controller.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-#include "robot_control_cpp/kinematics/ik_solver.hpp"
+#include "robot_controller/kinematics/ik_solver.hpp"
 
 namespace robot_control {
 

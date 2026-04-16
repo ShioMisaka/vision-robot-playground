@@ -1,5 +1,5 @@
-#include "robot_control_cpp/kinematics/ik_solver.hpp"
-#include "robot_control_cpp/kinematics/robot_profile.hpp"
+#include "robot_controller/kinematics/ik_solver.hpp"
+#include "robot_controller/kinematics/robot_profile.hpp"
 
 #include <kdl/chain.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>

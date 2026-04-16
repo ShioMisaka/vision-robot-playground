@@ -1,6 +1,6 @@
-#include "teaching_pendant/panels/cartesian_panel.hpp"
-#include "teaching_pendant/pendant_node.hpp"
-#include <arm_control_interfaces/msg/jog_command.hpp>
+#include "robot_hmi/panels/cartesian_panel.hpp"
+#include "robot_hmi/pendant_node.hpp"
+#include <robot_msgs/msg/jog_command.hpp>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -9,7 +9,7 @@
 #include <QLabel>
 #include <array>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 CartesianPanel::CartesianPanel(std::shared_ptr<PendantNode> node,
                                QWidget* parent)
@@ -126,8 +126,8 @@ void CartesianPanel::onJogPress(int axis) {
   // JogCommand: TCP_FRAME=0, BASE_FRAME=1
   // So Base→1, TCP→0
   uint8_t frame = (combo_frame_->currentIndex() == 0)
-                      ? arm_control_interfaces::msg::JogCommand::BASE_FRAME
-                      : arm_control_interfaces::msg::JogCommand::TCP_FRAME;
+                      ? robot_msgs::msg::JogCommand::BASE_FRAME
+                      : robot_msgs::msg::JogCommand::TCP_FRAME;
   node_->start_jog(axis, 0, frame);
 }
 
@@ -148,4 +148,4 @@ QPushButton* CartesianPanel::createJogButton(const QString& text, int axis) {
   return btn;
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_control_cpp_py</name>
+  <name>robot_api_python</name>
   <version>0.1.0</version>
-  <description>Python bindings for robot_control_cpp via pybind11</description>
+  <description>Python bindings for robot controller via pybind11</description>
   <maintainer email="user@example.com">ShioMisaka</maintainer>
   <license>Apache-2.0</license>
 
@@ -11,7 +11,8 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>robot_control_cpp</depend>
+  <depend>robot_controller</depend>
+  <depend>robot_vision</depend>
 
   <build_depend>pybind11-dev</build_depend>
 

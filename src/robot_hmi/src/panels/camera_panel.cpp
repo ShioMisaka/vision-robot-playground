@@ -1,4 +1,4 @@
-#include "teaching_pendant/panels/camera_panel.hpp"
+#include "robot_hmi/panels/camera_panel.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -6,7 +6,7 @@
 #include <QPixmap>
 #include <QSizePolicy>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 CameraPanel::CameraPanel(QWidget* parent) : QWidget(parent) {
   auto* group = new QGroupBox("Camera", this);
@@ -56,4 +56,4 @@ void CameraPanel::onToggleRgbDepth() {
   // TODO: implement depth display
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

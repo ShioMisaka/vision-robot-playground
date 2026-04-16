@@ -1,4 +1,4 @@
-#include "robot_vision_cpp/vision/color_detector.hpp"
+#include "robot_vision/vision/color_detector.hpp"
 
 #include <opencv2/imgproc.hpp>
 

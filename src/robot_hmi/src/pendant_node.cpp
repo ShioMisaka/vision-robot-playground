@@ -1,10 +1,10 @@
-#include "teaching_pendant/pendant_node.hpp"
+#include "robot_hmi/pendant_node.hpp"
 
 #include <chrono>
 #include <cmath>
 #include <thread>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 std::shared_ptr<PendantNode> PendantNode::create(
     const std::string& robot_service_prefix) {
@@ -15,28 +15,28 @@ std::shared_ptr<PendantNode> PendantNode::create(
 }
 
 PendantNode::PendantNode(const std::string& robot_service_prefix)
-    : Node("teaching_pendant_node"),
+    : Node("robot_hmi_node"),
       service_prefix_(robot_service_prefix) {}
 
 void PendantNode::init() {
   // Service clients
-  cli_move_joint_ = create_client<robot_control_msgs::srv::MoveJoint>(
+  cli_move_joint_ = create_client<robot_msgs::srv::MoveJoint>(
       service_prefix_ + "/move_joint");
-  cli_move_pose_ = create_client<robot_control_msgs::srv::MovePose>(
+  cli_move_pose_ = create_client<robot_msgs::srv::MovePose>(
       service_prefix_ + "/move_pose");
-  cli_move_linear_ = create_client<robot_control_msgs::srv::MoveLinear>(
+  cli_move_linear_ = create_client<robot_msgs::srv::MoveLinear>(
       service_prefix_ + "/move_linear");
-  cli_gripper_ = create_client<robot_control_msgs::srv::ControlGripper>(
+  cli_gripper_ = create_client<robot_msgs::srv::ControlGripper>(
       service_prefix_ + "/control_gripper");
-  cli_home_ = create_client<robot_control_msgs::srv::GoHome>(
+  cli_home_ = create_client<robot_msgs::srv::GoHome>(
       service_prefix_ + "/go_home");
-  cli_speed_ = create_client<robot_control_msgs::srv::SetSpeed>(
+  cli_speed_ = create_client<robot_msgs::srv::SetSpeed>(
       service_prefix_ + "/set_speed");
-  cli_state_ = create_client<robot_control_msgs::srv::GetRobotState>(
+  cli_state_ = create_client<robot_msgs::srv::GetRobotState>(
       service_prefix_ + "/get_state");
 
   // E-STOP service client (forwards to RobotControllerNode)
-  cli_robot_cmd_ = create_client<arm_control_interfaces::srv::RobotCmd>(
+  cli_robot_cmd_ = create_client<robot_msgs::srv::RobotCmd>(
       service_prefix_ + "/robot_cmd");
 
   // Joint state subscriber
@@ -53,9 +53,9 @@ void PendantNode::init() {
       sub_opts);
 
   // RobotStatus subscription (detect jog completion)
-  status_sub_ = create_subscription<arm_control_interfaces::msg::RobotStatus>(
+  status_sub_ = create_subscription<robot_msgs::msg::RobotStatus>(
       service_prefix_ + "/status", 10,
-      [this](const arm_control_interfaces::msg::RobotStatus::SharedPtr msg) {
+      [this](const robot_msgs::msg::RobotStatus::SharedPtr msg) {
         on_robot_status(msg);
       });
 
@@ -101,7 +101,7 @@ void PendantNode::init() {
       "/joint_command", 10);
 
   // Jog 命令发布器（发送 JogCommand 到 RobotControllerNode）
-  jog_pub_ = create_publisher<arm_control_interfaces::msg::JogCommand>(
+  jog_pub_ = create_publisher<robot_msgs::msg::JogCommand>(
       service_prefix_ + "/jog_command", 10);
 
   // 服务发现定时器
@@ -238,7 +238,7 @@ void PendantNode::async_get_state(std::function<void(
       if (callback) callback(false, {}, {}, 0.0, "");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::GetRobotState::Request>();
+    auto req = std::make_shared<robot_msgs::srv::GetRobotState::Request>();
     auto future = cli_state_->async_send_request(req);
     if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
       if (callback) callback(false, {}, {}, 0.0, "");
@@ -266,7 +266,7 @@ void PendantNode::async_move_joint(const std::vector<double>& angles,
       if (callback) callback(false, "Service not available");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::MoveJoint::Request>();
+    auto req = std::make_shared<robot_msgs::srv::MoveJoint::Request>();
     req->joint_angles = angles;
     req->block = true;
     auto future = cli_move_joint_->async_send_request(req);
@@ -288,7 +288,7 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
       if (callback) callback(false, "Service not available");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::MovePose::Request>();
+    auto req = std::make_shared<robot_msgs::srv::MovePose::Request>();
     req->xyz = {xyz[0], xyz[1], xyz[2]};
     if (rpy) {
       req->rpy = {(*rpy)[0], (*rpy)[1], (*rpy)[2]};
@@ -311,7 +311,7 @@ void PendantNode::async_open_gripper(VoidCallback callback) {
       if (callback) callback(false, "Service not available");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::ControlGripper::Request>();
+    auto req = std::make_shared<robot_msgs::srv::ControlGripper::Request>();
     req->command = 0;
     auto future = cli_gripper_->async_send_request(req);
     if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
@@ -329,7 +329,7 @@ void PendantNode::async_close_gripper(VoidCallback callback) {
       if (callback) callback(false, "Service not available");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::ControlGripper::Request>();
+    auto req = std::make_shared<robot_msgs::srv::ControlGripper::Request>();
     req->command = 1;
     auto future = cli_gripper_->async_send_request(req);
     if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
@@ -347,7 +347,7 @@ void PendantNode::async_go_home(VoidCallback callback) {
       if (callback) callback(false, "Service not available");
       return;
     }
-    auto req = std::make_shared<robot_control_msgs::srv::GoHome::Request>();
+    auto req = std::make_shared<robot_msgs::srv::GoHome::Request>();
     auto future = cli_home_->async_send_request(req);
     if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
       if (callback) callback(false, "Service call timeout");
@@ -361,7 +361,7 @@ void PendantNode::async_go_home(VoidCallback callback) {
 void PendantNode::async_set_speed(uint8_t mode, double percent) {
   post_task([this, mode, percent]() {
     if (!cli_speed_->service_is_ready()) return;
-    auto req = std::make_shared<robot_control_msgs::srv::SetSpeed::Request>();
+    auto req = std::make_shared<robot_msgs::srv::SetSpeed::Request>();
     req->mode = mode;
     req->percent = percent;
     auto future = cli_speed_->async_send_request(req);
@@ -371,9 +371,9 @@ void PendantNode::async_set_speed(uint8_t mode, double percent) {
 
 // ===== Jog Control（仅发布 JogCommand 消息） =====
 
-arm_control_interfaces::msg::JogCommand PendantNode::build_jog_command(
+robot_msgs::msg::JogCommand PendantNode::build_jog_command(
     int axis, uint8_t frame) const {
-  arm_control_interfaces::msg::JogCommand msg;
+  robot_msgs::msg::JogCommand msg;
   msg.frame = frame;
 
   // axis 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z,6=+R,7=-R,8=+P,9=-P,10=+Yw,11=-Yw
@@ -407,7 +407,7 @@ void PendantNode::stop_jog() {
   if (!jog_active_.load()) return;
 
   // 发布零速度 JogCommand 通知控制器停止
-  arm_control_interfaces::msg::JogCommand msg;
+  robot_msgs::msg::JogCommand msg;
   msg.frame = last_jog_frame_;
   msg.stamp = now();
   // velocity is all zeros by default
@@ -419,9 +419,9 @@ void PendantNode::stop_jog() {
 // ===== RobotStatus Callback =====
 
 void PendantNode::on_robot_status(
-    const arm_control_interfaces::msg::RobotStatus::SharedPtr msg) {
+    const robot_msgs::msg::RobotStatus::SharedPtr msg) {
   if (jog_active_.load() &&
-      msg->state == arm_control_interfaces::msg::RobotStatus::IDLE) {
+      msg->state == robot_msgs::msg::RobotStatus::IDLE) {
     // 控制器从 kTeaching 转为 kIdle → Jog 减速完成
     jog_active_ = false;
     resume_joint_stream();
@@ -448,8 +448,8 @@ void PendantNode::emergency_stop() {
   // 转发 E-STOP 到 RobotControllerNode
   post_task([this]() {
     if (cli_robot_cmd_->service_is_ready()) {
-      auto req = std::make_shared<arm_control_interfaces::srv::RobotCmd::Request>();
-      req->command = arm_control_interfaces::srv::RobotCmd::Request::EMERGENCY_STOP;
+      auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
+      req->command = robot_msgs::srv::RobotCmd::Request::EMERGENCY_STOP;
       auto future = cli_robot_cmd_->async_send_request(req);
       future.wait_for(std::chrono::seconds(2));
     }
@@ -522,4 +522,4 @@ void PendantNode::resume_joint_stream() {
   joint_stream_paused_ = false;
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

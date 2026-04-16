@@ -4,7 +4,7 @@
 #include <Eigen/Core>
 #include <opencv2/core.hpp>
 
-#include "robot_vision_cpp/vision/camera_interface.hpp"
+#include "robot_vision/vision/camera_interface.hpp"
 
 namespace robot_control {
 

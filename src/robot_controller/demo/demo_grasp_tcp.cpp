@@ -4,7 +4,7 @@
 /// 编译后运行（需要 Isaac Sim 已启动）：
 ///   source /opt/ros/jazzy/setup.bash
 ///   source install/setup.bash
-///   ros2 run robot_control_cpp demo_grasp_tcp
+///   ros2 run robot_controller demo_grasp_tcp
 ///
 /// 流程：
 ///   1. 切换到 grasptarget TCP（指尖坐标系）
@@ -25,10 +25,10 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
-#include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_control_cpp/profiles/panda_profile.hpp"
-#include "robot_control_cpp/motion/control_constants.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_controller/profiles/panda_profile.hpp"
+#include "robot_controller/motion/control_constants.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
 // ---- 目标参数 ----
 constexpr double kTargetX = 0.52699;

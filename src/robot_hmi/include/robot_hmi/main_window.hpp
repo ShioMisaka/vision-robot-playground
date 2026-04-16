@@ -4,7 +4,7 @@
 #include <QTimer>
 #include <memory>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 class PendantNode;
 class ConnectionBar;
@@ -38,4 +38,4 @@ private:
   QTimer* refresh_timer_;
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

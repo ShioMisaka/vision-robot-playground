@@ -1,19 +1,19 @@
-#include "teaching_pendant/main_window.hpp"
-#include "teaching_pendant/pendant_node.hpp"
+#include "robot_hmi/main_window.hpp"
+#include "robot_hmi/pendant_node.hpp"
 
-#include "teaching_pendant/panels/connection_bar.hpp"
-#include "teaching_pendant/panels/camera_panel.hpp"
-#include "teaching_pendant/panels/robot_state_bar.hpp"
-#include "teaching_pendant/panels/joint_control_panel.hpp"
-#include "teaching_pendant/panels/cartesian_panel.hpp"
-#include "teaching_pendant/panels/function_panel.hpp"
+#include "robot_hmi/panels/connection_bar.hpp"
+#include "robot_hmi/panels/camera_panel.hpp"
+#include "robot_hmi/panels/robot_state_bar.hpp"
+#include "robot_hmi/panels/joint_control_panel.hpp"
+#include "robot_hmi/panels/cartesian_panel.hpp"
+#include "robot_hmi/panels/function_panel.hpp"
 
 #include <QVBoxLayout>
 #include <QImage>
 #include <QPixmap>
 #include <opencv2/core.hpp>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
     : QMainWindow(parent), node_(std::move(node)) {
@@ -122,4 +122,4 @@ void MainWindow::onRefreshState() {
       });
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

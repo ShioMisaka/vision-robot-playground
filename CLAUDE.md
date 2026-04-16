@@ -27,14 +27,14 @@ Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_mot
 
 ### CMake Target 分层
 ```
-# robot_control_cpp 包
+# robot_controller 包
 robot_kinematics   ← IK + 轨迹规划（零 ROS 依赖，仅 KDL + Eigen）
        ▲
 robot_motion       ← 运动控制器 + 接口（依赖 kinematics）
        ▲
 robot_nodes        ← ROS2 控制节点（依赖 motion，零视觉依赖）
 
-# robot_vision_cpp 包
+# robot_vision 包
 robot_vision_core  ← 颜色检测 + 视觉接口（零 ROS 依赖，仅 OpenCV + Eigen）
        ▲
 robot_vision_nodes ← ROS2 视觉节点 + 抓取任务管理器（依赖 vision_core + robot_motion）
@@ -42,25 +42,54 @@ robot_vision_nodes ← ROS2 视觉节点 + 抓取任务管理器（依赖 vision
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦，ROS2 节点实现该接口
 - `robot_kinematics` 和 `robot_vision_core` 是叶子节点，可独立复用和测试
-- `robot_control_cpp` 完全不含视觉依赖，纯运动控制
-- `robot_vision_cpp` 通过 `robot_motion` 的 `IRobotController` 接口协调视觉与运动
+- `robot_controller` 完全不含视觉依赖，纯运动控制
+- `robot_vision` 通过 `robot_motion` 的 `IRobotController` 接口协调视觉与运动
 - 新增机器人只需定义 `RobotProfile`，核心库无需修改
 - Python 脚本使用 `rclcpp`（通过 pybind11），不能同时使用 `rclpy`
+- **依赖方向约束**: `robot_controller` → `robot_vision` 单向依赖，不可反向。需要 `robot_vision` 的集成测试（test_robot_node, test_camera_tf）和 demo（demo_camera）放在 `robot_vision/` 下，避免循环依赖
 
 ## 项目结构
 ```
 src/
-  # === Python 原始模块（保留供参考/对比）===
-  config.py            # Python 常量配置
-  ik_solver.py         # Python IK 求解器（ikpy）
-  vision.py            # Python HSV 颜色检测器
-  robot.py             # Python RobotController 节点
-  vision_processor.py  # Python VisionProcessor 节点
-  task_manager.py      # Python GraspTaskManager
+  # === 数据定义层 ===
+  robot_msgs/                  # ROS2 接口（Services + Actions + Messages）
+    srv/
+      SolveIK.srv              # IK 求解服务
+      MoveJoint.srv            # 关节运动服务
+      MovePose.srv             # 笛卡尔运动服务（moveJ/moveL）
+      MoveLinear.srv           # 线性增量运动服务
+      ControlGripper.srv       # 夹爪控制服务
+      GoHome.srv               # 回 Home 服务
+      SetSpeed.srv             # 速度设置服务
+      GetRobotState.srv        # 状态查询服务
+      SetTCP.srv               # 设置 TCP 工具坐标系
+      SetSpeedRatio.srv        # 设置全局速度比（0.0-1.0）
+      RobotCmd.srv             # 机器人命令（STOP/EMERGENCY_STOP/CLEAR_FAULT）
+    action/
+      MoveJ.action             # 关节/笛卡尔运动 Action（带反馈）
+      MoveL.action             # 线性运动 Action（带反馈）
+    msg/
+      RobotStatus.msg          # 机器人状态（状态机 + 遥测）
+      JogCommand.msg           # Jog 点动速度命令
+    CMakeLists.txt
+    package.xml
 
-  # === C++ 核心库包（纯库，无可执行文件）===
-  robot_control_cpp/
-    include/robot_control_cpp/
+  # === 机器人模型 ===
+  robot_description/           # URDF/Mesh 模型
+    urdf/
+      panda.urdf               # Franka Panda URDF 模型
+    CMakeLists.txt
+    package.xml
+
+  # === 启动项 ===
+  robot_bringup/               # Launch 文件、全局参数配置（目前是空壳，尚无 launch 文件）
+    launch/
+    CMakeLists.txt
+    package.xml
+
+  # === 核心控制层 ===
+  robot_controller/            # C++ 控制器（核心库 + ROS2 节点 + 测试/演示）
+    include/robot_controller/
       profiles/
         panda_profile.hpp                         # Panda 专用配置
       kinematics/
@@ -80,12 +109,21 @@ src/
       kinematics/    ik_solver.cpp / trajectory_planner.cpp
       motion/        robot_motion_controller.cpp / jog_controller.cpp
       nodes/         robot_controller_node.cpp / robot_state.cpp / trajectory_executor.cpp
+    test/
+      test_trajectory_planner.cpp # S 曲线轨迹规划测试（离线可运行）
+      test_motion_controller.cpp  # 运动控制器测试（离线可运行）
+      test_ik_solver.cpp          # 独立 IK 测试（离线可运行）
+      test_robot_node.cpp         # 集成测试（需 Isaac Sim）
+      test_camera_tf.cpp          # 相机 TF 链验证测试（需 Isaac Sim + robot_vision）
+    demo/
+      demo_grasp_tcp.cpp          # TCP 抓取演示
+      demo_camera.cpp             # 相机画面显示（需 robot_vision）
     CMakeLists.txt                # 3 target: robot_kinematics / robot_motion / robot_nodes
     package.xml
 
-  # === C++ 视觉库包（纯库，无可执行文件）===
-  robot_vision_cpp/
-    include/robot_vision_cpp/
+  # === 视觉处理层 ===
+  robot_vision/                # 视觉处理节点（检测、识别、坐标转换）
+    include/robot_vision/
       vision/
         i_vision_processor.hpp                    # 视觉处理抽象接口 IVisionProcessor
         camera_interface.hpp                      # CameraInterface 基类
@@ -99,60 +137,9 @@ src/
     CMakeLists.txt                # 2 target: robot_vision_core / robot_vision_nodes
     package.xml
 
-  # === pybind11 Python 绑定包 ===
-  robot_control_cpp_py/
-    src/bindings.cpp              # pybind11 绑定代码
-    robot_control_cpp_py/
-      __init__.py                 # Python 包，导入 _core 并重新导出
-    CMakeLists.txt
-    package.xml
-
-  # === C++ 测试与演示包 ===
-  robot_control_test/
-    test/
-      test_trajectory_planner.cpp # S 曲线轨迹规划测试（离线可运行）
-      test_motion_controller.cpp  # 运动控制器测试（离线可运行）
-      test_ik_solver.cpp          # 独立 IK 测试（离线可运行）
-      test_robot_node.cpp         # 集成测试（需 Isaac Sim）
-      test_camera_tf.cpp          # 相机 TF 链验证测试（需 Isaac Sim + robot_vision_cpp）
-    demo/
-      demo_grasp_tcp.cpp          # TCP 抓取演示
-      demo_camera.cpp             # 相机画面显示（需 robot_vision_cpp）
-    CMakeLists.txt                # find_package(robot_control_cpp + robot_vision_cpp)
-    package.xml                   # depend on robot_control_cpp, robot_vision_cpp
-
-  # === ROS2 自定义消息包 ===
-  robot_control_msgs/              # 原始服务接口（保留，向后兼容）
-    srv/
-      SolveIK.srv                 # IK 求解服务
-      MoveJoint.srv               # 关节运动服务
-      MovePose.srv                # 笛卡尔运动服务（moveJ/moveL）
-      MoveLinear.srv              # 线性增量运动服务
-      ControlGripper.srv          # 夹爪控制服务
-      GoHome.srv                  # 回 Home 服务
-      SetSpeed.srv                # 速度设置服务
-      GetRobotState.srv           # 状态查询服务
-    CMakeLists.txt
-    package.xml
-
-  # === 示教器接口包 ===
-  arm_control_interfaces/         # 标准化示教器接口（Actions + Services + Messages）
-    action/
-      MoveJ.action                # 关节/笛卡尔运动 Action（带反馈）
-      MoveL.action                # 线性运动 Action（带反馈）
-    srv/
-      SetTCP.srv                  # 设置 TCP 工具坐标系
-      SetSpeedRatio.srv           # 设置全局速度比（0.0-1.0）
-      RobotCmd.srv                # 机器人命令（STOP/EMERGENCY_STOP/CLEAR_FAULT）
-    msg/
-      RobotStatus.msg             # 机器人状态（状态机 + 遥测）
-      JogCommand.msg              # Jog 点动速度命令
-    CMakeLists.txt
-    package.xml
-
-  # === Qt5 示教器包 ===
-  teaching_pendant/
-    include/teaching_pendant/
+  # === 示教器界面 ===
+  robot_hmi/                   # Qt5 示教器 GUI
+    include/robot_hmi/
       pendant_node.hpp            # ROS2 节点（Jog 发布 JogCommand，关节流控发布 /joint_command）
       main_window.hpp             # Qt5 主窗口（薄编排层）
       panels/                     # Panel 组件（UI + 逻辑自包含）
@@ -176,17 +163,19 @@ src/
     CMakeLists.txt                # Qt5 + ROS2
     package.xml
 
+  # === Python API 封装 ===
+  robot_api_python/             # 封装给 Python 调用的 API 库
+    src/bindings.cpp              # pybind11 绑定代码
+    robot_api_python/
+      __init__.py                 # Python 包，导入 _core 并重新导出
+    CMakeLists.txt
+    package.xml
+
 script/
-  test_move.py         # Python 演示（纯 Python 后端）：IK 位姿控制
-  test_vision.py       # Python 演示（纯 Python 后端）：视觉伺服引导抓取
-  test_grasp_tcp.py    # Python 演示（纯 Python 后端）：TCP 抓取
   test_move_cpp.py     # Python 演示（C++ 后端）：IK 位姿控制
   test_vision_cpp.py   # Python 演示（C++ 后端）：视觉伺服引导抓取
   test_grasp_tcp_cpp.py # Python 演示（C++ 后端）：TCP 抓取
-  test_joint_state.py  # Python 演示：关节状态读取
-  test_camera.py       # Python 演示：相机图像显示
-urdf/
-  panda.urdf           # Franka Panda URDF 模型
+  test_camera_tf.py    # Python 演示：相机 TF 链验证
 ```
 
 ## 编码规范 — Python
@@ -231,7 +220,7 @@ urdf/
 
 ## ROS2 Actions（robot_controller_node - 示教器接口）
 
-**来自 arm_control_interfaces 包**，提供带进度反馈的非阻塞运动控制。
+**来自 robot_msgs 包**，提供带进度反馈的非阻塞运动控制。
 
 | Action | 说明 |
 |--------|------|
@@ -245,7 +234,7 @@ urdf/
 
 ## ROS2 Services（robot_controller_node - 示教器专用）
 
-**来自 arm_control_interfaces 包**，供示教器调用。
+**来自 robot_msgs 包**，供示教器调用。
 
 | Service | 类型 | 说明 |
 |---------|------|------|
@@ -253,7 +242,7 @@ urdf/
 | `~/set_speed_ratio` | SetSpeedRatio | 设置全局速度比（0.0-1.0），与模式速度复合 |
 | `~/robot_cmd` | RobotCmd | 机器人命令：STOP（停止）、EMERGENCY_STOP（急停）、CLEAR_FAULT（清除故障） |
 
-## ROS2 Messages（arm_control_interfaces）
+## ROS2 Messages（robot_msgs）
 
 | Message | 类型 | 说明 |
 |---------|------|------|
@@ -298,13 +287,13 @@ source install/setup.zsh
 colcon build --base-paths src --packages-select <package_name>
 
 # === 编译示教器及其依赖 ===
-colcon build --base-paths src --packages-up-to teaching_pendant
+colcon build --base-paths src --packages-up-to robot_hmi
 
-# 编译顺序（手动时参考）：msgs → interfaces → robot_control_cpp → robot_vision_cpp → py/test/pendant
+# 编译顺序（手动时参考）：msgs → robot_controller → robot_vision → robot_api_python/robot_hmi
 
 # === Action CLI 测试 ===
 # 发送 MoveJ Goal（笛卡尔模式，带 IK）
-ros2 action send /move_j arm_control_interfaces/action/MoveJ "
+ros2 action send /move_j robot_msgs/action/MoveJ "
   mode: 1
   position: {x: 0.5, y: 0.0, z: 0.3}
   orientation: {x: 0.0, y: -1.57, z: -1.57}
@@ -320,30 +309,26 @@ ros2 action feedback /move_j
 
 # === Service CLI 测试 ===
 # 设置全局速度比
-ros2 service call /robot_controller_node/set_speed_ratio arm_control_interfaces/srv/SetSpeedRatio "{ratio: 0.8}"
+ros2 service call /robot_controller_node/set_speed_ratio robot_msgs/srv/SetSpeedRatio "{ratio: 0.8}"
 
 # 急停
-ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 1}"
+ros2 service call /robot_controller_node/robot_cmd robot_msgs/srv/RobotCmd "{command: 1}"
 
 # 清除故障
-ros2 service call /robot_controller_node/robot_cmd arm_control_interfaces/srv/RobotCmd "{command: 2}"
+ros2 service call /robot_controller_node/robot_cmd robot_msgs/srv/RobotCmd "{command: 2}"
 
 # === 运行演示 ===
 # C++ 演示（需要 Isaac Sim）
-ros2 run robot_control_test demo_grasp_tcp
+ros2 run robot_controller demo_grasp_tcp
 
 # Python 演示（C++ 后端，需要 Isaac Sim）
 python3 script/test_move_cpp.py
 python3 script/test_grasp_tcp_cpp.py
 python3 script/test_vision_cpp.py
 
-# Python 演示（纯 Python 后端）
-python3 script/test_move.py
-python3 script/test_vision.py
-
 # === 运行示教器 ===
 # 需要 Isaac Sim + robot_controller_node 运行中
-ros2 run teaching_pendant teaching_pendant
+ros2 run robot_hmi robot_hmi
 
 # === 查看系统状态 ===
 ros2 topic list
@@ -354,7 +339,7 @@ ros2 action list
 ## Python 绑定使用模式
 ```python
 import threading
-import robot_control_cpp_py as rc
+import robot_api_python as rc
 
 rc.rclcpp_init()
 
@@ -377,15 +362,15 @@ rc.rclcpp_shutdown()
 ```
 
 ## 架构约定
-- RobotController 不依赖 VisionProcessor，二者通过 GraspTaskManager（robot_vision_cpp 包）编排
+- RobotController 不依赖 VisionProcessor，二者通过 GraspTaskManager（robot_vision 包）编排
 - VisionProcessor/CameraInterface::process_image() 是桩代码，子类重写以接入 YOLO/GraspNet
 - 视觉伺服参数定义在 script 中，非节点级参数
 - TF2: RobotControllerNode 自动发布 base → hand → tcp 变换链
-- 新增机器人：在 `include/robot_control_cpp/profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
+- 新增机器人：在 `include/robot_controller/profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
 - pybind11 绑定中所有阻塞方法必须释放 GIL（`py::call_guard<py::gil_scoped_release>()`）
 - Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy
 
-## 示教器 GUI 架构（teaching_pendant）
+## 示教器 GUI 架构（robot_hmi）
 
 Qt5 示教器采用 **Panel 架构**，将单体 MainWindow 拆分为 6 个独立 Panel widget：
 
@@ -423,7 +408,7 @@ JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
 ### Jog 控制架构
 
 Jog 控制逻辑（S-curve 速度规划、Jacobian 速度 IK、坐标变换、关节限制）封装在
-`robot_control_cpp/motion/jog_controller.hpp`（纯 C++，无 ROS 依赖），由 `RobotControllerNode`
+`robot_controller/motion/jog_controller.hpp`（纯 C++，无 ROS 依赖），由 `RobotControllerNode`
 通过 50Hz 定时器驱动。`PendantNode` 仅负责发布 `JogCommand` 消息和接收 `RobotStatus` 状态。
 
 ### 设计原则
@@ -447,7 +432,7 @@ Jog 控制逻辑（S-curve 速度规划、Jacobian 速度 IK、坐标变换、�
 
 添加新 Panel 步骤：
 
-1. 创建 `include/teaching_pendant/panels/xxx_panel.hpp` + `src/panels/xxx_panel.cpp`
+1. 创建 `include/robot_hmi/panels/xxx_panel.hpp` + `src/panels/xxx_panel.cpp`
 2. 继承 `QWidget`，添加 `Q_OBJECT` 宏
 3. 构造函数接收 `std::shared_ptr<PendantNode>`（如需 ROS2 通信）
 4. 在 `MainWindow::setupUi()` 中创建并布局

@@ -3,12 +3,12 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_control_cpp/profiles/panda_profile.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_controller/profiles/panda_profile.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
-#include "teaching_pendant/pendant_node.hpp"
-#include "teaching_pendant/main_window.hpp"
+#include "robot_hmi/pendant_node.hpp"
+#include "robot_hmi/main_window.hpp"
 
 int main(int argc, char* argv[]) {
   // 初始化 ROS2
@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
       robot_control::TopicConfig());
 
   // 创建示教器节点（Jog IK 由 RobotControllerNode 处理）
-  auto pendant = teaching_pendant::PendantNode::create(
+  auto pendant = robot_hmi::PendantNode::create(
       "robot_controller_node");
 
   // 两个节点共享同一个 MultiThreadedExecutor
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
 
   // 创建主窗口
-  teaching_pendant::MainWindow window(pendant);
+  robot_hmi::MainWindow window(pendant);
   window.show();
 
   // Qt 事件循环

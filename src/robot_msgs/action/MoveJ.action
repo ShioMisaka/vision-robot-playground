@@ -1,0 +1,20 @@
+# Goal
+uint8 JOINT_SPACE = 0
+uint8 CARTESIAN = 1
+uint8 mode
+float64[7] joint_angles
+geometry_msgs/Point position
+geometry_msgs/Vector3 orientation
+float64 speed_ratio
+float64 finger_width
+---
+# Result
+bool success
+string message
+float64[7] final_joint_angles
+float64[6] final_tcp_pose
+---
+# Feedback
+float64 progress
+float64[7] current_joint_angles
+float64 estimated_time_remaining

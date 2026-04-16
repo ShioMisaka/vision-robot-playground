@@ -1,11 +1,11 @@
-#include "teaching_pendant/panels/robot_state_bar.hpp"
+#include "robot_hmi/panels/robot_state_bar.hpp"
 
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
 #include <QFont>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 RobotStateBar::RobotStateBar(QWidget* parent) : QWidget(parent) {
   auto* group = new QGroupBox("Robot State", this);
@@ -49,4 +49,4 @@ void RobotStateBar::onStateUpdated(const std::array<double, 6>& pose,
   label_tcp_->setText(QString::fromStdString(tcp_name));
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

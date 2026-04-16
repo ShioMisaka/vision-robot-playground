@@ -1,10 +1,10 @@
-"""Python bindings for the robot_control_cpp C++ library.
+"""Python bindings for the robot controller C++ library.
 
 ALL ROS2 communication uses rclcpp internally.
 Do NOT call rclpy.init() -- use rclcpp_init() instead.
 """
 
-from robot_control_cpp_py._core import (
+from robot_api_python._core import (
     # ROS2 lifecycle
     rclcpp_init,
     rclcpp_shutdown,

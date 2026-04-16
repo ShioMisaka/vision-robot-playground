@@ -12,9 +12,9 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <cv_bridge/cv_bridge.hpp>
 
-#include "robot_vision_cpp/vision/camera_interface.hpp"
-#include "robot_vision_cpp/vision/i_vision_processor.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_vision/vision/camera_interface.hpp"
+#include "robot_vision/vision/i_vision_processor.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
 namespace robot_control {
 

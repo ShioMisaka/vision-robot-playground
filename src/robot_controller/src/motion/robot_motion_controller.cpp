@@ -1,6 +1,6 @@
-#include "robot_control_cpp/motion/robot_motion_controller.hpp"
-#include "robot_control_cpp/kinematics/ik_solver.hpp"
-#include "robot_control_cpp/motion/control_constants.hpp"
+#include "robot_controller/motion/robot_motion_controller.hpp"
+#include "robot_controller/kinematics/ik_solver.hpp"
+#include "robot_controller/motion/control_constants.hpp"
 
 #include <Eigen/Geometry>
 

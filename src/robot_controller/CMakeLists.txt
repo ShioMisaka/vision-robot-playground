@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(robot_control_cpp)
+project(robot_controller)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -16,8 +16,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(robot_control_msgs REQUIRED)
-find_package(arm_control_interfaces REQUIRED)
+find_package(robot_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(orocos_kdl REQUIRED)
@@ -78,10 +77,31 @@ ament_target_dependencies(robot_nodes
   tf2_ros
   tf2
   tf2_geometry_msgs
-  robot_control_msgs
+  robot_msgs
   rclcpp_action
-  arm_control_interfaces
 )
+
+# ===== 测试 =====
+add_executable(test_trajectory_planner
+  test/test_trajectory_planner.cpp
+)
+target_link_libraries(test_trajectory_planner robot_kinematics)
+
+add_executable(test_motion_controller
+  test/test_motion_controller.cpp
+)
+target_link_libraries(test_motion_controller robot_motion)
+
+add_executable(test_ik_solver
+  test/test_ik_solver.cpp
+)
+target_link_libraries(test_ik_solver robot_kinematics)
+
+# ===== 演示 =====
+add_executable(demo_grasp_tcp
+  demo/demo_grasp_tcp.cpp
+)
+target_link_libraries(demo_grasp_tcp robot_nodes)
 
 # ===== 安装 =====
 install(DIRECTORY include/
@@ -89,14 +109,19 @@ install(DIRECTORY include/
 )
 
 install(TARGETS robot_kinematics robot_motion robot_nodes
-  EXPORT robot_control_cpp_export
+  EXPORT robot_controller_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
+install(TARGETS test_trajectory_planner test_motion_controller test_ik_solver
+  demo_grasp_tcp
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # ===== 导出（供下游包 find_package 使用）=====
-ament_export_targets(robot_control_cpp_export HAS_LIBRARY_TARGET)
+ament_export_targets(robot_controller_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   sensor_msgs
@@ -104,9 +129,8 @@ ament_export_dependencies(
   tf2_ros
   tf2
   tf2_geometry_msgs
-  robot_control_msgs
+  robot_msgs
   rclcpp_action
-  arm_control_interfaces
   orocos_kdl
   urdfdom
   urdf

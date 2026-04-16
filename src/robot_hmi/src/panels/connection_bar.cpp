@@ -1,9 +1,9 @@
-#include "teaching_pendant/panels/connection_bar.hpp"
+#include "robot_hmi/panels/connection_bar.hpp"
 
 #include <QHBoxLayout>
 #include <QFrame>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 ConnectionBar::ConnectionBar(QWidget* parent) : QWidget(parent) {
   auto* bar = new QFrame(this);
@@ -52,4 +52,4 @@ void ConnectionBar::onCameraConnectionChanged(bool connected) {
                 : "color: red; font-weight: bold;");
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

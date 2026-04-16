@@ -25,12 +25,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
-#include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_vision_cpp/nodes/vision_processor_node.hpp"
-#include "robot_vision_cpp/vision/color_detector.hpp"
-#include "robot_control_cpp/profiles/panda_profile.hpp"
-#include "robot_control_cpp/motion/control_constants.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_vision/nodes/vision_processor_node.hpp"
+#include "robot_vision/vision/color_detector.hpp"
+#include "robot_controller/profiles/panda_profile.hpp"
+#include "robot_controller/motion/control_constants.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
 namespace {
 

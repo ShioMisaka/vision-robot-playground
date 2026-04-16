@@ -5,7 +5,7 @@
 #include <array>
 #include <string>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 class RobotStateBar : public QWidget {
   Q_OBJECT
@@ -23,4 +23,4 @@ private:
   QLabel* label_tcp_;
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

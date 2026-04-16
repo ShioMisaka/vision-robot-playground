@@ -7,7 +7,7 @@
 #include <atomic>
 #include <memory>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 class PendantNode;
 
@@ -39,4 +39,4 @@ private:
   std::atomic<bool> estop_active_{false};
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

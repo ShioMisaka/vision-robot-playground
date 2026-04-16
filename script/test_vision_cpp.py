@@ -15,7 +15,7 @@ Python 侧实现视觉伺服居中逻辑。
 import math
 import threading
 
-from robot_control_cpp_py import (
+from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
     RobotControllerNode,

@@ -26,8 +26,8 @@
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 
-#include "robot_control_cpp/motion/control_constants.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
+#include "robot_controller/motion/control_constants.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
 using namespace std::chrono_literals;
 

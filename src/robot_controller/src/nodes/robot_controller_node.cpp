@@ -1,23 +1,23 @@
-#include "robot_control_cpp/nodes/robot_controller_node.hpp"
-#include "robot_control_cpp/kinematics/ik_solver.hpp"
-#include "robot_control_cpp/nodes/topic_config.hpp"
-#include "robot_control_cpp/nodes/robot_state.hpp"
-#include "robot_control_cpp/nodes/trajectory_executor.hpp"
-#include "robot_control_cpp/motion/control_constants.hpp"
-#include "robot_control_cpp/motion/jog_controller.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_controller/kinematics/ik_solver.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/nodes/robot_state.hpp"
+#include "robot_controller/nodes/trajectory_executor.hpp"
+#include "robot_controller/motion/control_constants.hpp"
+#include "robot_controller/motion/jog_controller.hpp"
 
 #include <rclcpp_action/rclcpp_action.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include <arm_control_interfaces/action/move_j.hpp>
-#include <arm_control_interfaces/action/move_l.hpp>
-#include <arm_control_interfaces/srv/set_tcp.hpp>
-#include <arm_control_interfaces/srv/set_speed_ratio.hpp>
-#include <arm_control_interfaces/srv/robot_cmd.hpp>
-#include <arm_control_interfaces/msg/robot_status.hpp>
-#include <arm_control_interfaces/msg/jog_command.hpp>
+#include <robot_msgs/action/move_j.hpp>
+#include <robot_msgs/action/move_l.hpp>
+#include <robot_msgs/srv/set_tcp.hpp>
+#include <robot_msgs/srv/set_speed_ratio.hpp>
+#include <robot_msgs/srv/robot_cmd.hpp>
+#include <robot_msgs/msg/robot_status.hpp>
+#include <robot_msgs/msg/jog_command.hpp>
 
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
@@ -413,66 +413,66 @@ void RobotControllerNode::init() {
       sub_opts);
 
   // Service servers
-  srv_ik_ = create_service<robot_control_msgs::srv::SolveIK>(
+  srv_ik_ = create_service<robot_msgs::srv::SolveIK>(
       "~/solve_ik",
-      [this](const std::shared_ptr<robot_control_msgs::srv::SolveIK::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::SolveIK::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::SolveIK::Request> req,
+             std::shared_ptr<robot_msgs::srv::SolveIK::Response> res) {
         handle_solve_ik(req, res);
       });
 
-  srv_move_joint_ = create_service<robot_control_msgs::srv::MoveJoint>(
+  srv_move_joint_ = create_service<robot_msgs::srv::MoveJoint>(
       "~/move_joint",
-      [this](const std::shared_ptr<robot_control_msgs::srv::MoveJoint::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::MoveJoint::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::MoveJoint::Request> req,
+             std::shared_ptr<robot_msgs::srv::MoveJoint::Response> res) {
         handle_move_joint(req, res);
       });
 
-  srv_move_pose_ = create_service<robot_control_msgs::srv::MovePose>(
+  srv_move_pose_ = create_service<robot_msgs::srv::MovePose>(
       "~/move_pose",
-      [this](const std::shared_ptr<robot_control_msgs::srv::MovePose::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::MovePose::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::MovePose::Request> req,
+             std::shared_ptr<robot_msgs::srv::MovePose::Response> res) {
         handle_move_pose(req, res);
       });
 
-  srv_move_linear_ = create_service<robot_control_msgs::srv::MoveLinear>(
+  srv_move_linear_ = create_service<robot_msgs::srv::MoveLinear>(
       "~/move_linear",
-      [this](const std::shared_ptr<robot_control_msgs::srv::MoveLinear::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::MoveLinear::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::MoveLinear::Request> req,
+             std::shared_ptr<robot_msgs::srv::MoveLinear::Response> res) {
         handle_move_linear(req, res);
       });
 
-  srv_gripper_ = create_service<robot_control_msgs::srv::ControlGripper>(
+  srv_gripper_ = create_service<robot_msgs::srv::ControlGripper>(
       "~/control_gripper",
-      [this](const std::shared_ptr<robot_control_msgs::srv::ControlGripper::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::ControlGripper::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::ControlGripper::Request> req,
+             std::shared_ptr<robot_msgs::srv::ControlGripper::Response> res) {
         handle_control_gripper(req, res);
       });
 
-  srv_home_ = create_service<robot_control_msgs::srv::GoHome>(
+  srv_home_ = create_service<robot_msgs::srv::GoHome>(
       "~/go_home",
-      [this](const std::shared_ptr<robot_control_msgs::srv::GoHome::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::GoHome::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::GoHome::Request> req,
+             std::shared_ptr<robot_msgs::srv::GoHome::Response> res) {
         handle_go_home(req, res);
       });
 
-  srv_speed_ = create_service<robot_control_msgs::srv::SetSpeed>(
+  srv_speed_ = create_service<robot_msgs::srv::SetSpeed>(
       "~/set_speed",
-      [this](const std::shared_ptr<robot_control_msgs::srv::SetSpeed::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::SetSpeed::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::SetSpeed::Request> req,
+             std::shared_ptr<robot_msgs::srv::SetSpeed::Response> res) {
         handle_set_speed(req, res);
       });
 
-  srv_state_ = create_service<robot_control_msgs::srv::GetRobotState>(
+  srv_state_ = create_service<robot_msgs::srv::GetRobotState>(
       "~/get_state",
-      [this](const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> req,
-             std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::GetRobotState::Request> req,
+             std::shared_ptr<robot_msgs::srv::GetRobotState::Response> res) {
         handle_get_state(req, res);
       });
 
   RCLCPP_INFO(this->get_logger(), "RobotControllerNode started (with services)");
 
   // === Action servers ===
-  movej_action_ = rclcpp_action::create_server<arm_control_interfaces::action::MoveJ>(
+  movej_action_ = rclcpp_action::create_server<robot_msgs::action::MoveJ>(
       this, "~/movej",
       std::bind(&RobotControllerNode::handle_movej_goal, this,
                 std::placeholders::_1, std::placeholders::_2),
@@ -481,7 +481,7 @@ void RobotControllerNode::init() {
       std::bind(&RobotControllerNode::handle_movej_accepted, this,
                 std::placeholders::_1));
 
-  movel_action_ = rclcpp_action::create_server<arm_control_interfaces::action::MoveL>(
+  movel_action_ = rclcpp_action::create_server<robot_msgs::action::MoveL>(
       this, "~/movel",
       std::bind(&RobotControllerNode::handle_movel_goal, this,
                 std::placeholders::_1, std::placeholders::_2),
@@ -491,33 +491,33 @@ void RobotControllerNode::init() {
                 std::placeholders::_1));
 
   // === Pendant service servers ===
-  pendant_set_tcp_srv_ = create_service<arm_control_interfaces::srv::SetTCP>(
+  pendant_set_tcp_srv_ = create_service<robot_msgs::srv::SetTCP>(
       "~/set_tcp",
-      [this](const std::shared_ptr<arm_control_interfaces::srv::SetTCP::Request> req,
-             std::shared_ptr<arm_control_interfaces::srv::SetTCP::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::SetTCP::Request> req,
+             std::shared_ptr<robot_msgs::srv::SetTCP::Response> res) {
         handle_pendant_set_tcp(req, res);
       });
 
-  set_speed_ratio_srv_ = create_service<arm_control_interfaces::srv::SetSpeedRatio>(
+  set_speed_ratio_srv_ = create_service<robot_msgs::srv::SetSpeedRatio>(
       "~/set_speed_ratio",
-      [this](const std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Request> req,
-             std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::SetSpeedRatio::Request> req,
+             std::shared_ptr<robot_msgs::srv::SetSpeedRatio::Response> res) {
         handle_set_speed_ratio(req, res);
       });
 
-  robot_cmd_srv_ = create_service<arm_control_interfaces::srv::RobotCmd>(
+  robot_cmd_srv_ = create_service<robot_msgs::srv::RobotCmd>(
       "~/robot_cmd",
-      [this](const std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Request> req,
-             std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Response> res) {
+      [this](const std::shared_ptr<robot_msgs::srv::RobotCmd::Request> req,
+             std::shared_ptr<robot_msgs::srv::RobotCmd::Response> res) {
         handle_robot_cmd(req, res);
       });
 
   // === Jog subscription ===
   rclcpp::SubscriptionOptions jog_opts;
   jog_opts.callback_group = state_cbg_;
-  jog_sub_ = create_subscription<arm_control_interfaces::msg::JogCommand>(
+  jog_sub_ = create_subscription<robot_msgs::msg::JogCommand>(
       "~/jog_command", rclcpp::SensorDataQoS(),
-      [this](const arm_control_interfaces::msg::JogCommand::SharedPtr msg) {
+      [this](const robot_msgs::msg::JogCommand::SharedPtr msg) {
         handle_jog_command(msg);
       }, jog_opts);
 
@@ -537,7 +537,7 @@ void RobotControllerNode::init() {
       [this]() { jog_tick_callback(); }, pub_cbg_);
 
   // === Status publisher (10Hz) ===
-  status_pub_ = create_publisher<arm_control_interfaces::msg::RobotStatus>(
+  status_pub_ = create_publisher<robot_msgs::msg::RobotStatus>(
       "~/status", 10);
   status_timer_ = create_wall_timer(
       std::chrono::milliseconds(100),
@@ -557,8 +557,8 @@ bool RobotControllerNode::wait_for_ready(double timeout) {
 // ===== Service Callbacks =====
 
 void RobotControllerNode::handle_solve_ik(
-    const std::shared_ptr<robot_control_msgs::srv::SolveIK::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::SolveIK::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::SolveIK::Request> req,
+    std::shared_ptr<robot_msgs::srv::SolveIK::Response> res) {
   if (req->xyz.size() != 3) {
     res->success = false;
     res->message = "xyz must have exactly 3 elements";
@@ -584,8 +584,8 @@ void RobotControllerNode::handle_solve_ik(
 }
 
 void RobotControllerNode::handle_move_joint(
-    const std::shared_ptr<robot_control_msgs::srv::MoveJoint::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::MoveJoint::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::MoveJoint::Request> req,
+    std::shared_ptr<robot_msgs::srv::MoveJoint::Response> res) {
   try {
     controller_->moveJ(req->joint_angles, req->block);
     res->success = true;
@@ -597,8 +597,8 @@ void RobotControllerNode::handle_move_joint(
 }
 
 void RobotControllerNode::handle_move_pose(
-    const std::shared_ptr<robot_control_msgs::srv::MovePose::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::MovePose::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::MovePose::Request> req,
+    std::shared_ptr<robot_msgs::srv::MovePose::Response> res) {
   if (req->xyz.size() != 3) {
     res->success = false;
     res->message = "xyz must have exactly 3 elements";
@@ -627,8 +627,8 @@ void RobotControllerNode::handle_move_pose(
 }
 
 void RobotControllerNode::handle_move_linear(
-    const std::shared_ptr<robot_control_msgs::srv::MoveLinear::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::MoveLinear::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::MoveLinear::Request> req,
+    std::shared_ptr<robot_msgs::srv::MoveLinear::Response> res) {
   if (req->delta.size() != 3) {
     res->success = false;
     res->message = "delta must have exactly 3 elements";
@@ -648,8 +648,8 @@ void RobotControllerNode::handle_move_linear(
 }
 
 void RobotControllerNode::handle_control_gripper(
-    const std::shared_ptr<robot_control_msgs::srv::ControlGripper::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::ControlGripper::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::ControlGripper::Request> req,
+    std::shared_ptr<robot_msgs::srv::ControlGripper::Response> res) {
   try {
     switch (req->command) {
       case 0:
@@ -677,8 +677,8 @@ void RobotControllerNode::handle_control_gripper(
 }
 
 void RobotControllerNode::handle_go_home(
-    const std::shared_ptr<robot_control_msgs::srv::GoHome::Request> /*req*/,
-    std::shared_ptr<robot_control_msgs::srv::GoHome::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::GoHome::Request> /*req*/,
+    std::shared_ptr<robot_msgs::srv::GoHome::Response> res) {
   try {
     controller_->go_home();
     res->success = true;
@@ -690,8 +690,8 @@ void RobotControllerNode::handle_go_home(
 }
 
 void RobotControllerNode::handle_set_speed(
-    const std::shared_ptr<robot_control_msgs::srv::SetSpeed::Request> req,
-    std::shared_ptr<robot_control_msgs::srv::SetSpeed::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::SetSpeed::Request> req,
+    std::shared_ptr<robot_msgs::srv::SetSpeed::Response> res) {
   auto mode = (req->mode == 1) ? MotionMode::kMoveL : MotionMode::kMoveJ;
   controller_->set_speed(mode, req->percent);
   res->success = true;
@@ -699,8 +699,8 @@ void RobotControllerNode::handle_set_speed(
 }
 
 void RobotControllerNode::handle_get_state(
-    const std::shared_ptr<robot_control_msgs::srv::GetRobotState::Request> /*req*/,
-    std::shared_ptr<robot_control_msgs::srv::GetRobotState::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::GetRobotState::Request> /*req*/,
+    std::shared_ptr<robot_msgs::srv::GetRobotState::Response> res) {
   try {
     res->joint_angles = controller_->get_joint_angles();
     auto pose = controller_->get_end_effector_pose();
@@ -719,7 +719,7 @@ void RobotControllerNode::handle_get_state(
 
 rclcpp_action::GoalResponse RobotControllerNode::handle_movej_goal(
     const rclcpp_action::GoalUUID&,
-    std::shared_ptr<const arm_control_interfaces::action::MoveJ::Goal> goal) {
+    std::shared_ptr<const robot_msgs::action::MoveJ::Goal> goal) {
   if (state_machine_.state() != RobotState::kIdle) {
     RCLCPP_WARN(this->get_logger(), "MoveJ rejected: robot not IDLE (state=%s)",
                 RobotStateMachine::state_name(state_machine_.state()));
@@ -733,7 +733,7 @@ rclcpp_action::GoalResponse RobotControllerNode::handle_movej_goal(
 }
 
 rclcpp_action::CancelResponse RobotControllerNode::handle_movej_cancel(
-    const std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>>) {
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>>) {
   if (state_machine_.state() == RobotState::kMoving) {
     state_machine_.transition_to(RobotState::kStopping);
     trajectory_executor_->cancel();
@@ -743,9 +743,9 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movej_cancel(
 }
 
 void RobotControllerNode::handle_movej_accepted(
-    std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveJ>> goal_handle) {
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> goal_handle) {
   if (!state_machine_.transition_to(RobotState::kMoving)) {
-    auto result = std::make_shared<arm_control_interfaces::action::MoveJ::Result>();
+    auto result = std::make_shared<robot_msgs::action::MoveJ::Result>();
     result->success = false;
     result->message = "MoveJ rejected: cannot transition to MOVING state";
     goal_handle->abort(result);
@@ -753,8 +753,8 @@ void RobotControllerNode::handle_movej_accepted(
   }
 
   movej_thread_ = std::thread([this, goal_handle]() {
-    auto result = std::make_shared<arm_control_interfaces::action::MoveJ::Result>();
-    auto feedback = std::make_shared<arm_control_interfaces::action::MoveJ::Feedback>();
+    auto result = std::make_shared<robot_msgs::action::MoveJ::Result>();
+    auto feedback = std::make_shared<robot_msgs::action::MoveJ::Feedback>();
 
     try {
       auto goal = goal_handle->get_goal();
@@ -763,7 +763,7 @@ void RobotControllerNode::handle_movej_accepted(
       std::vector<TrajectoryStep> steps;
       std::vector<double> target_angles;
 
-      if (goal->mode == arm_control_interfaces::action::MoveJ::Goal::CARTESIAN) {
+      if (goal->mode == robot_msgs::action::MoveJ::Goal::CARTESIAN) {
         std::array<double, 3> xyz = {goal->position.x, goal->position.y, goal->position.z};
         std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
 
@@ -891,7 +891,7 @@ void RobotControllerNode::handle_movej_accepted(
 
 rclcpp_action::GoalResponse RobotControllerNode::handle_movel_goal(
     const rclcpp_action::GoalUUID&,
-    std::shared_ptr<const arm_control_interfaces::action::MoveL::Goal> goal) {
+    std::shared_ptr<const robot_msgs::action::MoveL::Goal> goal) {
   if (state_machine_.state() != RobotState::kIdle) {
     RCLCPP_WARN(this->get_logger(), "MoveL rejected: robot not IDLE (state=%s)",
                 RobotStateMachine::state_name(state_machine_.state()));
@@ -905,7 +905,7 @@ rclcpp_action::GoalResponse RobotControllerNode::handle_movel_goal(
 }
 
 rclcpp_action::CancelResponse RobotControllerNode::handle_movel_cancel(
-    const std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>>) {
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>>) {
   if (state_machine_.state() == RobotState::kMoving) {
     state_machine_.transition_to(RobotState::kStopping);
     trajectory_executor_->cancel();
@@ -915,9 +915,9 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movel_cancel(
 }
 
 void RobotControllerNode::handle_movel_accepted(
-    std::shared_ptr<rclcpp_action::ServerGoalHandle<arm_control_interfaces::action::MoveL>> goal_handle) {
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> goal_handle) {
   if (!state_machine_.transition_to(RobotState::kMoving)) {
-    auto result = std::make_shared<arm_control_interfaces::action::MoveL::Result>();
+    auto result = std::make_shared<robot_msgs::action::MoveL::Result>();
     result->success = false;
     result->message = "MoveL rejected: cannot transition to MOVING state";
     goal_handle->abort(result);
@@ -925,8 +925,8 @@ void RobotControllerNode::handle_movel_accepted(
   }
 
   movel_thread_ = std::thread([this, goal_handle]() {
-    auto result = std::make_shared<arm_control_interfaces::action::MoveL::Result>();
-    auto feedback = std::make_shared<arm_control_interfaces::action::MoveL::Feedback>();
+    auto result = std::make_shared<robot_msgs::action::MoveL::Result>();
+    auto feedback = std::make_shared<robot_msgs::action::MoveL::Feedback>();
 
     try {
       auto goal = goal_handle->get_goal();
@@ -1074,8 +1074,8 @@ void RobotControllerNode::handle_movel_accepted(
 // ===== Pendant Service Callbacks =====
 
 void RobotControllerNode::handle_pendant_set_tcp(
-    const std::shared_ptr<arm_control_interfaces::srv::SetTCP::Request> req,
-    std::shared_ptr<arm_control_interfaces::srv::SetTCP::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::SetTCP::Request> req,
+    std::shared_ptr<robot_msgs::srv::SetTCP::Response> res) {
   try {
     controller_->set_tcp(req->name);
     res->success = true;
@@ -1087,8 +1087,8 @@ void RobotControllerNode::handle_pendant_set_tcp(
 }
 
 void RobotControllerNode::handle_set_speed_ratio(
-    const std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Request> req,
-    std::shared_ptr<arm_control_interfaces::srv::SetSpeedRatio::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::SetSpeedRatio::Request> req,
+    std::shared_ptr<robot_msgs::srv::SetSpeedRatio::Response> res) {
   if (req->ratio < 0.0 || req->ratio > 1.0) {
     res->success = false;
     res->message = "ratio must be in [0.0, 1.0]";
@@ -1100,10 +1100,10 @@ void RobotControllerNode::handle_set_speed_ratio(
 }
 
 void RobotControllerNode::handle_robot_cmd(
-    const std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Request> req,
-    std::shared_ptr<arm_control_interfaces::srv::RobotCmd::Response> res) {
+    const std::shared_ptr<robot_msgs::srv::RobotCmd::Request> req,
+    std::shared_ptr<robot_msgs::srv::RobotCmd::Response> res) {
   switch (req->command) {
-    case arm_control_interfaces::srv::RobotCmd::Request::STOP:
+    case robot_msgs::srv::RobotCmd::Request::STOP:
       if (state_machine_.state() == RobotState::kMoving ||
           state_machine_.state() == RobotState::kTeaching) {
         trajectory_executor_->cancel();
@@ -1127,13 +1127,13 @@ void RobotControllerNode::handle_robot_cmd(
       }
       break;
 
-    case arm_control_interfaces::srv::RobotCmd::Request::EMERGENCY_STOP:
+    case robot_msgs::srv::RobotCmd::Request::EMERGENCY_STOP:
       emergency_stop();
       res->success = true;
       res->message = "EMERGENCY_STOP executed";
       break;
 
-    case arm_control_interfaces::srv::RobotCmd::Request::CLEAR_FAULT:
+    case robot_msgs::srv::RobotCmd::Request::CLEAR_FAULT:
       if (state_machine_.state() == RobotState::kFault) {
         state_machine_.clear_error();
         state_machine_.transition_to(RobotState::kIdle);
@@ -1155,7 +1155,7 @@ void RobotControllerNode::handle_robot_cmd(
 // ===== Jog + Watchdog =====
 
 void RobotControllerNode::handle_jog_command(
-    const arm_control_interfaces::msg::JogCommand::SharedPtr msg) {
+    const robot_msgs::msg::JogCommand::SharedPtr msg) {
   auto state = state_machine_.state();
   if (state != RobotState::kIdle && state != RobotState::kTeaching) {
     return;
@@ -1262,7 +1262,7 @@ void RobotControllerNode::emergency_stop() {
 // ===== Status Publisher =====
 
 void RobotControllerNode::publish_status() {
-  auto msg = std::make_unique<arm_control_interfaces::msg::RobotStatus>();
+  auto msg = std::make_unique<robot_msgs::msg::RobotStatus>();
   msg->state = static_cast<uint8_t>(state_machine_.state());
   msg->speed_ratio = global_speed_ratio_;
   msg->error_code = state_machine_.error_code();

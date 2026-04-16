@@ -16,22 +16,22 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
-#include <robot_control_msgs/srv/move_joint.hpp>
-#include <robot_control_msgs/srv/move_pose.hpp>
-#include <robot_control_msgs/srv/move_linear.hpp>
-#include <robot_control_msgs/srv/control_gripper.hpp>
-#include <robot_control_msgs/srv/go_home.hpp>
-#include <robot_control_msgs/srv/set_speed.hpp>
-#include <robot_control_msgs/srv/get_robot_state.hpp>
+#include <robot_msgs/srv/move_joint.hpp>
+#include <robot_msgs/srv/move_pose.hpp>
+#include <robot_msgs/srv/move_linear.hpp>
+#include <robot_msgs/srv/control_gripper.hpp>
+#include <robot_msgs/srv/go_home.hpp>
+#include <robot_msgs/srv/set_speed.hpp>
+#include <robot_msgs/srv/get_robot_state.hpp>
 
-#include <arm_control_interfaces/msg/jog_command.hpp>
-#include <arm_control_interfaces/msg/robot_status.hpp>
-#include <arm_control_interfaces/srv/robot_cmd.hpp>
+#include <robot_msgs/msg/jog_command.hpp>
+#include <robot_msgs/msg/robot_status.hpp>
+#include <robot_msgs/srv/robot_cmd.hpp>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 /// ROS2 节点：示教器后端，管理所有 ROS2 通信
 class PendantNode : public rclcpp::Node {
@@ -124,10 +124,10 @@ private:
       const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
   /// RobotStatus 订阅回调：检测 Jog 完成（kTeaching→kIdle）
-  void on_robot_status(const arm_control_interfaces::msg::RobotStatus::SharedPtr msg);
+  void on_robot_status(const robot_msgs::msg::RobotStatus::SharedPtr msg);
 
   /// 构建 JogCommand 速度消息
-  arm_control_interfaces::msg::JogCommand build_jog_command(
+  robot_msgs::msg::JogCommand build_jog_command(
       int axis, uint8_t frame) const;
 
   /// 将任务提交到后台线程池执行
@@ -136,22 +136,22 @@ private:
   std::string service_prefix_;
 
   // Service clients
-  rclcpp::Client<robot_control_msgs::srv::MoveJoint>::SharedPtr cli_move_joint_;
-  rclcpp::Client<robot_control_msgs::srv::MovePose>::SharedPtr cli_move_pose_;
-  rclcpp::Client<robot_control_msgs::srv::MoveLinear>::SharedPtr cli_move_linear_;
-  rclcpp::Client<robot_control_msgs::srv::ControlGripper>::SharedPtr cli_gripper_;
-  rclcpp::Client<robot_control_msgs::srv::GoHome>::SharedPtr cli_home_;
-  rclcpp::Client<robot_control_msgs::srv::SetSpeed>::SharedPtr cli_speed_;
-  rclcpp::Client<robot_control_msgs::srv::GetRobotState>::SharedPtr cli_state_;
+  rclcpp::Client<robot_msgs::srv::MoveJoint>::SharedPtr cli_move_joint_;
+  rclcpp::Client<robot_msgs::srv::MovePose>::SharedPtr cli_move_pose_;
+  rclcpp::Client<robot_msgs::srv::MoveLinear>::SharedPtr cli_move_linear_;
+  rclcpp::Client<robot_msgs::srv::ControlGripper>::SharedPtr cli_gripper_;
+  rclcpp::Client<robot_msgs::srv::GoHome>::SharedPtr cli_home_;
+  rclcpp::Client<robot_msgs::srv::SetSpeed>::SharedPtr cli_speed_;
+  rclcpp::Client<robot_msgs::srv::GetRobotState>::SharedPtr cli_state_;
 
   // E-STOP service client (forwards to RobotControllerNode)
-  rclcpp::Client<arm_control_interfaces::srv::RobotCmd>::SharedPtr cli_robot_cmd_;
+  rclcpp::Client<robot_msgs::srv::RobotCmd>::SharedPtr cli_robot_cmd_;
 
   // Subscribers
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
 
   // RobotStatus subscription
-  rclcpp::Subscription<arm_control_interfaces::msg::RobotStatus>::SharedPtr status_sub_;
+  rclcpp::Subscription<robot_msgs::msg::RobotStatus>::SharedPtr status_sub_;
 
   // Image sync
   std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> rgb_sub_;
@@ -175,7 +175,7 @@ private:
   rclcpp::TimerBase::SharedPtr discovery_timer_;
 
   // === Jog publisher (sends JogCommand to RobotControllerNode) ===
-  rclcpp::Publisher<arm_control_interfaces::msg::JogCommand>::SharedPtr jog_pub_;
+  rclcpp::Publisher<robot_msgs::msg::JogCommand>::SharedPtr jog_pub_;
   std::atomic<bool> jog_active_{false};
   uint8_t last_jog_frame_ = 1;  // BASE_FRAME
 
@@ -203,4 +203,4 @@ private:
   std::atomic<bool> task_running_{true};
 };
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

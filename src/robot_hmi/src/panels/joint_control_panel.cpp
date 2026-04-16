@@ -1,5 +1,5 @@
-#include "teaching_pendant/panels/joint_control_panel.hpp"
-#include "teaching_pendant/pendant_node.hpp"
+#include "robot_hmi/panels/joint_control_panel.hpp"
+#include "robot_hmi/pendant_node.hpp"
 
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -16,7 +16,7 @@ constexpr double kJointUpperDeg[7] = {
 
 }  // namespace
 
-namespace teaching_pendant {
+namespace robot_hmi {
 
 JointControlPanel::JointControlPanel(std::shared_ptr<PendantNode> node,
                                      QWidget* parent)
@@ -188,4 +188,4 @@ double JointControlPanel::sliderToDeg(int val) {
   return val / 100.0;
 }
 
-}  // namespace teaching_pendant
+}  // namespace robot_hmi

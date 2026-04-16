@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(robot_vision_cpp)
+project(robot_vision)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -16,11 +16,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(image_transport REQUIRED)
-find_package(robot_control_msgs REQUIRED)
-find_package(arm_control_interfaces REQUIRED)
+find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(robot_control_cpp REQUIRED)
+find_package(robot_controller REQUIRED)
 
 # ===== robot_vision_core: 视觉处理（零 ROS 依赖）=====
 add_library(robot_vision_core SHARED
@@ -48,7 +47,7 @@ target_include_directories(robot_vision_nodes PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_vision_nodes robot_vision_core robot_control_cpp::robot_motion)
+target_link_libraries(robot_vision_nodes robot_vision_core robot_controller::robot_motion)
 
 ament_target_dependencies(robot_vision_nodes
   rclcpp
@@ -57,8 +56,7 @@ ament_target_dependencies(robot_vision_nodes
   cv_bridge
   message_filters
   image_transport
-  robot_control_msgs
-  arm_control_interfaces
+  robot_msgs
 )
 
 # ===== 安装 =====
@@ -67,14 +65,38 @@ install(DIRECTORY include/
 )
 
 install(TARGETS robot_vision_core robot_vision_nodes
-  EXPORT robot_vision_cpp_export
+  EXPORT robot_vision_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
+# ===== 集成测试（需要 Isaac Sim 运行中）=====
+add_executable(test_robot_node
+  test/test_robot_node.cpp
+)
+target_link_libraries(test_robot_node robot_controller::robot_nodes)
+target_link_libraries(test_robot_node robot_vision_nodes)
+
+add_executable(test_camera_tf
+  test/test_camera_tf.cpp
+)
+target_link_libraries(test_camera_tf robot_controller::robot_nodes)
+target_link_libraries(test_camera_tf robot_vision_nodes)
+
+# ===== 演示 =====
+add_executable(demo_camera
+  demo/demo_camera.cpp
+)
+target_link_libraries(demo_camera robot_controller::robot_nodes)
+target_link_libraries(demo_camera robot_vision_nodes)
+
+install(TARGETS test_robot_node test_camera_tf demo_camera
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # ===== 导出（供下游包 find_package 使用）=====
-ament_export_targets(robot_vision_cpp_export HAS_LIBRARY_TARGET)
+ament_export_targets(robot_vision_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   sensor_msgs
@@ -82,11 +104,10 @@ ament_export_dependencies(
   cv_bridge
   message_filters
   image_transport
-  robot_control_msgs
-  arm_control_interfaces
+  robot_msgs
   Eigen3
   OpenCV
-  robot_control_cpp
+  robot_controller
 )
 
 ament_package()

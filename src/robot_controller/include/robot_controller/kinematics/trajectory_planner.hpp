@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "robot_control_cpp/kinematics/robot_profile.hpp"
+#include "robot_controller/kinematics/robot_profile.hpp"
 
 namespace robot_control {
 

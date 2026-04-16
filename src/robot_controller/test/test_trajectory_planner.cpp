@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "robot_control_cpp/kinematics/trajectory_planner.hpp"
+#include "robot_controller/kinematics/trajectory_planner.hpp"
 
 namespace {
 
