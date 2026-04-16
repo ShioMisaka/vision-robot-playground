@@ -46,6 +46,10 @@ ros2 run robot_hmi robot_hmi
 ros2 topic echo /robot_controller_node/status
 ```
 
+## 文档体系
+采用「根目录轻量 + 包级详细」两层结构。根目录只保留全局信息（技术栈、依赖关系、约定），
+每个包的 CLAUDE.md 包含接口定义、核心类、修改入口和注意事项。不要将包级详情合并回根目录。
+
 ## 包间依赖关系
 ```
 robot_msgs ─────────────────────────────┬──────────────┬───────────────┐
@@ -107,6 +111,7 @@ Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_mot
 1. 确认涉及哪个/哪些包
 2. 读取对应包的 CLAUDE.md
 3. 再开始分析或修改代码
+4. 大规模任务（如批量生成/修改多个文件）先列出计划，等用户确认后再执行
 
 ### 各包详细文档
 - [robot_msgs](src/robot_msgs/CLAUDE.md)
