@@ -1405,11 +1405,15 @@ void RobotControllerNode::control_loop_tick() {
 
   // === 3. MONITOR ===
   double error = state_model_.max_following_error();
+  double error_limit = (state == RobotState::kTeaching)
+                           ? ControlConstants::kTeachingFollowErrorLimit
+                           : ControlConstants::kFollowingErrorLimit;
   if ((state == RobotState::kMoving || state == RobotState::kTeaching) &&
-      error > ControlConstants::kFollowingErrorLimit) {
+      error > error_limit) {
     RCLCPP_ERROR(this->get_logger(),
-                 "Following error %.4f rad exceeds limit %.4f rad -- EMERGENCY STOP",
-                 error, ControlConstants::kFollowingErrorLimit);
+                 "Following error %.4f rad exceeds limit %.4f rad (state=%s) -- EMERGENCY STOP",
+                 error, error_limit,
+                 RobotStateMachine::state_name(state));
     emergency_stop();
     return;
   }

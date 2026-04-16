@@ -448,6 +448,15 @@ void PendantNode::on_robot_status(
       msg->state == robot_msgs::msg::RobotStatus::IDLE) {
     // 控制器从 kTeaching 转为 kIdle → Jog 减速完成
     jog_active_ = false;
+
+    // 同步关节流目标到当前实际位置，避免恢复时机器人跳回旧位置
+    {
+      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+      joint_stream_target_ = latest_joints_;
+      joint_stream_dirty_ = true;
+    }
+
     resume_joint_stream();
 
     {

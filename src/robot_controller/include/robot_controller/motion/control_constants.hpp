@@ -16,7 +16,8 @@ struct ControlConstants {
   static constexpr double kFingerStableTol = 0.001;
   static constexpr double kReadyTimeout = 5.0;
   static constexpr double kTrajectoryDt = 0.02;
-  static constexpr double kFollowingErrorLimit = 0.1;   ///< 跟踪误差阈值（rad），超过触发急停
+  static constexpr double kFollowingErrorLimit = 0.1;   ///< 轨迹执行跟踪误差阈值（rad）
+  static constexpr double kTeachingFollowErrorLimit = 0.3;  ///< Jog 模式跟踪误差阈值（rad），比轨迹宽松
   static constexpr double kArrivalTolerance = 0.01;      ///< 到位判定阈值（rad）
   static constexpr double kArrivalSettleTime = 0.2;      ///< 到位稳定等待时间（秒）
   static constexpr double kTrajectoryTimeout = 15.0;     ///< 轨迹执行超时（秒）
