@@ -62,6 +62,7 @@ target_link_libraries(robot_motion robot_kinematics)
 add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
   src/nodes/robot_state.cpp
+  src/nodes/setpoint_generator.cpp
   src/nodes/trajectory_executor.cpp
 )
 

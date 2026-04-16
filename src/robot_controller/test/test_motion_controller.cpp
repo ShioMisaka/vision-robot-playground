@@ -100,6 +100,21 @@ public:
 
   void set_tcp_name(const std::string& /*name*/) override {}
 
+  void submit_trajectory(
+      const std::vector<robot_control::TrajectoryStep>& steps,
+      double finger) override {
+    // Mock: 直接执行所有步骤（同原 moveJ_internal 行为）
+    for (const auto& step : steps) {
+      publish_command(step.joint_positions, finger);
+    }
+  }
+
+  bool wait_trajectory_completion(double /*timeout*/) override {
+    return true;
+  }
+
+  void cancel_trajectory() override {}
+
   // 测试辅助方法
   const std::vector<Command>& commands() const {
     std::lock_guard<std::mutex> lock(mutex_);

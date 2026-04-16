@@ -24,7 +24,7 @@ bool RobotStateMachine::is_valid_transition(RobotState from, RobotState to) {
     case RobotState::kTeaching:
       return to == RobotState::kIdle || to == RobotState::kStopping;
     case RobotState::kStopping:
-      return to == RobotState::kIdle;
+      return to == RobotState::kIdle || to == RobotState::kFault;
     case RobotState::kFault:
       return to == RobotState::kIdle;
     default:

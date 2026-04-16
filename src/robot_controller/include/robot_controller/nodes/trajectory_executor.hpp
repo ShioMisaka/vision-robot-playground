@@ -1,5 +1,7 @@
 #pragma once
 
+#include "robot_controller/motion/motion_io_bridge.hpp"  // TrajectoryStep
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -9,12 +11,6 @@
 #include <vector>
 
 namespace robot_control {
-
-/// @brief 轨迹执行步骤
-struct TrajectoryStep {
-  std::vector<double> joint_positions;
-  double time_from_start;  // seconds
-};
 
 /// @brief 非阻塞轨迹执行器（零 ROS 依赖）
 /// 在独立线程中执行预计算的轨迹点序列，支持进度查询和取消。

@@ -363,17 +363,20 @@ void RobotMotionController::moveJ_internal(
       current, target_angles, configs,
       ControlConstants::kTrajectoryDt);
 
-  // 基于绝对时间调度发送轨迹点，避免 sleep_for 累积误差
+  // 构造 TrajectoryStep 序列并提交给指令发生器
   double dt = ControlConstants::kTrajectoryDt;
-  auto start = std::chrono::steady_clock::now();
-  for (size_t i = 1; i < trajectory.size(); ++i) {
-    double t = static_cast<double>(i) * dt;
-    auto target_time = start + std::chrono::duration<double>(t);
-    std::this_thread::sleep_until(target_time);
-    bridge_->publish_command(trajectory[i], finger);
+  std::vector<TrajectoryStep> steps;
+  steps.reserve(trajectory.size());
+  for (size_t i = 0; i < trajectory.size(); ++i) {
+    steps.push_back({trajectory[i], static_cast<double>(i) * dt});
   }
 
+  bridge_->submit_trajectory(steps, finger);
+
   if (block) {
+    double timeout = steps.back().time_from_start +
+                     ControlConstants::kTrajectoryTimeout;
+    bridge_->wait_trajectory_completion(timeout);
     bridge_->wait_for_motion(
         target_angles, finger,
         ControlConstants::kJointTolerance,
@@ -538,19 +541,21 @@ void RobotMotionController::moveL(
     joint_traj.push_back(*ik_result);
   }
 
-  // 基于绝对时间调度发送轨迹点
-  double dt = ControlConstants::kTrajectoryDt;
-  auto start = std::chrono::steady_clock::now();
-  for (size_t i = 1; i < joint_traj.size(); ++i) {
-    double t = static_cast<double>(i) * dt;
-    auto target_time = start + std::chrono::duration<double>(t);
-    std::this_thread::sleep_until(target_time);
-    bridge_->publish_command(joint_traj[i], actual_finger);
+  // 构造 TrajectoryStep 序列并提交给指令发生器
+  std::vector<TrajectoryStep> steps;
+  steps.reserve(joint_traj.size());
+  for (size_t i = 0; i < joint_traj.size(); ++i) {
+    double t = (i < cart_traj.size()) ? cart_traj[i].t : 0.0;
+    steps.push_back({joint_traj[i], t});
   }
 
-  if (block && !joint_traj.empty()) {
-    const auto& final_angles = joint_traj.back();
-    bridge_->publish_command(final_angles, actual_finger);
+  bridge_->submit_trajectory(steps, actual_finger);
+
+  if (block && !steps.empty()) {
+    double timeout = steps.back().time_from_start +
+                     ControlConstants::kTrajectoryTimeout;
+    bridge_->wait_trajectory_completion(timeout);
+    const auto& final_angles = steps.back().joint_positions;
     bridge_->wait_for_motion(
         final_angles, actual_finger,
         ControlConstants::kJointTolerance,

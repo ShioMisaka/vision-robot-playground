@@ -2,9 +2,10 @@
 #include "robot_controller/kinematics/ik_solver.hpp"
 #include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
-#include "robot_controller/nodes/trajectory_executor.hpp"
+#include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
+#include "robot_controller/nodes/setpoint_generator.hpp"
 
 #include <rclcpp_action/rclcpp_action.hpp>
 
@@ -234,6 +235,29 @@ void RosMotionBridge::set_tcp_name(const std::string& name) {
   }
 }
 
+void RosMotionBridge::submit_trajectory(
+    const std::vector<TrajectoryStep>& steps, double finger) {
+  setpoint_gen_.start(steps, finger);
+}
+
+bool RosMotionBridge::wait_trajectory_completion(double timeout) {
+  auto deadline = std::chrono::steady_clock::now() +
+                  std::chrono::duration<double>(timeout);
+  std::unique_lock<std::mutex> lock(trajectory_mutex_);
+  return trajectory_cv_.wait_until(lock, deadline, [this] {
+    return !setpoint_gen_.is_active();
+  });
+}
+
+void RosMotionBridge::cancel_trajectory() {
+  setpoint_gen_.cancel();
+  trajectory_cv_.notify_all();
+}
+
+void RosMotionBridge::notify_trajectory_complete() {
+  trajectory_cv_.notify_all();
+}
+
 void RosMotionBridge::update_joint_state(
     const sensor_msgs::msg::JointState::SharedPtr msg) {
   {
@@ -356,6 +380,52 @@ void RosMotionBridge::publish_camera_tf() {
   static_tf_broadcaster_->sendTransform(t_opt);
 }
 
+// ===== Template helpers (action feedback/result) =====
+
+// Template helper: publish action feedback
+template<typename ActionT>
+void publish_action_feedback(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>>& gh,
+    const SetpointResult& sp) {
+  auto fb = std::make_shared<typename ActionT::Feedback>();
+  fb->progress = sp.progress;
+  const auto& angles = sp.joint_positions;
+  std::copy_n(angles.begin(),
+              std::min(angles.size(), size_t(7)),
+              fb->current_joint_angles.begin());
+  fb->estimated_time_remaining = sp.time_remaining;
+  gh->publish_feedback(fb);
+}
+
+// Template helper: succeed action
+template<typename ActionT>
+void succeed_action(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>>& gh,
+    const std::vector<double>& angles,
+    const std::array<double, 6>& pose,
+    const std::string& msg = "completed") {
+  auto result = std::make_shared<typename ActionT::Result>();
+  result->success = true;
+  result->message = msg;
+  std::copy_n(angles.begin(),
+              std::min(angles.size(), size_t(7)),
+              result->final_joint_angles.begin());
+  result->final_tcp_pose = {pose[0], pose[1], pose[2],
+                            pose[3], pose[4], pose[5]};
+  gh->succeed(result);
+}
+
+// Template helper: abort action
+template<typename ActionT>
+void abort_action(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>>& gh,
+    const std::string& msg) {
+  auto result = std::make_shared<typename ActionT::Result>();
+  result->success = false;
+  result->message = msg;
+  gh->abort(result);
+}
+
 // ===== RobotControllerNode =====
 
 std::shared_ptr<RobotControllerNode> RobotControllerNode::create(
@@ -372,6 +442,7 @@ RobotControllerNode::RobotControllerNode(const RobotProfile& profile,
                                          const GripperProfile& gripper,
                                          const TopicConfig& topics)
     : Node("robot_controller_node"),
+      state_model_(profile.dof),
       profile_(profile),
       gripper_(gripper),
       topics_(topics) {
@@ -390,11 +461,11 @@ void RobotControllerNode::init() {
   controller_ = std::make_shared<RobotMotionController>(
       ik_, profile_, gripper_, bridge_);
 
-  // Trajectory executor: wraps bridge_->publish_command for non-blocking execution
-  trajectory_executor_ = std::make_unique<TrajectoryExecutor>(
-      [this](const std::vector<double>& arm, double finger) {
-        bridge_->publish_command(arm, finger);
-      });
+  // === 100Hz 控制循环 ===
+  control_loop_timer_ = create_wall_timer(
+      std::chrono::microseconds(
+          static_cast<int64_t>(1e6 / ControlConstants::kControlLoopHz)),
+      [this]() { control_loop_tick(); }, pub_cbg_);
 
   rclcpp::SubscriptionOptions sub_opts;
   sub_opts.callback_group = state_cbg_;
@@ -529,12 +600,8 @@ void RobotControllerNode::init() {
   // === Jog controller (pure C++ math) ===
   JogConfig jog_cfg;
   jog_cfg.dof = profile_.dof;
+  jog_cfg.dt = ControlConstants::kControlLoopDt;
   jog_controller_ = std::make_unique<JogController>(ik_, jog_cfg);
-
-  // === Jog tick timer (50Hz) ===
-  jog_tick_timer_ = create_wall_timer(
-      std::chrono::milliseconds(20),
-      [this]() { jog_tick_callback(); }, pub_cbg_);
 
   // === Status publisher (10Hz) ===
   status_pub_ = create_publisher<robot_msgs::msg::RobotStatus>(
@@ -735,8 +802,8 @@ rclcpp_action::GoalResponse RobotControllerNode::handle_movej_goal(
 rclcpp_action::CancelResponse RobotControllerNode::handle_movej_cancel(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>>) {
   if (state_machine_.state() == RobotState::kMoving) {
+    bridge_->setpoint_generator().cancel();
     state_machine_.transition_to(RobotState::kStopping);
-    trajectory_executor_->cancel();
     return rclcpp_action::CancelResponse::ACCEPT;
   }
   return rclcpp_action::CancelResponse::REJECT;
@@ -752,139 +819,91 @@ void RobotControllerNode::handle_movej_accepted(
     return;
   }
 
-  movej_thread_ = std::thread([this, goal_handle]() {
-    auto result = std::make_shared<robot_msgs::action::MoveJ::Result>();
-    auto feedback = std::make_shared<robot_msgs::action::MoveJ::Feedback>();
+  try {
+    auto goal = goal_handle->get_goal();
+    double effective_speed = goal->speed_ratio * global_speed_ratio_.load();
 
-    try {
-      auto goal = goal_handle->get_goal();
-      double effective_speed = goal->speed_ratio * global_speed_ratio_.load();
+    std::vector<TrajectoryStep> steps;
+    std::vector<double> target_angles;
 
-      std::vector<TrajectoryStep> steps;
-      std::vector<double> target_angles;
+    if (goal->mode == robot_msgs::action::MoveJ::Goal::CARTESIAN) {
+      std::array<double, 3> xyz = {goal->position.x, goal->position.y, goal->position.z};
+      std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
 
-      if (goal->mode == robot_msgs::action::MoveJ::Goal::CARTESIAN) {
-        std::array<double, 3> xyz = {goal->position.x, goal->position.y, goal->position.z};
-        std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
+      auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
+      Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
+      Eigen::AngleAxisd roll_a(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
+      Eigen::AngleAxisd pitch_a(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
+      Eigen::AngleAxisd yaw_a(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
+      T_tcp.block<3,3>(0,0) = (yaw_a * pitch_a * roll_a).toRotationMatrix();
+      T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
 
-        auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
-        Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
-        Eigen::AngleAxisd roll_a(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
-        Eigen::AngleAxisd pitch_a(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
-        Eigen::AngleAxisd yaw_a(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
-        T_tcp.block<3,3>(0,0) = (yaw_a * pitch_a * roll_a).toRotationMatrix();
-        T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
+      Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
+      Eigen::AngleAxisd e_roll(rpy[0], Eigen::Vector3d::UnitX());
+      Eigen::AngleAxisd e_pitch(rpy[1], Eigen::Vector3d::UnitY());
+      Eigen::AngleAxisd e_yaw(rpy[2], Eigen::Vector3d::UnitZ());
+      T_target.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
+      T_target(0,3) = xyz[0]; T_target(1,3) = xyz[1]; T_target(2,3) = xyz[2];
 
-        Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
-        Eigen::AngleAxisd e_roll(rpy[0], Eigen::Vector3d::UnitX());
-        Eigen::AngleAxisd e_pitch(rpy[1], Eigen::Vector3d::UnitY());
-        Eigen::AngleAxisd e_yaw(rpy[2], Eigen::Vector3d::UnitZ());
-        T_target.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
-        T_target(0,3) = xyz[0]; T_target(1,3) = xyz[1]; T_target(2,3) = xyz[2];
+      Eigen::Matrix4d hand_target = T_target * T_tcp.inverse();
+      Eigen::Vector3d h_xyz = hand_target.block<3,1>(0,3);
+      Eigen::Vector3d h_rpy = hand_target.block<3,3>(0,0).eulerAngles(0,1,2);
 
-        Eigen::Matrix4d hand_target = T_target * T_tcp.inverse();
-        Eigen::Vector3d h_xyz = hand_target.block<3,1>(0,3);
-        Eigen::Vector3d h_rpy = hand_target.block<3,3>(0,0).eulerAngles(0,1,2);
-
-        auto ik_result = ik_->solve(
-            std::array<double,3>{h_xyz.x(), h_xyz.y(), h_xyz.z()},
-            std::array<double,3>{h_rpy.x(), h_rpy.y(), h_rpy.z()});
-        if (!ik_result) {
-          result->success = false;
-          result->message = "IK solver failed";
-          goal_handle->abort(result);
-          state_machine_.transition_to(RobotState::kFault);
-          state_machine_.set_error(1, "MoveJ: IK failed");
-          return;
-        }
-        target_angles = *ik_result;
-      } else {
-        target_angles = {goal->joint_angles.begin(), goal->joint_angles.end()};
+      auto ik_result = ik_->solve(
+          std::array<double,3>{h_xyz.x(), h_xyz.y(), h_xyz.z()},
+          std::array<double,3>{h_rpy.x(), h_rpy.y(), h_rpy.z()});
+      if (!ik_result) {
+        abort_action(goal_handle, "IK solver failed");
+        state_machine_.transition_to(RobotState::kFault);
+        state_machine_.set_error(1, "MoveJ: IK failed");
+        return;
       }
-
-      auto current = bridge_->get_current_arm();
-      double speed_factor = effective_speed * (controller_->get_speed(MotionMode::kMoveJ) / 100.0);
-      std::vector<MotionLimits> configs(profile_.dof);
-      for (int i = 0; i < profile_.dof; ++i) {
-        configs[i] = {profile_.joint_limits.max_vel * speed_factor,
-                      profile_.joint_limits.max_acc * speed_factor,
-                      profile_.joint_limits.max_jerk * speed_factor};
-      }
-
-      auto trajectory = TrajectoryPlanner::plan_joint(
-          current, target_angles, configs, ControlConstants::kTrajectoryDt);
-
-      double dt = ControlConstants::kTrajectoryDt;
-      for (size_t i = 0; i < trajectory.size(); ++i) {
-        steps.push_back({trajectory[i], static_cast<double>(i) * dt});
-      }
-
-      double finger = (goal->finger_width >= 0) ? goal->finger_width
-                      : bridge_->get_current_finger();
-
-      trajectory_executor_->start(steps, finger);
-
-      while (trajectory_executor_->is_active()) {
-        double progress;
-        std::vector<double> cur_angles;
-        double time_rem;
-        trajectory_executor_->get_progress(progress, cur_angles, time_rem);
-
-        feedback->progress = progress;
-        std::copy_n(cur_angles.begin(), 7, feedback->current_joint_angles.begin());
-        feedback->estimated_time_remaining = time_rem;
-        goal_handle->publish_feedback(feedback);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      }
-
-      if (trajectory_executor_->wait_for_completion(2.0)) {
-        bridge_->wait_for_motion(
-            target_angles, finger,
-            ControlConstants::kJointTolerance,
-            ControlConstants::kFingerTolerance,
-            ControlConstants::kMotionTimeout,
-            ControlConstants::kPollInterval,
-            ControlConstants::kSettleTime,
-            true);
-
-        if (state_machine_.state() == RobotState::kFault) {
-          result->success = false;
-          result->message = "MoveJ interrupted by EMERGENCY_STOP";
-          goal_handle->abort(result);
-          return;
-        }
-
-        auto final_angles = controller_->get_joint_angles();
-        auto final_pose = controller_->get_end_effector_pose();
-        result->success = true;
-        result->message = "MoveJ completed";
-        std::copy_n(final_angles.begin(), 7, result->final_joint_angles.begin());
-        result->final_tcp_pose = {final_pose[0], final_pose[1], final_pose[2],
-                                  final_pose[3], final_pose[4], final_pose[5]};
-        goal_handle->succeed(result);
-        state_machine_.transition_to(RobotState::kIdle);
-      } else {
-        if (state_machine_.state() == RobotState::kFault) {
-          result->success = false;
-          result->message = "MoveJ interrupted by EMERGENCY_STOP";
-          goal_handle->abort(result);
-          return;
-        }
-        result->success = false;
-        result->message = "MoveJ cancelled";
-        goal_handle->canceled(result);
-        state_machine_.transition_to(RobotState::kIdle);
-      }
-
-    } catch (const std::exception& e) {
-      result->success = false;
-      result->message = std::string("MoveJ error: ") + e.what();
-      goal_handle->abort(result);
-      state_machine_.transition_to(RobotState::kFault);
-      state_machine_.set_error(2, result->message);
+      target_angles = *ik_result;
+    } else {
+      target_angles = {goal->joint_angles.begin(), goal->joint_angles.end()};
     }
-  });
+
+    auto current = bridge_->get_current_arm();
+    double speed_factor = effective_speed * (controller_->get_speed(MotionMode::kMoveJ) / 100.0);
+    std::vector<MotionLimits> configs(profile_.dof);
+    for (int i = 0; i < profile_.dof; ++i) {
+      configs[i] = {profile_.joint_limits.max_vel * speed_factor,
+                    profile_.joint_limits.max_acc * speed_factor,
+                    profile_.joint_limits.max_jerk * speed_factor};
+    }
+
+    auto trajectory = TrajectoryPlanner::plan_joint(
+        current, target_angles, configs, ControlConstants::kTrajectoryDt);
+
+    double dt = ControlConstants::kTrajectoryDt;
+    for (size_t i = 0; i < trajectory.size(); ++i) {
+      steps.push_back({trajectory[i], static_cast<double>(i) * dt});
+    }
+
+    double finger = (goal->finger_width >= 0) ? goal->finger_width
+                    : bridge_->get_current_finger();
+
+    // 提交到 SetpointGenerator（由 100Hz 控制循环执行）
+    bridge_->setpoint_generator().start(steps, finger);
+
+    // 存储 ActiveMotion（由控制循环完成/取消）
+    auto motion = std::make_unique<ActiveMotion>();
+    motion->goal_handle = goal_handle;
+    motion->target_angles = target_angles;
+    motion->target_finger = finger;
+    motion->start_time = std::chrono::steady_clock::now();
+    motion->total_duration = (steps.empty()) ? 0.0 : steps.back().time_from_start;
+    {
+      std::lock_guard<std::mutex> lock(active_motion_mutex_);
+      active_motion_ = std::move(motion);
+      waiting_settle_ = false;
+    }
+
+  } catch (const std::exception& e) {
+    abort_action(goal_handle, std::string("MoveJ error: ") + e.what());
+    state_machine_.transition_to(RobotState::kFault);
+    state_machine_.set_error(2, std::string("MoveJ error: ") + e.what());
+  }
 }
 
 // ===== MoveL Action =====
@@ -907,8 +926,8 @@ rclcpp_action::GoalResponse RobotControllerNode::handle_movel_goal(
 rclcpp_action::CancelResponse RobotControllerNode::handle_movel_cancel(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>>) {
   if (state_machine_.state() == RobotState::kMoving) {
+    bridge_->setpoint_generator().cancel();
     state_machine_.transition_to(RobotState::kStopping);
-    trajectory_executor_->cancel();
     return rclcpp_action::CancelResponse::ACCEPT;
   }
   return rclcpp_action::CancelResponse::REJECT;
@@ -924,151 +943,103 @@ void RobotControllerNode::handle_movel_accepted(
     return;
   }
 
-  movel_thread_ = std::thread([this, goal_handle]() {
-    auto result = std::make_shared<robot_msgs::action::MoveL::Result>();
-    auto feedback = std::make_shared<robot_msgs::action::MoveL::Feedback>();
+  try {
+    auto goal = goal_handle->get_goal();
+    double effective_speed = goal->speed_ratio * global_speed_ratio_.load();
 
-    try {
-      auto goal = goal_handle->get_goal();
-      double effective_speed = goal->speed_ratio * global_speed_ratio_.load();
+    std::array<double, 3> xyz = {goal->position.x, goal->position.y, goal->position.z};
+    std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
 
-      std::array<double, 3> xyz = {goal->position.x, goal->position.y, goal->position.z};
-      std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
+    auto current_pose = controller_->get_end_effector_pose();
+    Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
+    Eigen::Vector3d end_pos(xyz[0], xyz[1], xyz[2]);
+    double total_dist = (end_pos - start_pos).norm();
 
-      auto current_pose = controller_->get_end_effector_pose();
-      Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
-      Eigen::Vector3d end_pos(xyz[0], xyz[1], xyz[2]);
-      double total_dist = (end_pos - start_pos).norm();
+    if (total_dist < 1e-6) {
+      auto final_angles = controller_->get_joint_angles();
+      succeed_action(goal_handle, final_angles, current_pose, "MoveL: already at target");
+      state_machine_.transition_to(RobotState::kIdle);
+      return;
+    }
 
-      if (total_dist < 1e-6) {
-        result->success = true;
-        result->message = "MoveL: already at target";
-        goal_handle->succeed(result);
-        state_machine_.transition_to(RobotState::kIdle);
+    double speed_factor = effective_speed * (controller_->get_speed(MotionMode::kMoveL) / 100.0);
+    MotionLimits cart_cfg{
+        profile_.cartesian_limits.max_vel * speed_factor,
+        profile_.cartesian_limits.max_acc * speed_factor,
+        profile_.cartesian_limits.max_jerk * speed_factor};
+
+    auto cart_traj = SCurvePlanner::plan(
+        0.0, total_dist, cart_cfg, ControlConstants::kTrajectoryDt);
+
+    Eigen::Vector3d start_rpy(current_pose[3], current_pose[4], current_pose[5]);
+    Eigen::Quaterniond start_quat =
+        (Eigen::AngleAxisd(start_rpy.x(), Eigen::Vector3d::UnitX()) *
+         Eigen::AngleAxisd(start_rpy.y(), Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd(start_rpy.z(), Eigen::Vector3d::UnitZ()));
+    Eigen::Quaterniond end_quat =
+        (Eigen::AngleAxisd(rpy[0], Eigen::Vector3d::UnitX()) *
+         Eigen::AngleAxisd(rpy[1], Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()));
+
+    auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
+    Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
+    Eigen::AngleAxisd e_roll(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd e_pitch(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd e_yaw(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
+    T_tcp.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
+    T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
+
+    std::vector<TrajectoryStep> steps;
+    double finger = (goal->finger_width >= 0) ? goal->finger_width : bridge_->get_current_finger();
+
+    for (const auto& pt : cart_traj) {
+      double alpha = (total_dist > 1e-12) ? pt.pos / total_dist : 1.0;
+      alpha = std::clamp(alpha, 0.0, 1.0);
+
+      Eigen::Vector3d interp_pos = start_pos + alpha * (end_pos - start_pos);
+      Eigen::Quaterniond interp_quat = start_quat.slerp(alpha, end_quat);
+
+      Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
+      T_target.block<3,3>(0,0) = interp_quat.toRotationMatrix();
+      T_target(0,3) = interp_pos.x(); T_target(1,3) = interp_pos.y(); T_target(2,3) = interp_pos.z();
+
+      Eigen::Matrix4d hand_target = T_target * T_tcp.inverse();
+      Eigen::Vector3d h_xyz = hand_target.block<3,1>(0,3);
+      Eigen::Vector3d h_rpy = hand_target.block<3,3>(0,0).eulerAngles(0,1,2);
+
+      auto ik_result = ik_->solve(
+          std::array<double,3>{h_xyz.x(), h_xyz.y(), h_xyz.z()},
+          std::array<double,3>{h_rpy.x(), h_rpy.y(), h_rpy.z()});
+      if (!ik_result) {
+        abort_action(goal_handle, "MoveL: IK failed at trajectory point");
+        state_machine_.transition_to(RobotState::kFault);
+        state_machine_.set_error(3, "MoveL: IK failed at trajectory point");
         return;
       }
-
-      double speed_factor = effective_speed * (controller_->get_speed(MotionMode::kMoveL) / 100.0);
-      MotionLimits cart_cfg{
-          profile_.cartesian_limits.max_vel * speed_factor,
-          profile_.cartesian_limits.max_acc * speed_factor,
-          profile_.cartesian_limits.max_jerk * speed_factor};
-
-      auto cart_traj = SCurvePlanner::plan(
-          0.0, total_dist, cart_cfg, ControlConstants::kTrajectoryDt);
-
-      Eigen::Vector3d start_rpy(current_pose[3], current_pose[4], current_pose[5]);
-      Eigen::Quaterniond start_quat =
-          (Eigen::AngleAxisd(start_rpy.x(), Eigen::Vector3d::UnitX()) *
-           Eigen::AngleAxisd(start_rpy.y(), Eigen::Vector3d::UnitY()) *
-           Eigen::AngleAxisd(start_rpy.z(), Eigen::Vector3d::UnitZ()));
-      Eigen::Quaterniond end_quat =
-          (Eigen::AngleAxisd(rpy[0], Eigen::Vector3d::UnitX()) *
-           Eigen::AngleAxisd(rpy[1], Eigen::Vector3d::UnitY()) *
-           Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()));
-
-      auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
-      Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
-      Eigen::AngleAxisd e_roll(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
-      Eigen::AngleAxisd e_pitch(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
-      Eigen::AngleAxisd e_yaw(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
-      T_tcp.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
-      T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
-
-      std::vector<TrajectoryStep> steps;
-      double finger = (goal->finger_width >= 0) ? goal->finger_width : bridge_->get_current_finger();
-
-      for (const auto& pt : cart_traj) {
-        double alpha = (total_dist > 1e-12) ? pt.pos / total_dist : 1.0;
-        alpha = std::clamp(alpha, 0.0, 1.0);
-
-        Eigen::Vector3d interp_pos = start_pos + alpha * (end_pos - start_pos);
-        Eigen::Quaterniond interp_quat = start_quat.slerp(alpha, end_quat);
-
-        Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
-        T_target.block<3,3>(0,0) = interp_quat.toRotationMatrix();
-        T_target(0,3) = interp_pos.x(); T_target(1,3) = interp_pos.y(); T_target(2,3) = interp_pos.z();
-
-        Eigen::Matrix4d hand_target = T_target * T_tcp.inverse();
-        Eigen::Vector3d h_xyz = hand_target.block<3,1>(0,3);
-        Eigen::Vector3d h_rpy = hand_target.block<3,3>(0,0).eulerAngles(0,1,2);
-
-        auto ik_result = ik_->solve(
-            std::array<double,3>{h_xyz.x(), h_xyz.y(), h_xyz.z()},
-            std::array<double,3>{h_rpy.x(), h_rpy.y(), h_rpy.z()});
-        if (!ik_result) {
-          throw std::runtime_error("MoveL: IK failed at trajectory point");
-        }
-        steps.push_back({*ik_result, pt.t});
-      }
-
-      trajectory_executor_->start(steps, finger);
-
-      auto next_fb_time = std::chrono::steady_clock::now();
-      while (trajectory_executor_->is_active()) {
-        double progress;
-        std::vector<double> cur_angles;
-        double time_rem;
-        trajectory_executor_->get_progress(progress, cur_angles, time_rem);
-
-        feedback->progress = progress;
-        std::copy_n(cur_angles.begin(), 7, feedback->current_joint_angles.begin());
-        feedback->estimated_time_remaining = time_rem;
-        goal_handle->publish_feedback(feedback);
-
-        next_fb_time += std::chrono::milliseconds(20);
-        std::this_thread::sleep_until(next_fb_time);
-      }
-
-      if (trajectory_executor_->wait_for_completion(2.0)) {
-        if (!steps.empty()) {
-          bridge_->wait_for_motion(
-              steps.back().joint_positions, finger,
-              ControlConstants::kJointTolerance,
-              ControlConstants::kFingerTolerance,
-              ControlConstants::kMotionTimeout,
-              ControlConstants::kPollInterval,
-              ControlConstants::kSettleTime,
-              true);
-        }
-
-        if (state_machine_.state() == RobotState::kFault) {
-          result->success = false;
-          result->message = "MoveL interrupted by EMERGENCY_STOP";
-          goal_handle->abort(result);
-          return;
-        }
-
-        auto final_angles = controller_->get_joint_angles();
-        auto final_pose = controller_->get_end_effector_pose();
-        result->success = true;
-        result->message = "MoveL completed";
-        std::copy_n(final_angles.begin(), 7, result->final_joint_angles.begin());
-        result->final_tcp_pose = {final_pose[0], final_pose[1], final_pose[2],
-                                  final_pose[3], final_pose[4], final_pose[5]};
-        goal_handle->succeed(result);
-        state_machine_.transition_to(RobotState::kIdle);
-      } else {
-        if (state_machine_.state() == RobotState::kFault) {
-          result->success = false;
-          result->message = "MoveL interrupted by EMERGENCY_STOP";
-          goal_handle->abort(result);
-          return;
-        }
-        result->success = false;
-        result->message = "MoveL cancelled";
-        goal_handle->canceled(result);
-        state_machine_.transition_to(RobotState::kIdle);
-      }
-
-    } catch (const std::exception& e) {
-      result->success = false;
-      result->message = std::string("MoveL error: ") + e.what();
-      goal_handle->abort(result);
-      state_machine_.transition_to(RobotState::kFault);
-      state_machine_.set_error(3, result->message);
+      steps.push_back({*ik_result, pt.t});
     }
-  });
+
+    // 提交到 SetpointGenerator（由 100Hz 控制循环执行）
+    bridge_->setpoint_generator().start(steps, finger);
+
+    // 存储 ActiveMotion（由控制循环完成/取消）
+    auto motion = std::make_unique<ActiveMotion>();
+    motion->goal_handle = goal_handle;
+    motion->target_angles = steps.back().joint_positions;
+    motion->target_finger = finger;
+    motion->start_time = std::chrono::steady_clock::now();
+    motion->total_duration = (steps.empty()) ? 0.0 : steps.back().time_from_start;
+    {
+      std::lock_guard<std::mutex> lock(active_motion_mutex_);
+      active_motion_ = std::move(motion);
+      waiting_settle_ = false;
+    }
+
+  } catch (const std::exception& e) {
+    abort_action(goal_handle, std::string("MoveL error: ") + e.what());
+    state_machine_.transition_to(RobotState::kFault);
+    state_machine_.set_error(3, std::string("MoveL error: ") + e.what());
+  }
 }
 
 // ===== Pendant Service Callbacks =====
@@ -1106,19 +1077,14 @@ void RobotControllerNode::handle_robot_cmd(
     case robot_msgs::srv::RobotCmd::Request::STOP:
       if (state_machine_.state() == RobotState::kMoving ||
           state_machine_.state() == RobotState::kTeaching) {
-        trajectory_executor_->cancel();
-        bridge_->publish_command(bridge_->get_current_arm(),
-                                bridge_->get_current_finger());
+        bridge_->setpoint_generator().cancel();
+        if (jog_controller_ && jog_controller_->is_active()) {
+          jog_controller_->stop();
+        }
         state_machine_.transition_to(RobotState::kStopping);
-        // Do NOT transition to kIdle here — the action thread handles
-        // kStopping -> kIdle after the cancelled trajectory finishes.
-        // Transitioning to kIdle immediately would allow new goals while
-        // the old action thread is still running, causing std::terminate.
         res->success = true;
         res->message = "STOP executed";
       } else if (state_machine_.state() == RobotState::kStopping) {
-        bridge_->publish_command(bridge_->get_current_arm(),
-                                bridge_->get_current_finger());
         res->success = true;
         res->message = "STOP: already stopping";
       } else {
@@ -1136,6 +1102,7 @@ void RobotControllerNode::handle_robot_cmd(
     case robot_msgs::srv::RobotCmd::Request::CLEAR_FAULT:
       if (state_machine_.state() == RobotState::kFault) {
         state_machine_.clear_error();
+        state_model_.align_target_to_actual();
         state_machine_.transition_to(RobotState::kIdle);
         res->success = true;
         res->message = "FAULT cleared";
@@ -1192,48 +1159,18 @@ void RobotControllerNode::handle_jog_command(
   last_jog_time_ = this->now();
 }
 
-void RobotControllerNode::jog_tick_callback() {
-  if (!jog_controller_ || !jog_controller_->is_active()) return;
-
-  // Jog 活跃期间保持看门狗活跃（pendant 只发一次 JogCommand，
-  // 50Hz tick 本身就是心跳）
-  last_jog_time_ = this->now();
-
-  auto current = bridge_->get_current_arm();
-  std::array<double, 7> feedback{};
-  for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
-    feedback[i] = current[i];
-  }
-
-  jog_controller_->set_finger_width(bridge_->get_current_finger());
-
-  bool still_active = jog_controller_->tick(feedback,
-      [this](const std::vector<double>& arm, double finger) {
-        bridge_->publish_command(arm, finger);
-      });
-
-  if (!still_active) {
-    // Jog 减速完成: 发布最终保持位置，转回 kIdle
-    auto cmd = jog_controller_->get_commanded_joints();
-    std::vector<double> arm(cmd.begin(), cmd.end());
-    bridge_->publish_command(arm, bridge_->get_current_finger());
-    state_machine_.transition_to(RobotState::kIdle);
-  }
-}
-
 void RobotControllerNode::jog_watchdog_callback() {
   if (state_machine_.state() != RobotState::kTeaching) return;
 
   auto elapsed = (this->now() - last_jog_time_).seconds();
   if (elapsed > 0.2) {
     RCLCPP_WARN(this->get_logger(), "Jog watchdog: no command for %.2fs, stopping", elapsed);
-    auto current = bridge_->get_current_arm();
+    auto actual = state_model_.get_actual_joints();
     std::array<double, 7> fb{};
-    for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
-      fb[i] = current[i];
+    for (int i = 0; i < 7 && i < static_cast<int>(actual.size()); ++i) {
+      fb[i] = actual[i];
     }
     jog_controller_->emergency_stop(fb);
-    bridge_->publish_command(current, bridge_->get_current_finger());
     state_machine_.transition_to(RobotState::kIdle);
   }
 }
@@ -1241,19 +1178,29 @@ void RobotControllerNode::jog_watchdog_callback() {
 // ===== Emergency Stop =====
 
 void RobotControllerNode::emergency_stop() {
-  trajectory_executor_->cancel();
+  bridge_->setpoint_generator().cancel();
 
-  // 急停 Jog（如果活动）
   if (jog_controller_ && jog_controller_->is_active()) {
-    auto current = bridge_->get_current_arm();
+    auto actual = state_model_.get_actual_joints();
     std::array<double, 7> fb{};
-    for (int i = 0; i < 7 && i < static_cast<int>(current.size()); ++i) {
-      fb[i] = current[i];
+    for (int i = 0; i < 7 && i < static_cast<int>(actual.size()); ++i) {
+      fb[i] = actual[i];
     }
     jog_controller_->emergency_stop(fb);
   }
 
-  bridge_->publish_command(bridge_->get_current_arm(), bridge_->get_current_finger());
+  {
+    std::lock_guard<std::mutex> lock(active_motion_mutex_);
+    if (active_motion_) {
+      std::visit([](auto& gh) {
+        abort_action(gh, "EMERGENCY_STOP activated");
+      }, active_motion_->goal_handle);
+      active_motion_.reset();
+    }
+    waiting_settle_ = false;
+  }
+
+  state_model_.align_target_to_actual();
   state_machine_.force_state(RobotState::kFault);
   state_machine_.set_error(100, "EMERGENCY_STOP activated");
   RCLCPP_ERROR(this->get_logger(), "EMERGENCY_STOP activated");
@@ -1284,6 +1231,158 @@ void RobotControllerNode::publish_status() {
   status_pub_->publish(std::move(msg));
 }
 
+// ===== 100Hz Control Loop =====
+
+void RobotControllerNode::control_loop_tick() {
+  // === 1. READ ===
+  auto actual = bridge_->get_current_arm();
+  double actual_finger = bridge_->get_current_finger();
+  state_model_.update_actual(actual, actual_finger);
+
+  // === 2. PLAN ===
+  auto state = state_machine_.state();
+  auto target = state_model_.get_target_joints();
+  double target_finger = state_model_.get_target_gripper();
+
+  switch (state) {
+    case RobotState::kMoving: {
+      auto& gen = bridge_->setpoint_generator();
+      if (gen.is_active()) {
+        auto sp = gen.tick(std::chrono::steady_clock::now());
+        target = sp.joint_positions;
+        target_finger = sp.finger_width;
+
+        // Publish Action feedback
+        {
+          std::lock_guard<std::mutex> lock(active_motion_mutex_);
+          if (active_motion_ && sp.progress > 0) {
+            std::visit([&](auto& gh) {
+              publish_action_feedback(gh, sp);
+            }, active_motion_->goal_handle);
+          }
+        }
+
+        if (sp.done) {
+          {
+            std::lock_guard<std::mutex> lock(active_motion_mutex_);
+            trajectory_done_time_ = std::chrono::steady_clock::now();
+            waiting_settle_ = true;
+          }
+          // Notify Python/blocking waiters (prevent deadlock)
+          bridge_->notify_trajectory_complete();
+        }
+      }
+      break;
+    }
+    case RobotState::kTeaching: {
+      if (jog_controller_ && jog_controller_->is_active()) {
+        std::array<double, 7> fb{};
+        auto actual_j = state_model_.get_actual_joints();
+        for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
+        jog_controller_->set_finger_width(actual_finger);
+        jog_controller_->tick(fb, [](const std::vector<double>&, double) {});
+        auto jog_target = jog_controller_->get_commanded_joints();
+        target = std::vector<double>(jog_target.begin(), jog_target.end());
+        target_finger = actual_finger;
+
+        if (!jog_controller_->is_active()) {
+          state_machine_.transition_to(RobotState::kIdle);
+        }
+      }
+      break;
+    }
+    case RobotState::kStopping: {
+      auto& gen = bridge_->setpoint_generator();
+      if (!gen.is_active() &&
+          state_model_.is_on_target(ControlConstants::kArrivalTolerance)) {
+        state_machine_.transition_to(RobotState::kIdle);
+        RCLCPP_INFO(this->get_logger(), "STOP complete -> IDLE");
+      }
+      break;
+    }
+    case RobotState::kIdle:
+    case RobotState::kFault:
+      // 保持 target 不变
+      break;
+  }
+
+  state_model_.update_target(target, target_finger);
+
+  // === 3. MONITOR ===
+  double error = state_model_.max_following_error();
+  if ((state == RobotState::kMoving || state == RobotState::kTeaching) &&
+      error > ControlConstants::kFollowingErrorLimit) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "Following error %.4f rad exceeds limit %.4f rad -- EMERGENCY STOP",
+                 error, ControlConstants::kFollowingErrorLimit);
+    emergency_stop();
+    return;
+  }
+
+  // 轨迹完成 + 到位判定
+  {
+    std::lock_guard<std::mutex> lock(active_motion_mutex_);
+    if (state == RobotState::kMoving && waiting_settle_) {
+      if (check_action_completion()) {
+        return;
+      }
+    }
+  }
+
+  // === 4. WRITE ===
+  bridge_->publish_command(target, target_finger);
+}
+
+bool RobotControllerNode::check_action_completion() {
+  // Caller must hold active_motion_mutex_
+  if (!active_motion_) return false;
+
+  bool on_target = state_model_.is_on_target(ControlConstants::kArrivalTolerance);
+  double finger_err = std::abs(state_model_.get_target_gripper() -
+                               state_model_.get_actual_gripper());
+  bool finger_ok = finger_err < ControlConstants::kFingerTolerance;
+
+  auto elapsed = std::chrono::steady_clock::now() - trajectory_done_time_;
+  bool timed_out = std::chrono::duration<double>(elapsed).count() >
+                   ControlConstants::kArrivalSettleTime +
+                   ControlConstants::kTrajectoryTimeout;
+
+  if (state_machine_.state() == RobotState::kFault) {
+    std::visit([](auto& gh) {
+      abort_action(gh, "EMERGENCY_STOP activated");
+    }, active_motion_->goal_handle);
+    active_motion_.reset();
+    waiting_settle_ = false;
+    return true;
+  }
+
+  if (on_target && finger_ok) {
+    auto final_angles = state_model_.get_actual_joints();
+    auto final_pose = controller_->get_end_effector_pose();
+    std::visit([&](auto& gh) {
+      succeed_action(gh, final_angles, final_pose);
+    }, active_motion_->goal_handle);
+    state_machine_.transition_to(RobotState::kIdle);
+    bridge_->cancel_trajectory();
+    active_motion_.reset();
+    waiting_settle_ = false;
+    return true;
+  }
+
+  if (timed_out) {
+    std::visit([](auto& gh) {
+      abort_action(gh, "trajectory timeout -- robot did not reach target");
+    }, active_motion_->goal_handle);
+    state_machine_.transition_to(RobotState::kFault);
+    state_machine_.set_error(10, "Trajectory timeout");
+    active_motion_.reset();
+    waiting_settle_ = false;
+    return true;
+  }
+
+  return false;
+}
+
 // ===== Destructor =====
 
 RobotControllerNode::~RobotControllerNode() {
@@ -1291,11 +1390,7 @@ RobotControllerNode::~RobotControllerNode() {
   if (jog_controller_) {
     jog_controller_->reset();
   }
-  if (trajectory_executor_) {
-    trajectory_executor_->cancel();
-  }
-  if (movej_thread_.joinable()) movej_thread_.join();
-  if (movel_thread_.joinable()) movel_thread_.join();
+  bridge_->cancel_trajectory();
 }
 
 }  // namespace robot_control

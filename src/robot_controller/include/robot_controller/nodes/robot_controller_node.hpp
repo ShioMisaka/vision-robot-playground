@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -39,8 +40,9 @@
 #include "robot_controller/kinematics/robot_profile.hpp"
 #include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
-#include "robot_controller/nodes/trajectory_executor.hpp"
+#include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
+#include "robot_controller/nodes/setpoint_generator.hpp"
 
 namespace robot_control {
 
@@ -74,6 +76,17 @@ public:
       double timeout) override;
   void set_tcp_name(const std::string& name) override;
 
+  void submit_trajectory(
+      const std::vector<TrajectoryStep>& steps, double finger) override;
+  bool wait_trajectory_completion(double timeout) override;
+  void cancel_trajectory() override;
+
+  /// 通知阻塞等待者轨迹完成（由控制循环调用）
+  void notify_trajectory_complete();
+
+  /// 获取 SetpointGenerator（供控制循环使用）
+  SetpointGenerator& setpoint_generator() { return setpoint_gen_; }
+
   /// 由节点订阅回调调用，更新关节状态并发布 TF
   void update_joint_state(
       const sensor_msgs::msg::JointState::SharedPtr msg);
@@ -102,6 +115,10 @@ private:
 
   std::string current_tcp_name_;
   TcpConfig current_tcp_config_;
+
+  SetpointGenerator setpoint_gen_;
+  std::mutex trajectory_mutex_;
+  std::condition_variable trajectory_cv_;
 
   /// 发布 hand → camera_link → camera_color_optical_frame 静态 TF
   void publish_camera_tf();
@@ -210,7 +227,6 @@ private:
   // === Jog + watchdog ===
   void handle_jog_command(const robot_msgs::msg::JogCommand::SharedPtr msg);
   void jog_watchdog_callback();
-  void jog_tick_callback();
 
   // === Status publisher ===
   void publish_status();
@@ -218,9 +234,30 @@ private:
   // === Emergency stop helper ===
   void emergency_stop();
 
-  // === Action execution threads (joined on destruction) ===
-  std::thread movej_thread_;
-  std::thread movel_thread_;
+  // === 100Hz 控制循环 ===
+  rclcpp::TimerBase::SharedPtr control_loop_timer_;
+  RobotStateModel state_model_;
+
+  // === 活跃 Action 追踪 ===
+  struct ActiveMotion {
+    std::variant<
+      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>>,
+      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>>
+    > goal_handle;
+    std::vector<double> target_angles;
+    double target_finger;
+    std::chrono::steady_clock::time_point start_time;
+    double total_duration;
+  };
+  std::unique_ptr<ActiveMotion> active_motion_;
+  std::mutex active_motion_mutex_;
+  std::chrono::steady_clock::time_point trajectory_done_time_;
+  bool waiting_settle_ = false;
+
+  // === 控制循环方法 ===
+  void control_loop_tick();
+  bool check_action_completion();
+
   std::atomic<bool> shutdown_{false};
 
   std::shared_ptr<RosMotionBridge> bridge_;
@@ -247,10 +284,7 @@ private:
   // === State machine ===
   RobotStateMachine state_machine_;
 
-  // === Trajectory executor ===
-  std::unique_ptr<TrajectoryExecutor> trajectory_executor_;
-
-  // === Global speed ratio (atomic for thread-safe access from action threads) ===
+  // === Global speed ratio (atomic for thread-safe access) ===
   std::atomic<double> global_speed_ratio_{1.0};
 
   // === Action servers ===
@@ -265,7 +299,6 @@ private:
   // === Jog + watchdog ===
   rclcpp::Subscription<robot_msgs::msg::JogCommand>::SharedPtr jog_sub_;
   rclcpp::TimerBase::SharedPtr jog_watchdog_timer_;
-  rclcpp::TimerBase::SharedPtr jog_tick_timer_;
   rclcpp::Time last_jog_time_;
 
   // === Jog controller (pure C++ math) ===

@@ -7,6 +7,12 @@
 
 namespace robot_control {
 
+/// @brief 轨迹执行步骤
+struct TrajectoryStep {
+  std::vector<double> joint_positions;
+  double time_from_start;  ///< seconds
+};
+
 /// IO 桥接接口 — 将运动控制逻辑与底层通信实现解耦
 /// ROS 2 节点实现此接口以提供实际的发布/订阅能力
 class MotionIOBridge {
@@ -44,6 +50,17 @@ public:
 
   /// 设置当前 TCP 名称
   virtual void set_tcp_name(const std::string& name) = 0;
+
+  /// 提交轨迹给指令发生器（由控制循环执行）
+  virtual void submit_trajectory(
+      const std::vector<TrajectoryStep>& steps, double finger) = 0;
+
+  /// 阻塞等待提交的轨迹执行完成
+  /// @return true 正常完成，false 被取消或超时
+  virtual bool wait_trajectory_completion(double timeout) = 0;
+
+  /// 取消当前轨迹
+  virtual void cancel_trajectory() = 0;
 };
 
 }  // namespace robot_control
