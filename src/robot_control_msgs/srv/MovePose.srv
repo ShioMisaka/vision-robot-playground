@@ -1,7 +1,0 @@
-float64[] xyz
-float64[] rpy
-uint8 mode  # 0=moveJ, 1=moveL
-float64 finger
----
-bool success
-string message

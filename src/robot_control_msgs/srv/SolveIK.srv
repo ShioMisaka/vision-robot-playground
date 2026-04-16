@@ -1,6 +1,0 @@
-float64[] xyz
-float64[] rpy  # empty = position only
----
-bool success
-float64[] joint_angles
-string message
