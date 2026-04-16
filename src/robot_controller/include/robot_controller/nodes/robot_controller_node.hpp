@@ -61,6 +61,9 @@ public:
 
   void publish_command(const std::vector<double>& arm,
                        double finger) override;
+
+  /// 仅发布夹爪关节指令（kIdle 时维持夹持力，不覆盖 arm）
+  void publish_gripper(double finger);
   std::vector<double> get_current_arm() const override;
   double get_current_finger() const override;
   bool wait_for_motion(const std::vector<double>& target_arm,

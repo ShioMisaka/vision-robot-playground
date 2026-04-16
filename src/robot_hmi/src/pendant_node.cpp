@@ -319,6 +319,9 @@ void PendantNode::async_open_gripper(VoidCallback callback) {
       return;
     }
     auto res = future.get();
+    if (res->success) {
+      current_finger_ = 0.04;  // max_width
+    }
     if (callback) callback(res->success, res->message);
   });
 }
@@ -337,6 +340,9 @@ void PendantNode::async_close_gripper(VoidCallback callback) {
       return;
     }
     auto res = future.get();
+    if (res->success) {
+      current_finger_ = 0.0;  // min_width
+    }
     if (callback) callback(res->success, res->message);
   });
 }
@@ -488,8 +494,7 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_thread_ = std::thread([this]() {
     const std::vector<std::string> joint_names = {
         "panda_joint1", "panda_joint2", "panda_joint3",
-        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7",
-        "panda_finger_joint1", "panda_finger_joint2"};
+        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"};
 
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -505,13 +510,10 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
       sensor_msgs::msg::JointState msg;
       msg.header.stamp = now();
       msg.name = joint_names;
-      msg.position.reserve(9);
+      msg.position.reserve(7);
       for (int i = 0; i < 7; ++i) {
         msg.position.push_back(target[i]);
       }
-      double finger = current_finger_.load();
-      msg.position.push_back(finger);
-      msg.position.push_back(finger);
       joint_cmd_pub_->publish(msg);
     }
   });

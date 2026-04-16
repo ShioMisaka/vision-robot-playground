@@ -85,6 +85,18 @@ void RosMotionBridge::publish_command(const std::vector<double>& arm,
   cmd_pub_->publish(msg);
 }
 
+void RosMotionBridge::publish_gripper(double finger) {
+  sensor_msgs::msg::JointState msg;
+  msg.header.stamp = node_->now();
+
+  for (size_t i = profile_.dof; i < profile_.all_joint_names.size(); ++i) {
+    msg.name.push_back(profile_.all_joint_names[i]);
+    msg.position.push_back(finger);
+  }
+
+  cmd_pub_->publish(msg);
+}
+
 std::vector<double> RosMotionBridge::get_current_arm() const {
   std::lock_guard<std::mutex> lock(state_mutex_);
   return current_arm_;
@@ -1330,11 +1342,14 @@ void RobotControllerNode::control_loop_tick() {
         std::array<double, 7> fb{};
         auto actual_j = state_model_.get_actual_joints();
         for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
-        jog_controller_->set_finger_width(actual_finger);
+        double jog_finger = controller_->is_grasping()
+                                ? gripper_.min_width
+                                : gripper_.max_width;
+        jog_controller_->set_finger_width(jog_finger);
         jog_controller_->tick(fb, [](const std::vector<double>&, double) {});
         auto jog_target = jog_controller_->get_commanded_joints();
         target = std::vector<double>(jog_target.begin(), jog_target.end());
-        target_finger = actual_finger;
+        target_finger = jog_finger;
 
         if (!jog_controller_->is_active()) {
           state_machine_.transition_to(RobotState::kIdle);
@@ -1379,7 +1394,10 @@ void RobotControllerNode::control_loop_tick() {
     case RobotState::kFault:
       // 位置保持：target 跟随 actual，避免 target 初始化为零导致归零
       target = actual;
-      target_finger = actual_finger;
+      // 夹爪只有两个值：抓取=min_width(0.0)，非抓取=max_width(0.04)
+      target_finger = controller_->is_grasping()
+                          ? gripper_.min_width
+                          : gripper_.max_width;
       break;
   }
 
@@ -1407,8 +1425,12 @@ void RobotControllerNode::control_loop_tick() {
   }
 
   // === 4. WRITE ===
-  // kIdle/kFault 状态不发布指令，避免覆盖示教器/Python 的直接 publish
-  if (state != RobotState::kIdle && state != RobotState::kFault) {
+  // kIdle/kFault: 仅在抓取时发布（维持夹持力），避免覆盖示教器/Python 的 arm publish
+  if (state == RobotState::kIdle || state == RobotState::kFault) {
+    if (controller_->is_grasping()) {
+      bridge_->publish_gripper(target_finger);
+    }
+  } else {
     bridge_->publish_command(target, target_finger);
   }
 }

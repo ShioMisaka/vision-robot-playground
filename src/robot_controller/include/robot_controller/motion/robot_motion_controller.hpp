@@ -71,6 +71,9 @@ public:
   void set_speed(MotionMode mode, double percent) override;
   double get_speed(MotionMode mode) const override;
 
+  /// @brief 查询当前是否处于抓取状态（抓取时夹爪持续施力）
+  bool is_grasping() const { return grasping_; }
+
 private:
   /// 关节空间线性插值运动
   void interpolate_to(const std::vector<double>& target, double finger,
