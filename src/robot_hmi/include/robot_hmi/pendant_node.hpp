@@ -99,6 +99,12 @@ public:
 
   void emergency_stop();
 
+  /// @brief 清除故障状态（发送 CLEAR_FAULT 命令）
+  void clear_fault();
+
+  /// @brief 查询机器人是否处于故障状态
+  bool is_robot_fault() const { return robot_fault_.load(); }
+
   // === 关节实时流控 ===
 
   void start_joint_stream(const std::array<double, 7>& initial);
@@ -169,6 +175,7 @@ private:
   // Connection state
   std::atomic<bool> robot_connected_{false};
   std::atomic<bool> camera_connected_{false};
+  std::atomic<bool> robot_fault_{false};
 
   // Service readiness
   std::atomic<bool> services_ready_{false};

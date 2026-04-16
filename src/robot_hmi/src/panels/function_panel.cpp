@@ -62,19 +62,25 @@ FunctionPanel::FunctionPanel(std::shared_ptr<PendantNode> node,
           &FunctionPanel::onGoHome);
   layout->addWidget(btn_home);
 
-  auto* btn_estop = new QPushButton("E-STOP", this);
-  btn_estop->setStyleSheet(
+  btn_estop_ = new QPushButton("E-STOP", this);
+  btn_estop_->setStyleSheet(
       "padding: 10px; font-weight: bold; font-size: 14px; "
       "background-color: #cc0000; color: white; border-radius: 4px;");
-  connect(btn_estop, &QPushButton::clicked, this,
+  connect(btn_estop_, &QPushButton::clicked, this,
           &FunctionPanel::onEmergencyStop);
-  layout->addWidget(btn_estop);
+  layout->addWidget(btn_estop_);
 
   layout->addStretch();
 
   auto* outer = new QVBoxLayout(this);
   outer->setContentsMargins(0, 0, 0, 0);
   outer->addWidget(group);
+
+  // 定时检查故障状态，更新 E-STOP 按钮外观
+  fault_check_timer_ = new QTimer(this);
+  connect(fault_check_timer_, &QTimer::timeout,
+          this, &FunctionPanel::onCheckFaultState);
+  fault_check_timer_->start(200);  // 5Hz
 }
 
 void FunctionPanel::onSetSpeedJ(int value) {
@@ -103,9 +109,44 @@ void FunctionPanel::onGoHome() {
 }
 
 void FunctionPanel::onEmergencyStop() {
-  estop_active_ = true;
-  node_->emergency_stop();
-  emit estopChanged(true);
+  if (node_->is_robot_fault()) {
+    // 故障状态：清除故障
+    node_->clear_fault();
+    estop_active_ = false;
+    update_estop_button(false);
+    emit estopChanged(false);
+  } else {
+    // 正常状态：急停
+    estop_active_ = true;
+    node_->emergency_stop();
+    update_estop_button(true);
+    emit estopChanged(true);
+  }
+}
+
+void FunctionPanel::onCheckFaultState() {
+  bool fault = node_->is_robot_fault();
+  update_estop_button(fault);
+
+  // 故障清除后自动解除 UI 锁定
+  if (!fault && estop_active_.load()) {
+    estop_active_ = false;
+    emit estopChanged(false);
+  }
+}
+
+void FunctionPanel::update_estop_button(bool fault) {
+  if (fault) {
+    btn_estop_->setText("CLEAR FAULT");
+    btn_estop_->setStyleSheet(
+        "padding: 10px; font-weight: bold; font-size: 14px; "
+        "background-color: #cc8800; color: white; border-radius: 4px;");
+  } else {
+    btn_estop_->setText("E-STOP");
+    btn_estop_->setStyleSheet(
+        "padding: 10px; font-weight: bold; font-size: 14px; "
+        "background-color: #cc0000; color: white; border-radius: 4px;");
+  }
 }
 
 }  // namespace robot_hmi

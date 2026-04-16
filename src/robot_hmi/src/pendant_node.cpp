@@ -444,6 +444,9 @@ void PendantNode::stop_jog() {
 
 void PendantNode::on_robot_status(
     const robot_msgs::msg::RobotStatus::SharedPtr msg) {
+  // 跟踪故障状态
+  robot_fault_.store(msg->state == robot_msgs::msg::RobotStatus::FAULT);
+
   if (jog_active_.load() &&
       msg->state == robot_msgs::msg::RobotStatus::IDLE) {
     // 控制器从 kTeaching 转为 kIdle → Jog 减速完成
@@ -483,6 +486,17 @@ void PendantNode::emergency_stop() {
     if (cli_robot_cmd_->service_is_ready()) {
       auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
       req->command = robot_msgs::srv::RobotCmd::Request::EMERGENCY_STOP;
+      auto future = cli_robot_cmd_->async_send_request(req);
+      future.wait_for(std::chrono::seconds(2));
+    }
+  });
+}
+
+void PendantNode::clear_fault() {
+  post_task([this]() {
+    if (cli_robot_cmd_->service_is_ready()) {
+      auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
+      req->command = robot_msgs::srv::RobotCmd::Request::CLEAR_FAULT;
       auto future = cli_robot_cmd_->async_send_request(req);
       future.wait_for(std::chrono::seconds(2));
     }

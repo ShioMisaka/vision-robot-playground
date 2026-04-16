@@ -1405,16 +1405,31 @@ void RobotControllerNode::control_loop_tick() {
 
   // === 3. MONITOR ===
   double error = state_model_.max_following_error();
-  double error_limit = (state == RobotState::kTeaching)
-                           ? ControlConstants::kTeachingFollowErrorLimit
-                           : ControlConstants::kFollowingErrorLimit;
-  if ((state == RobotState::kMoving || state == RobotState::kTeaching) &&
-      error > error_limit) {
+
+  // kMoving: 轨迹执行跟踪误差 → 急停
+  if (state == RobotState::kMoving &&
+      error > ControlConstants::kFollowingErrorLimit) {
     RCLCPP_ERROR(this->get_logger(),
-                 "Following error %.4f rad exceeds limit %.4f rad (state=%s) -- EMERGENCY STOP",
-                 error, error_limit,
-                 RobotStateMachine::state_name(state));
+                 "Following error %.4f rad exceeds limit %.4f rad -- EMERGENCY STOP",
+                 error, ControlConstants::kFollowingErrorLimit);
     emergency_stop();
+    return;
+  }
+
+  // kTeaching: Jog 跟踪误差 → 优雅停止（不进入 Fault）
+  if (state == RobotState::kTeaching &&
+      error > ControlConstants::kTeachingFollowErrorLimit) {
+    RCLCPP_WARN(this->get_logger(),
+                "Jog following error %.4f rad exceeds limit %.4f rad -- stopping jog gracefully",
+                error, ControlConstants::kTeachingFollowErrorLimit);
+    if (jog_controller_ && jog_controller_->is_active()) {
+      auto actual_j = state_model_.get_actual_joints();
+      std::array<double, 7> fb{};
+      for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
+      jog_controller_->emergency_stop(fb);
+    }
+    state_model_.align_target_to_actual();
+    state_machine_.transition_to(RobotState::kIdle);
     return;
   }
 
