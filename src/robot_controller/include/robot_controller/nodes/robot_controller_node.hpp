@@ -51,6 +51,8 @@ class IKSolver;
 /// MotionIOBridge 的 ROS 2 实现
 class RosMotionBridge : public MotionIOBridge {
 public:
+  using TrajectoryStartedCallback = std::function<void()>;
+
   RosMotionBridge(rclcpp::Node::SharedPtr node,
                   const TopicConfig& topics,
                   std::shared_ptr<IKSolver> ik,
@@ -94,6 +96,11 @@ public:
   /// 获取 TF buffer（供外部查询）
   std::shared_ptr<tf2_ros::Buffer> get_tf_buffer() { return tf_buffer_; }
 
+  /// 设置轨迹启动回调（由 RobotControllerNode 注册，用于切换状态机）
+  void set_on_trajectory_started(TrajectoryStartedCallback cb) {
+    on_trajectory_started_ = std::move(cb);
+  }
+
 private:
   void publish_ee_tf(const sensor_msgs::msg::JointState::SharedPtr msg);
 
@@ -119,6 +126,7 @@ private:
   SetpointGenerator setpoint_gen_;
   std::mutex trajectory_mutex_;
   std::condition_variable trajectory_cv_;
+  TrajectoryStartedCallback on_trajectory_started_;
 
   /// 发布 hand → camera_link → camera_color_optical_frame 静态 TF
   void publish_camera_tf();

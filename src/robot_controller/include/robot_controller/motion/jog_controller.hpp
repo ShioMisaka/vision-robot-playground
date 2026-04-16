@@ -97,6 +97,9 @@ public:
   /// @brief 获取当前速度比例（0..1）
   double get_velocity_scale() const { return jog_v_; }
 
+  /// @brief 获取当前目标笛卡尔速度
+  const std::array<double, 6>& get_target_velocity() const { return target_velocity_; }
+
 private:
   void init_position(const std::array<double, 7>& feedback_joints);
 

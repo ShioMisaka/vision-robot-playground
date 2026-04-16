@@ -238,6 +238,9 @@ void RosMotionBridge::set_tcp_name(const std::string& name) {
 void RosMotionBridge::submit_trajectory(
     const std::vector<TrajectoryStep>& steps, double finger) {
   setpoint_gen_.start(steps, finger);
+  if (on_trajectory_started_) {
+    on_trajectory_started_();
+  }
 }
 
 bool RosMotionBridge::wait_trajectory_completion(double timeout) {
@@ -460,6 +463,14 @@ void RobotControllerNode::init() {
 
   controller_ = std::make_shared<RobotMotionController>(
       ik_, profile_, gripper_, bridge_);
+
+  // Python 阻塞路径 submit_trajectory 时自动切换到 kMoving，
+  // 让控制循环驱动 SetpointGenerator
+  bridge_->set_on_trajectory_started([this]() {
+    if (state_machine_.state() == RobotState::kIdle) {
+      state_machine_.transition_to(RobotState::kMoving);
+    }
+  });
 
   // === 100Hz 控制循环 ===
   control_loop_timer_ = create_wall_timer(
@@ -1160,13 +1171,29 @@ void RobotControllerNode::handle_jog_command(
       jog_controller_->stop();
     }
   } else {
-    // 按钮按下（或方向改变）: 启动/重启 Jog
-    if (jog_controller_->is_stopping()) {
-      jog_controller_->reset();
-    }
+    // 按钮按下（或方向改变）: 仅在速度/坐标系变化时重启 Jog
     std::array<double, 6> vel;
     std::copy(msg->velocity.begin(), msg->velocity.end(), vel.begin());
-    jog_controller_->start_raw(vel, msg->frame);
+
+    bool need_restart = !jog_controller_->is_active() ||
+                        jog_controller_->is_stopping();
+    // 检查速度是否变化
+    if (!need_restart) {
+      auto current_target = jog_controller_->get_target_velocity();
+      for (int i = 0; i < 6; ++i) {
+        if (std::abs(vel[i] - current_target[i]) > 1e-6) {
+          need_restart = true;
+          break;
+        }
+      }
+    }
+
+    if (need_restart) {
+      if (jog_controller_->is_stopping()) {
+        jog_controller_->reset();
+      }
+      jog_controller_->start_raw(vel, msg->frame);
+    }
   }
 
   if (state == RobotState::kIdle) {
@@ -1284,8 +1311,13 @@ void RobotControllerNode::control_loop_tick() {
         if (sp.done) {
           {
             std::lock_guard<std::mutex> lock(active_motion_mutex_);
-            trajectory_done_time_ = std::chrono::steady_clock::now();
-            waiting_settle_ = true;
+            if (active_motion_) {
+              trajectory_done_time_ = std::chrono::steady_clock::now();
+              waiting_settle_ = true;
+            } else {
+              // Python 阻塞路径：无 active_motion_，直接回到 kIdle
+              state_machine_.transition_to(RobotState::kIdle);
+            }
           }
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
@@ -1345,7 +1377,9 @@ void RobotControllerNode::control_loop_tick() {
     }
     case RobotState::kIdle:
     case RobotState::kFault:
-      // 保持 target 不变
+      // 位置保持：target 跟随 actual，避免 target 初始化为零导致归零
+      target = actual;
+      target_finger = actual_finger;
       break;
   }
 
@@ -1373,7 +1407,10 @@ void RobotControllerNode::control_loop_tick() {
   }
 
   // === 4. WRITE ===
-  bridge_->publish_command(target, target_finger);
+  // kIdle/kFault 状态不发布指令，避免覆盖示教器/Python 的直接 publish
+  if (state != RobotState::kIdle && state != RobotState::kFault) {
+    bridge_->publish_command(target, target_finger);
+  }
 }
 
 bool RobotControllerNode::check_action_completion() {

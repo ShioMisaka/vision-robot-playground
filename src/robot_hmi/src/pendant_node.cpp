@@ -398,13 +398,31 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
   last_jog_frame_ = frame;
   pause_joint_stream();
 
-  auto msg = build_jog_command(axis, frame);
-  msg.stamp = now();
-  jog_pub_->publish(msg);
+  last_jog_msg_ = build_jog_command(axis, frame);
+  last_jog_msg_.stamp = now();
+  jog_pub_->publish(last_jog_msg_);
+
+  // 启动 50Hz 重复发送（心跳 + 持续指令），看门狗需要持续刷新
+  if (!jog_repeat_timer_) {
+    jog_repeat_timer_ = create_wall_timer(
+        std::chrono::milliseconds(20),
+        [this]() {
+          if (jog_active_.load()) {
+            last_jog_msg_.stamp = now();
+            jog_pub_->publish(last_jog_msg_);
+          }
+        });
+  }
 }
 
 void PendantNode::stop_jog() {
   if (!jog_active_.load()) return;
+
+  // 停止重复发送
+  if (jog_repeat_timer_) {
+    jog_repeat_timer_->cancel();
+    jog_repeat_timer_.reset();
+  }
 
   // 发布零速度 JogCommand 通知控制器停止
   robot_msgs::msg::JogCommand msg;
