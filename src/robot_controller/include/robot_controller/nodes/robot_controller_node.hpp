@@ -248,11 +248,13 @@ private:
     double target_finger;
     std::chrono::steady_clock::time_point start_time;
     double total_duration;
+    bool cancelled = false;
   };
   std::unique_ptr<ActiveMotion> active_motion_;
   std::mutex active_motion_mutex_;
   std::chrono::steady_clock::time_point trajectory_done_time_;
   bool waiting_settle_ = false;
+  std::chrono::steady_clock::time_point stopping_start_time_;
 
   // === 控制循环方法 ===
   void control_loop_tick();

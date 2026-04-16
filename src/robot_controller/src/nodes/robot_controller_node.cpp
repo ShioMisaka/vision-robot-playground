@@ -804,6 +804,13 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movej_cancel(
   if (state_machine_.state() == RobotState::kMoving) {
     bridge_->setpoint_generator().cancel();
     state_machine_.transition_to(RobotState::kStopping);
+    // 标记取消，控制循环在 kStopping→kIdle 时会调用 canceled()
+    {
+      std::lock_guard<std::mutex> lock(active_motion_mutex_);
+      if (active_motion_) {
+        active_motion_->cancelled = true;
+      }
+    }
     return rclcpp_action::CancelResponse::ACCEPT;
   }
   return rclcpp_action::CancelResponse::REJECT;
@@ -928,6 +935,12 @@ rclcpp_action::CancelResponse RobotControllerNode::handle_movel_cancel(
   if (state_machine_.state() == RobotState::kMoving) {
     bridge_->setpoint_generator().cancel();
     state_machine_.transition_to(RobotState::kStopping);
+    {
+      std::lock_guard<std::mutex> lock(active_motion_mutex_);
+      if (active_motion_) {
+        active_motion_->cancelled = true;
+      }
+    }
     return rclcpp_action::CancelResponse::ACCEPT;
   }
   return rclcpp_action::CancelResponse::REJECT;
@@ -1082,6 +1095,10 @@ void RobotControllerNode::handle_robot_cmd(
           jog_controller_->stop();
         }
         state_machine_.transition_to(RobotState::kStopping);
+        {
+          std::lock_guard<std::mutex> lock(active_motion_mutex_);
+          stopping_start_time_ = std::chrono::steady_clock::now();
+        }
         res->success = true;
         res->message = "STOP executed";
       } else if (state_machine_.state() == RobotState::kStopping) {
@@ -1234,6 +1251,8 @@ void RobotControllerNode::publish_status() {
 // ===== 100Hz Control Loop =====
 
 void RobotControllerNode::control_loop_tick() {
+  if (shutdown_.load()) return;
+
   // === 1. READ ===
   auto actual = bridge_->get_current_arm();
   double actual_finger = bridge_->get_current_finger();
@@ -1293,10 +1312,34 @@ void RobotControllerNode::control_loop_tick() {
     }
     case RobotState::kStopping: {
       auto& gen = bridge_->setpoint_generator();
-      if (!gen.is_active() &&
-          state_model_.is_on_target(ControlConstants::kArrivalTolerance)) {
+      bool settled = !gen.is_active() &&
+                     state_model_.is_on_target(ControlConstants::kArrivalTolerance);
+
+      // 超时保护：kStopping 最长等待 kTrajectoryTimeout
+      std::lock_guard<std::mutex> lock(active_motion_mutex_);
+      bool timed_out = false;
+      auto stop_elapsed = std::chrono::steady_clock::now() - stopping_start_time_;
+      if (std::chrono::duration<double>(stop_elapsed).count() >
+          ControlConstants::kTrajectoryTimeout) {
+        timed_out = true;
+      }
+
+      if (settled || timed_out) {
+        if (active_motion_) {
+          if (active_motion_->cancelled) {
+            std::visit([](auto& gh) {
+              abort_action(gh, "cancelled");
+            }, active_motion_->goal_handle);
+          }
+          active_motion_.reset();
+          waiting_settle_ = false;
+        }
         state_machine_.transition_to(RobotState::kIdle);
-        RCLCPP_INFO(this->get_logger(), "STOP complete -> IDLE");
+        if (timed_out) {
+          RCLCPP_WARN(this->get_logger(), "STOP timeout -> IDLE");
+        } else {
+          RCLCPP_INFO(this->get_logger(), "STOP complete -> IDLE");
+        }
       }
       break;
     }
