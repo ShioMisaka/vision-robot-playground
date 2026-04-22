@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -50,7 +51,7 @@ public:
   bool run(double timeout = 30.0);
 
   /// @brief 获取当前状态
-  GraspState get_state() const { return state_; }
+  GraspState get_state() const { return state_.load(std::memory_order_relaxed); }
 
   /// @brief 将相机坐标系 3D 点转换到基座坐标系
   /// @param camera_xyz 相机光学坐标系下的 3D 点
@@ -75,7 +76,7 @@ private:
   double grasp_height_offset_;
   std::array<double, 3> grasp_rpy_;
 
-  GraspState state_ = GraspState::kIdle;
+  std::atomic<GraspState> state_ = GraspState::kIdle;
   std::optional<std::array<double, 3>> target_xyz_;
 };
 

@@ -75,6 +75,13 @@ std::optional<DetectionResult> VisionProcessorNode::get_latest_result() const {
 std::optional<DetectionResult> VisionProcessorNode::wait_for_detection(
     double timeout) {
   std::unique_lock<std::mutex> lock(result_mutex_);
+
+  // 立即检查已有结果
+  if (has_result_ && latest_result_.has_value() &&
+      latest_result_->detected) {
+    return latest_result_;
+  }
+
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::duration<double>(timeout);
 

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
+#include <memory>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 #include <array>
@@ -48,7 +49,7 @@ public:
   void clear_error();
 
 private:
-  mutable std::mutex mutex_;
+  mutable std::shared_mutex mutex_;
   RobotState state_{RobotState::kIdle};
   int32_t error_code_{0};
   std::string error_message_;

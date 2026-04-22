@@ -89,6 +89,14 @@ void RosMotionBridge::publish_gripper(double finger) {
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();
 
+  // 包含当前臂关节位置，避免发送部分关节状态
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    for (size_t i = 0; i < profile_.joint_names.size(); ++i) {
+      msg.name.push_back(profile_.joint_names[i]);
+      msg.position.push_back(current_arm_[i]);
+    }
+  }
   for (size_t i = profile_.dof; i < profile_.all_joint_names.size(); ++i) {
     msg.name.push_back(profile_.all_joint_names[i]);
     msg.position.push_back(finger);
@@ -144,13 +152,13 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
 
     poll_count++;
     if (poll_count % 50 == 0) {  // 每秒输出一次（50 * 0.02 = 1秒）
-      std::cout << "  wait_for_motion poll " << poll_count
-                << ": max_error=" << max_error << " @ joint " << max_error_idx
-                << ", arm_ok=" << arm_ok << ", finger_ok=" << finger_ok << std::endl;
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "wait_for_motion poll %d: max_error=%.4f @ joint %d, arm_ok=%d, finger_ok=%d",
+                   poll_count, max_error, max_error_idx, arm_ok, finger_ok);
     }
 
     if (arm_ok && finger_ok) {
-      std::cout << "  wait_for_motion: settling for " << settle_time << "s..." << std::endl;
+      RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion: settling for %.1fs...", settle_time);
       std::this_thread::sleep_for(
           std::chrono::duration<double>(settle_time));
       // settle 后重新检查，防止振荡导致误判到位
@@ -173,10 +181,10 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
       }
       finger_ok =
           !check_finger || std::abs(finger - current_finger) < finger_tol;
-      std::cout << "  wait_for_motion after settle: max_error=" << max_error
-                << ", arm_ok=" << arm_ok << std::endl;
+      RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion after settle: max_error=%.4f, arm_ok=%d",
+                   max_error, arm_ok);
       if (arm_ok && finger_ok) {
-        std::cout << "  wait_for_motion: SUCCESS" << std::endl;
+        RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion: SUCCESS");
         return true;
       }
     }
@@ -185,7 +193,7 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
         std::chrono::duration<double>(poll_interval));
   }
 
-  std::cout << "  wait_for_motion: TIMEOUT after " << poll_count << " polls" << std::endl;
+  RCLCPP_WARN(node_->get_logger(), "wait_for_motion: TIMEOUT after %d polls", poll_count);
   return false;
 }
 
@@ -354,8 +362,9 @@ void RosMotionBridge::publish_ee_tf(
 
       tf_broadcaster_->sendTransform(t_tcp);
     }
-  } catch (...) {
-    // FK 失败不影响主流程
+  } catch (const std::exception& e) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000,
+                         "FK computation failed: %s", e.what());
   }
 }
 
@@ -861,12 +870,7 @@ void RobotControllerNode::handle_movej_accepted(
       std::array<double, 3> rpy = {goal->orientation.x, goal->orientation.y, goal->orientation.z};
 
       auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
-      Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
-      Eigen::AngleAxisd roll_a(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
-      Eigen::AngleAxisd pitch_a(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
-      Eigen::AngleAxisd yaw_a(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
-      T_tcp.block<3,3>(0,0) = (yaw_a * pitch_a * roll_a).toRotationMatrix();
-      T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
+      Eigen::Matrix4d T_tcp = tcp_to_matrix4d(tcp_cfg);
 
       Eigen::Matrix4d T_target = Eigen::Matrix4d::Identity();
       Eigen::AngleAxisd e_roll(rpy[0], Eigen::Vector3d::UnitX());
@@ -1018,12 +1022,7 @@ void RobotControllerNode::handle_movel_accepted(
          Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()));
 
     auto tcp_cfg = profile_.tcp_frames.at(controller_->get_current_tcp());
-    Eigen::Matrix4d T_tcp = Eigen::Matrix4d::Identity();
-    Eigen::AngleAxisd e_roll(tcp_cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd e_pitch(tcp_cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd e_yaw(tcp_cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
-    T_tcp.block<3,3>(0,0) = (e_yaw * e_pitch * e_roll).toRotationMatrix();
-    T_tcp(0,3) = tcp_cfg.offset_xyz[0]; T_tcp(1,3) = tcp_cfg.offset_xyz[1]; T_tcp(2,3) = tcp_cfg.offset_xyz[2];
+    Eigen::Matrix4d T_tcp = tcp_to_matrix4d(tcp_cfg);
 
     std::vector<TrajectoryStep> steps;
     double finger = (goal->finger_width >= 0) ? goal->finger_width : bridge_->get_current_finger();
@@ -1120,6 +1119,9 @@ void RobotControllerNode::handle_robot_cmd(
         state_machine_.transition_to(RobotState::kStopping);
         {
           std::lock_guard<std::mutex> lock(active_motion_mutex_);
+          if (active_motion_) {
+            active_motion_->cancelled = true;
+          }
           stopping_start_time_ = std::chrono::steady_clock::now();
         }
         res->success = true;

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -165,6 +166,7 @@ private:
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
       sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
   std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+  std::chrono::steady_clock::time_point last_frame_time_{};
 
   // Callbacks
   std::mutex cb_mutex_;
@@ -183,9 +185,11 @@ private:
 
   // === Jog publisher (sends JogCommand to RobotControllerNode) ===
   rclcpp::Publisher<robot_msgs::msg::JogCommand>::SharedPtr jog_pub_;
+  std::mutex jog_mutex_;
   rclcpp::TimerBase::SharedPtr jog_repeat_timer_;
   robot_msgs::msg::JogCommand last_jog_msg_;
   std::atomic<bool> jog_active_{false};
+  std::atomic<bool> emergency_active_{false};
   uint8_t last_jog_frame_ = 1;  // BASE_FRAME
 
   // === Joint stream state ===

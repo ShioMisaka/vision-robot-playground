@@ -14,6 +14,7 @@
 #include <Eigen/SVD>
 
 #include <stdexcept>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -109,6 +110,7 @@ struct IKSolver::Impl {
   std::unique_ptr<KDL::ChainIkSolverPos_NR_JL> ik_solver;
 
   // 缓存上一次 IK 结果作为下次初始猜测
+  mutable std::mutex last_result_mutex_;
   mutable std::optional<std::vector<double>> last_result;
 };
 
@@ -167,10 +169,13 @@ std::optional<std::vector<double>> IKSolver::solve(
 
   // 构造初始猜测
   std::vector<double> init_guess;
-  if (impl_->last_result.has_value()) {
-    init_guess = *impl_->last_result;
-  } else {
-    init_guess = impl_->profile.ik_default_guess;
+  {
+    std::lock_guard<std::mutex> lock(impl_->last_result_mutex_);
+    if (impl_->last_result.has_value()) {
+      init_guess = *impl_->last_result;
+    } else {
+      init_guess = impl_->profile.ik_default_guess;
+    }
   }
 
   KDL::JntArray q_init(dof);
@@ -196,7 +201,10 @@ std::optional<std::vector<double>> IKSolver::solve(
     angles[i] = q_out(i);
   }
 
-  impl_->last_result = angles;
+  {
+    std::lock_guard<std::mutex> lock(impl_->last_result_mutex_);
+    impl_->last_result = angles;
+  }
   return angles;
 }
 

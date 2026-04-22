@@ -295,19 +295,7 @@ std::optional<std::array<double, 6>> RobotMotionController::lookup_transform(
 }
 
 Eigen::Matrix4d RobotMotionController::tcp_transform_matrix() const {
-  Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
-  Eigen::AngleAxisd roll_angle(current_tcp_config_.offset_rpy[0],
-                               Eigen::Vector3d::UnitX());
-  Eigen::AngleAxisd pitch_angle(current_tcp_config_.offset_rpy[1],
-                                Eigen::Vector3d::UnitY());
-  Eigen::AngleAxisd yaw_angle(current_tcp_config_.offset_rpy[2],
-                              Eigen::Vector3d::UnitZ());
-  T.block<3, 3>(0, 0) =
-      (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
-  T(0, 3) = current_tcp_config_.offset_xyz[0];
-  T(1, 3) = current_tcp_config_.offset_xyz[1];
-  T(2, 3) = current_tcp_config_.offset_xyz[2];
-  return T;
+  return tcp_to_matrix4d(current_tcp_config_);
 }
 
 void RobotMotionController::set_speed(MotionMode mode, double percent) {

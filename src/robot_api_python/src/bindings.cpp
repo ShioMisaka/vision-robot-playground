@@ -211,6 +211,7 @@ PYBIND11_MODULE(_core, m) {
   m.attr("FINGER_STABLE_TOL") = ControlConstants::kFingerStableTol;
   m.attr("READY_TIMEOUT") = ControlConstants::kReadyTimeout;
   m.attr("TRAJECTORY_DT") = ControlConstants::kTrajectoryDt;
+  m.attr("CONTROL_LOOP_HZ") = ControlConstants::kControlLoopHz;
 
   // ===== Layer 1 核心类 =====
 
@@ -227,7 +228,10 @@ PYBIND11_MODULE(_core, m) {
              return mat4d_to_nested_list(self.forward_matrix(joint_angles));
            },
            py::arg("joint_angles"))
-      .def("get_dof", &IKSolver::get_dof);
+      .def("get_dof", &IKSolver::get_dof)
+      .def("velocity_ik", &IKSolver::velocity_ik,
+           py::arg("current_joints"), py::arg("cartesian_delta"),
+           py::call_guard<py::gil_scoped_release>());
 
   // CameraInterface（不可实例化基类）
   py::class_<CameraInterface, std::shared_ptr<CameraInterface>>(

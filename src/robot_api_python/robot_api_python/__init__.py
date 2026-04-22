@@ -48,6 +48,7 @@ from robot_api_python._core import (
     FINGER_STABLE_TOL,
     READY_TIMEOUT,
     TRAJECTORY_DT,
+    CONTROL_LOOP_HZ,
 )
 
 __all__ = [
@@ -75,4 +76,18 @@ __all__ = [
     "RobotControllerNode",
     "VisionProcessorNode",
     "profiles",
+    "JOINT_TOLERANCE",
+    "FINGER_TOLERANCE",
+    "MOTION_TIMEOUT",
+    "POLL_INTERVAL",
+    "SETTLE_TIME",
+    "DEFAULT_STEPS",
+    "DEFAULT_STEP_TIME",
+    "IMAGE_SYNC_QUEUE_SIZE",
+    "IMAGE_SYNC_SLOP",
+    "FINGER_STABLE_COUNT",
+    "FINGER_STABLE_TOL",
+    "READY_TIMEOUT",
+    "TRAJECTORY_DT",
+    "CONTROL_LOOP_HZ",
 ]

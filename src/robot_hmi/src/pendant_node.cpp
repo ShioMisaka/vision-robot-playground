@@ -200,10 +200,9 @@ void PendantNode::image_callback(
 
   // 帧率限制：~30fps
   auto now = std::chrono::steady_clock::now();
-  static auto last_frame = now;
-  auto elapsed = std::chrono::duration<double>(now - last_frame).count();
+  auto elapsed = std::chrono::duration<double>(now - last_frame_time_).count();
   if (elapsed < 0.033) return;
-  last_frame = now;
+  last_frame_time_ = now;
 
   try {
     cv_bridge::CvImageConstPtr rgb_cv =
@@ -404,20 +403,24 @@ void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
   last_jog_frame_ = frame;
   pause_joint_stream();
 
-  last_jog_msg_ = build_jog_command(axis, frame);
-  last_jog_msg_.stamp = now();
-  jog_pub_->publish(last_jog_msg_);
+  {
+    std::lock_guard<std::mutex> lock(jog_mutex_);
+    last_jog_msg_ = build_jog_command(axis, frame);
+    last_jog_msg_.stamp = now();
+    jog_pub_->publish(last_jog_msg_);
 
-  // 启动 50Hz 重复发送（心跳 + 持续指令），看门狗需要持续刷新
-  if (!jog_repeat_timer_) {
-    jog_repeat_timer_ = create_wall_timer(
-        std::chrono::milliseconds(20),
-        [this]() {
-          if (jog_active_.load()) {
-            last_jog_msg_.stamp = now();
-            jog_pub_->publish(last_jog_msg_);
-          }
-        });
+    // 启动 50Hz 重复发送（心跳 + 持续指令），看门狗需要持续刷新
+    if (!jog_repeat_timer_) {
+      jog_repeat_timer_ = create_wall_timer(
+          std::chrono::milliseconds(20),
+          [this]() {
+            if (jog_active_.load()) {
+              std::lock_guard<std::mutex> lock(jog_mutex_);
+              last_jog_msg_.stamp = now();
+              jog_pub_->publish(last_jog_msg_);
+            }
+          });
+    }
   }
 }
 
@@ -425,9 +428,12 @@ void PendantNode::stop_jog() {
   if (!jog_active_.load()) return;
 
   // 停止重复发送
-  if (jog_repeat_timer_) {
-    jog_repeat_timer_->cancel();
-    jog_repeat_timer_.reset();
+  {
+    std::lock_guard<std::mutex> lock(jog_mutex_);
+    if (jog_repeat_timer_) {
+      jog_repeat_timer_->cancel();
+      jog_repeat_timer_.reset();
+    }
   }
 
   // 发布零速度 JogCommand 通知控制器停止
@@ -447,7 +453,12 @@ void PendantNode::on_robot_status(
   // 跟踪故障状态
   robot_fault_.store(msg->state == robot_msgs::msg::RobotStatus::FAULT);
 
-  if (jog_active_.load() &&
+  // 故障清除后重置急停标志
+  if (msg->state == robot_msgs::msg::RobotStatus::IDLE) {
+    emergency_active_ = false;
+  }
+
+  if (jog_active_.load() && !emergency_active_.load() &&
       msg->state == robot_msgs::msg::RobotStatus::IDLE) {
     // 控制器从 kTeaching 转为 kIdle → Jog 减速完成
     jog_active_ = false;
@@ -473,6 +484,7 @@ void PendantNode::on_robot_status(
 
 void PendantNode::emergency_stop() {
   jog_active_ = false;
+  emergency_active_ = true;
   pause_joint_stream();
   {
     std::lock_guard<std::mutex> jlock(latest_joints_mutex_);

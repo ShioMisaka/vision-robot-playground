@@ -4,6 +4,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 namespace robot_control {
 
@@ -46,5 +48,18 @@ struct GripperProfile {
   double max_width = 0.04;
   int dof = 1;
 };
+
+/// 根据 TcpConfig 构建 4x4 齐次变换矩阵
+inline Eigen::Matrix4d tcp_to_matrix4d(const TcpConfig& cfg) {
+  Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+  Eigen::AngleAxisd roll_a(cfg.offset_rpy[0], Eigen::Vector3d::UnitX());
+  Eigen::AngleAxisd pitch_a(cfg.offset_rpy[1], Eigen::Vector3d::UnitY());
+  Eigen::AngleAxisd yaw_a(cfg.offset_rpy[2], Eigen::Vector3d::UnitZ());
+  T.block<3, 3>(0, 0) = (yaw_a * pitch_a * roll_a).toRotationMatrix();
+  T(0, 3) = cfg.offset_xyz[0];
+  T(1, 3) = cfg.offset_xyz[1];
+  T(2, 3) = cfg.offset_xyz[2];
+  return T;
+}
 
 }  // namespace robot_control

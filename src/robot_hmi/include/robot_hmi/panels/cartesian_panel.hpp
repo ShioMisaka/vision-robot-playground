@@ -4,6 +4,7 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QPushButton>
+#include <QEvent>
 #include <atomic>
 #include <memory>
 
@@ -19,6 +20,9 @@ public:
 
 public slots:
   void onEstopChanged(bool active);
+
+protected:
+  bool eventFilter(QObject* watched, QEvent* event) override;
 
 private slots:
   void onMovePose();

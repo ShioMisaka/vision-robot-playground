@@ -7,7 +7,7 @@
   <link name="panda_link0">
     <visual>
       <geometry>
-        <mesh filename="package://meshes/collision/link0.obj"/>
+        <mesh filename="package://meshes/visual/link0.obj"/>
       </geometry>
       <material name="panda_white">
     		<color rgba="1. 1. 1. 1."/>
@@ -191,7 +191,7 @@
     </inertial>
     <visual>
       <geometry>
-        <mesh filename="package://meshes/collision/link7.obj"/>
+        <mesh filename="package://meshes/visual/link7.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>

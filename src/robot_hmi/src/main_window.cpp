@@ -35,8 +35,8 @@ MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
       [this](const cv::Mat& rgb) {
         cv::Mat copy = rgb.clone();
         QMetaObject::invokeMethod(this, [this, copy]() {
-          QImage qimg(copy.data, copy.cols, copy.rows,
-                      static_cast<int>(copy.step), QImage::Format_RGB888);
+          QImage qimg = QImage(copy.data, copy.cols, copy.rows,
+                      static_cast<int>(copy.step), QImage::Format_RGB888).copy();
           camera_panel_->onImageReceived(qimg);
         });
       });

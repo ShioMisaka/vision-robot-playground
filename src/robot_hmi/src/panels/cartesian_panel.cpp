@@ -139,6 +139,7 @@ QPushButton* CartesianPanel::createJogButton(const QString& text, int axis) {
   auto* btn = new QPushButton(text, this);
   btn->setFixedSize(50, 35);
   btn->setAutoRepeat(false);
+  btn->installEventFilter(this);
 
   connect(btn, &QPushButton::pressed, this,
           [this, axis]() { onJogPress(axis); });
@@ -146,6 +147,16 @@ QPushButton* CartesianPanel::createJogButton(const QString& text, int axis) {
           [this]() { onJogRelease(); });
 
   return btn;
+}
+
+bool CartesianPanel::eventFilter(QObject* watched, QEvent* event) {
+  if (event->type() == QEvent::Leave) {
+    auto* btn = qobject_cast<QPushButton*>(watched);
+    if (btn && btn->isDown()) {
+      onJogRelease();
+    }
+  }
+  return QWidget::eventFilter(watched, event);
 }
 
 }  // namespace robot_hmi

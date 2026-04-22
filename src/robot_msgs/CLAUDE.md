@@ -68,6 +68,7 @@ Jog 点动速度命令，由 `PendantNode` 发布，`RobotControllerNode` 订阅
 | joint_angles | float64[7] | 目标关节角（mode=0） |
 | position | geometry_msgs/Point | 目标位置（mode=1） |
 | orientation | geometry_msgs/Vector3 | 目标朝向（mode=1） |
+| frame | string | 坐标系名称（如 "panda_link0"） |
 | speed_ratio | float64 | 速度比 |
 | finger_width | float64 | 目标夹爪宽度 |
 
@@ -78,7 +79,7 @@ Jog 点动速度命令，由 `PendantNode` 发布，`RobotControllerNode` 订阅
 ### MoveL.action
 笛卡尔空间线性运动，带进度反馈。
 
-**Goal:** position, orientation, speed_ratio, finger_width（字段同 MoveJ）
+**Goal:** position, orientation, frame, speed_ratio, finger_width（字段同 MoveJ）
 
 **Result / Feedback:** 同 MoveJ
 

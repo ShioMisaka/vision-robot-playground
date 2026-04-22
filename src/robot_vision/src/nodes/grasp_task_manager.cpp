@@ -1,6 +1,7 @@
 #include "robot_vision/nodes/grasp_task_manager.hpp"
 
 #include <Eigen/Geometry>
+#include <rclcpp/logging.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -76,48 +77,53 @@ bool GraspTaskManager::step_detect() {
     return false;
   }
 
-  target_xyz_ = {result->xyz.x(), result->xyz.y(), result->xyz.z()};
-
-  // 尝试转换到基座坐标系
+  // 必须成功转换到基座坐标系，否则拒绝抓取（避免碰撞风险）
   auto base_xyz = transform_to_base(result->xyz);
-  if (base_xyz.has_value()) {
-    target_xyz_ = *base_xyz;
+  if (!base_xyz.has_value()) {
+    RCLCPP_WARN(rclcpp::get_logger("grasp_task_manager"),
+                "TF lookup failed, cannot determine grasp target in base frame");
+    return false;
   }
 
+  target_xyz_ = *base_xyz;
   state_ = GraspState::kApproaching;
   return true;
 }
 
 void GraspTaskManager::step_approach() {
+  if (!target_xyz_.has_value()) {
+    state_ = GraspState::kError;
+    return;
+  }
   auto target = *target_xyz_;
   target[2] += approach_height_;
 
   robot_->move_to_pose(target, grasp_rpy_, -1.0, 0, 0.08, true);
-  std::this_thread::sleep_for(std::chrono::seconds(2));
 
   state_ = GraspState::kDescending;
 }
 
 void GraspTaskManager::step_descend() {
+  if (!target_xyz_.has_value()) {
+    state_ = GraspState::kError;
+    return;
+  }
   auto target = *target_xyz_;
   target[2] += grasp_height_offset_;
 
   robot_->move_to_pose(target, grasp_rpy_, -1.0, 0, 0.08, true);
-  std::this_thread::sleep_for(std::chrono::seconds(2));
 
   state_ = GraspState::kGrasping;
 }
 
 void GraspTaskManager::step_grasp() {
   robot_->close_gripper(true);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
   state_ = GraspState::kLifting;
 }
 
 void GraspTaskManager::step_lift() {
   double lift_height = approach_height_ + 0.1;
   robot_->move_linear({0.0, 0.0, lift_height}, "base", -1.0, true);
-  std::this_thread::sleep_for(std::chrono::seconds(2));
 
   state_ = GraspState::kDone;
 }
