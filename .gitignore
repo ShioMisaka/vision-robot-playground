@@ -12,6 +12,7 @@ venv_ros/
 # IDE
 .vscode/
 .idea/
+.clangd
 
 # Claude Code
 .claude/
