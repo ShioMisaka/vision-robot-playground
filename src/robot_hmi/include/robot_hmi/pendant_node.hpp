@@ -40,8 +40,9 @@ public:
   /// 连接状态回调
   using ConnectionCallback = std::function<void(bool robot, bool camera)>;
 
-  /// 图像回调（ROS2 线程中完成 BGR→RGB 转换，返回 RGB cv::Mat）
-  using ImageCallback = std::function<void(const cv::Mat& rgb)>;
+  /// 图像回调（ROS2 线程中完成转换，返回 RGB + 深度可视化 + 原始深度）
+  using ImageCallback = std::function<void(
+      const cv::Mat& rgb, const cv::Mat& depth_visual, const cv::Mat& depth_raw)>;
 
   static std::shared_ptr<PendantNode> create(
       const std::string& robot_service_prefix = "robot_controller_node");

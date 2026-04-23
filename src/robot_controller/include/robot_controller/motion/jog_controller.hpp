@@ -119,7 +119,8 @@ private:
   // 内部位置追踪（避免反馈延迟）
   std::array<double, 7> jog_q_current_{};
 
-  // 夹爪宽度
+  // 夹爪宽度（初始值 0.04 仅在首次 set_finger_width 前使用，
+  // 正常流程中 control_loop_tick 会在每个 tick 设置实际值）
   double finger_width_ = 0.04;
 };
 

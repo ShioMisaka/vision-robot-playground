@@ -175,6 +175,14 @@ void PendantNode::joint_state_callback(
     }
   }
 
+  // Sync gripper finger position from joint state feedback.
+  // /joint_states has 9 values: 7 arm + 2 gripper (panda_finger_joint1/2).
+  // Use the first finger joint's position as finger_width, consistent with
+  // the controller's get_current_finger() which reads one finger only.
+  if (msg->position.size() >= 8) {
+    current_finger_ = msg->position[7];
+  }
+
   if (!was_connected) {
     std::lock_guard<std::mutex> lock(cb_mutex_);
     if (conn_cb_) {
@@ -210,13 +218,36 @@ void PendantNode::image_callback(
     cv_bridge::CvImageConstPtr depth_cv =
         cv_bridge::toCvShare(depth_msg);
 
-    cv::Mat display;
-
     std::lock_guard<std::mutex> lock(cb_mutex_);
     if (image_cb_) {
       cv::Mat rgb;
       cv::cvtColor(rgb_cv->image, rgb, cv::COLOR_BGR2RGB);
-      image_cb_(rgb);
+
+      // 深度图归一化 + colormap 可视化
+      cv::Mat depth_f;
+      if (depth_cv->image.type() == CV_16UC1) {
+        depth_cv->image.convertTo(depth_f, CV_32F, 1.0 / 1000.0);
+      } else {
+        depth_f = depth_cv->image.clone();
+      }
+
+      cv::Mat valid_mask = (depth_f > 0);
+      double min_val = 0, max_val = 0;
+      cv::minMaxLoc(depth_f, &min_val, &max_val, nullptr, nullptr, valid_mask);
+
+      cv::Mat depth_color;
+      if (max_val > min_val && max_val > 0) {
+        cv::Mat normalized;
+        cv::normalize(depth_f, normalized, 0, 255, cv::NORM_MINMAX, CV_8U,
+                      valid_mask);
+        cv::applyColorMap(normalized, depth_color, cv::COLORMAP_JET);
+        depth_color.setTo(cv::Scalar(0, 0, 0), ~valid_mask);
+      } else {
+        depth_color = cv::Mat::zeros(depth_f.size(), CV_8UC3);
+      }
+      cv::cvtColor(depth_color, depth_color, cv::COLOR_BGR2RGB);
+
+      image_cb_(rgb, depth_color, depth_f);
     }
   } catch (const cv_bridge::Exception& e) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
@@ -282,7 +313,11 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
                                   const std::optional<std::array<double, 3>>& rpy,
                                   uint8_t mode, double finger,
                                   VoidCallback callback) {
-  post_task([this, xyz, rpy, mode, finger, callback]() {
+  // Resolve default finger (-1) to actual current position so the gripper
+  // stays where it is instead of being forced open by the controller's
+  // grasping_ flag (which defaults to false on startup).
+  double actual_finger = (finger < 0) ? current_finger_.load() : finger;
+  post_task([this, xyz, rpy, mode, actual_finger, callback]() {
     if (!cli_move_pose_->service_is_ready()) {
       if (callback) callback(false, "Service not available");
       return;
@@ -293,7 +328,7 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
       req->rpy = {(*rpy)[0], (*rpy)[1], (*rpy)[2]};
     }
     req->mode = mode;
-    req->finger = finger;
+    req->finger = actual_finger;
     auto future = cli_move_pose_->async_send_request(req);
     if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
       if (callback) callback(false, "Service call timeout");
@@ -529,7 +564,8 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_thread_ = std::thread([this]() {
     const std::vector<std::string> joint_names = {
         "panda_joint1", "panda_joint2", "panda_joint3",
-        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"};
+        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7",
+        "panda_finger_joint1", "panda_finger_joint2"};
 
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -542,13 +578,20 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
         joint_stream_dirty_ = false;
       }
 
+      // Publish all 9 joints (7 arm + 2 gripper).
+      // Must include gripper joints so the gripper stays at its current
+      // position.  Omitting them would let the controller's 100Hz loop
+      // fight with this 50Hz stream on /joint_command, causing oscillation.
+      double finger = current_finger_.load();
       sensor_msgs::msg::JointState msg;
       msg.header.stamp = now();
       msg.name = joint_names;
-      msg.position.reserve(7);
+      msg.position.reserve(9);
       for (int i = 0; i < 7; ++i) {
         msg.position.push_back(target[i]);
       }
+      msg.position.push_back(finger);
+      msg.position.push_back(finger);
       joint_cmd_pub_->publish(msg);
     }
   });

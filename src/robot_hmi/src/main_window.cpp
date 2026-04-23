@@ -32,12 +32,17 @@ MainWindow::MainWindow(std::shared_ptr<PendantNode> node, QWidget* parent)
 
   // Image -> CameraPanel (cv::Mat -> QImage conversion)
   node_->set_image_callback(
-      [this](const cv::Mat& rgb) {
-        cv::Mat copy = rgb.clone();
-        QMetaObject::invokeMethod(this, [this, copy]() {
-          QImage qimg = QImage(copy.data, copy.cols, copy.rows,
-                      static_cast<int>(copy.step), QImage::Format_RGB888).copy();
-          camera_panel_->onImageReceived(qimg);
+      [this](const cv::Mat& rgb, const cv::Mat& depth_visual,
+             const cv::Mat& depth_raw) {
+        cv::Mat rgb_copy = rgb.clone();
+        cv::Mat depth_copy = depth_visual.clone();
+        cv::Mat raw_copy = depth_raw.clone();
+        QMetaObject::invokeMethod(this, [this, rgb_copy, depth_copy, raw_copy]() {
+          QImage rgb_img = QImage(rgb_copy.data, rgb_copy.cols, rgb_copy.rows,
+                      static_cast<int>(rgb_copy.step), QImage::Format_RGB888).copy();
+          QImage depth_img = QImage(depth_copy.data, depth_copy.cols, depth_copy.rows,
+                      static_cast<int>(depth_copy.step), QImage::Format_RGB888).copy();
+          camera_panel_->onImageReceived(rgb_img, depth_img, raw_copy);
         });
       });
 

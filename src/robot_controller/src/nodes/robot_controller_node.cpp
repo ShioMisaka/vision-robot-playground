@@ -89,14 +89,10 @@ void RosMotionBridge::publish_gripper(double finger) {
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();
 
-  // 包含当前臂关节位置，避免发送部分关节状态
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    for (size_t i = 0; i < profile_.joint_names.size(); ++i) {
-      msg.name.push_back(profile_.joint_names[i]);
-      msg.position.push_back(current_arm_[i]);
-    }
-  }
+  // 仅发布夹爪关节指令，不包含臂关节。
+  // HMI 示教器的关节流控以 50Hz 发布 7 个臂关节到同一 topic，
+  // 如果这里也包含臂关节，两者会互相覆盖导致振荡。
+  // Isaac Sim 按 joint name 匹配，只更新消息中包含的关节。
   for (size_t i = profile_.dof; i < profile_.all_joint_names.size(); ++i) {
     msg.name.push_back(profile_.all_joint_names[i]);
     msg.position.push_back(finger);
@@ -1346,7 +1342,7 @@ void RobotControllerNode::control_loop_tick() {
         for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
         double jog_finger = controller_->is_grasping()
                                 ? gripper_.min_width
-                                : gripper_.max_width;
+                                : bridge_->get_current_finger();
         jog_controller_->set_finger_width(jog_finger);
         jog_controller_->tick(fb, [](const std::vector<double>&, double) {});
         auto jog_target = jog_controller_->get_commanded_joints();
@@ -1396,10 +1392,10 @@ void RobotControllerNode::control_loop_tick() {
     case RobotState::kFault:
       // 位置保持：target 跟随 actual，避免 target 初始化为零导致归零
       target = actual;
-      // 夹爪只有两个值：抓取=min_width(0.0)，非抓取=max_width(0.04)
+      // 抓取时持续施力（min_width），非抓取时保持当前夹爪位置避免误开
       target_finger = controller_->is_grasping()
                           ? gripper_.min_width
-                          : gripper_.max_width;
+                          : bridge_->get_current_finger();
       break;
   }
 

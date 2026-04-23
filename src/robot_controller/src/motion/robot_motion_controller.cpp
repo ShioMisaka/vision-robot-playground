@@ -39,9 +39,9 @@ void RobotMotionController::interpolate_to(
       interp[j] = current[j] + t * (target[j] - current[j]);
     }
     // 抓取状态下始终发送目标夹爪宽度以维持夹持力，
-    // 非抓取时中间步保持当前夹爪避免误动
+    // 非抓取时保持当前夹爪位置避免误动
     double step_finger = grasping_ ? gripper_.min_width
-                                   : gripper_.max_width;
+                                   : bridge_->get_current_finger();
     bridge_->publish_command(interp, step_finger);
     std::this_thread::sleep_for(
         std::chrono::duration<double>(step_time));
@@ -67,9 +67,9 @@ void RobotMotionController::set_arm(const std::vector<double>& angles,
         " joint angles, got " + std::to_string(angles.size()));
   }
   // 抓取状态下发送 min_width 以持续施加夹持力，
-  // 抓取时持续施力（min_width），非抓取时完全张开（max_width）
+  // 非抓取时保持当前夹爪位置避免误开
   double finger = grasping_ ? gripper_.min_width
-                            : gripper_.max_width;
+                            : bridge_->get_current_finger();
   bridge_->publish_command(angles, finger);
   if (block) {
     bridge_->wait_for_motion(
@@ -165,11 +165,11 @@ void RobotMotionController::move_to_pose(
     angles = *result;
   }
 
-  // finger: -1 表示按抓取状态决定（抓取=min_width，非抓取=max_width）
+  // finger: -1 表示按抓取状态决定（抓取=min_width，非抓取=保持当前位置）
   double actual_finger;
   if (finger < 0) {
     actual_finger = grasping_ ? gripper_.min_width
-                              : gripper_.max_width;
+                              : bridge_->get_current_finger();
   } else {
     actual_finger = finger;
   }
@@ -381,7 +381,7 @@ void RobotMotionController::moveJ(
   }
 
   double finger = grasping_ ? gripper_.min_width
-                            : gripper_.max_width;
+                            : bridge_->get_current_finger();
   moveJ_internal(target_angles, finger, block);
 }
 
@@ -436,7 +436,7 @@ void RobotMotionController::moveJ(
   double actual_finger;
   if (finger < 0) {
     actual_finger = grasping_ ? gripper_.min_width
-                              : gripper_.max_width;
+                              : bridge_->get_current_finger();
   } else {
     actual_finger = finger;
   }
@@ -486,7 +486,7 @@ void RobotMotionController::moveL(
   double actual_finger;
   if (finger < 0) {
     actual_finger = grasping_ ? gripper_.min_width
-                              : gripper_.max_width;
+                              : bridge_->get_current_finger();
   } else {
     actual_finger = finger;
   }
