@@ -26,6 +26,7 @@ protected:
 
 private slots:
   void onMovePose();
+  void onReadCurrentPose();
   void onJogPress(int axis);
   void onJogRelease();
 

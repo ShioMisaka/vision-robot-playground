@@ -64,12 +64,20 @@ CartesianPanel::CartesianPanel(std::shared_ptr<PendantNode> node,
   }
   layout->addLayout(rpy_grid);
 
-  // Move button
+  // Move button + Read Current button
+  auto* move_layout = new QHBoxLayout();
+  auto* btn_read_current = new QPushButton("Read Current", this);
+  btn_read_current->setStyleSheet("padding: 6px;");
+  connect(btn_read_current, &QPushButton::clicked, this,
+          &CartesianPanel::onReadCurrentPose);
+  move_layout->addWidget(btn_read_current);
+
   auto* btn_move_pose = new QPushButton("Move to Pose", this);
   btn_move_pose->setStyleSheet("padding: 6px; font-weight: bold;");
   connect(btn_move_pose, &QPushButton::clicked, this,
           &CartesianPanel::onMovePose);
-  layout->addWidget(btn_move_pose);
+  move_layout->addWidget(btn_move_pose);
+  layout->addLayout(move_layout);
 
   // Jog buttons — two columns: XYZ (left) | RPY (right), +/- side by side
   auto* jog_group = new QGroupBox("Jog", this);
@@ -118,6 +126,21 @@ void CartesianPanel::onMovePose() {
       spin_rpy_[0]->value(), spin_rpy_[1]->value(), spin_rpy_[2]->value()};
   uint8_t mode = static_cast<uint8_t>(combo_motion_mode_->currentIndex());
   node_->async_move_pose(xyz, rpy, mode);
+}
+
+void CartesianPanel::onReadCurrentPose() {
+  node_->async_get_state(
+      [this](bool success, const std::vector<double>& /*joints*/,
+             const std::array<double, 6>& pose,
+             double /*finger*/, const std::string& /*tcp*/) {
+        if (!success) return;
+        QMetaObject::invokeMethod(this, [this, pose]() {
+          for (int i = 0; i < 3; ++i) {
+            spin_xyz_[i]->setValue(pose[i]);
+            spin_rpy_[i]->setValue(pose[i + 3]);
+          }
+        });
+      });
 }
 
 void CartesianPanel::onJogPress(int axis) {

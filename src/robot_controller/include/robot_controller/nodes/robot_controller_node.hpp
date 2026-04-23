@@ -317,6 +317,10 @@ private:
   // === Jog controller (pure C++ math) ===
   std::unique_ptr<JogController> jog_controller_;
 
+  // === Jog settling ===
+  bool jog_settling_ = false;
+  std::chrono::steady_clock::time_point jog_settle_start_time_;
+
   // === Status publisher ===
   rclcpp::Publisher<robot_msgs::msg::RobotStatus>::SharedPtr status_pub_;
   rclcpp::TimerBase::SharedPtr status_timer_;

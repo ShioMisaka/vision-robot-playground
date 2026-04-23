@@ -1201,6 +1201,7 @@ void RobotControllerNode::handle_jog_command(
     if (need_restart) {
       if (jog_controller_->is_stopping()) {
         jog_controller_->reset();
+        jog_settling_ = false;
       }
       jog_controller_->start_raw(vel, msg->frame);
     }
@@ -1216,6 +1217,13 @@ void RobotControllerNode::handle_jog_command(
 void RobotControllerNode::jog_watchdog_callback() {
   if (state_machine_.state() != RobotState::kTeaching) return;
 
+  // Jog 正在减速（stop 已调用）或 settling 中，允许自然完成，不触发看门狗
+  // 看门狗仅保护 PendantNode 断连的异常场景（活跃 jog 中无命令）
+  if (jog_settling_ ||
+      (jog_controller_ && jog_controller_->is_stopping())) {
+    return;
+  }
+
   auto elapsed = (this->now() - last_jog_time_).seconds();
   if (elapsed > 0.2) {
     RCLCPP_WARN(this->get_logger(), "Jog watchdog: no command for %.2fs, stopping", elapsed);
@@ -1225,6 +1233,7 @@ void RobotControllerNode::jog_watchdog_callback() {
       fb[i] = actual[i];
     }
     jog_controller_->emergency_stop(fb);
+    jog_settling_ = false;
     state_machine_.transition_to(RobotState::kIdle);
   }
 }
@@ -1233,6 +1242,7 @@ void RobotControllerNode::jog_watchdog_callback() {
 
 void RobotControllerNode::emergency_stop() {
   bridge_->setpoint_generator().cancel();
+  jog_settling_ = false;
 
   if (jog_controller_ && jog_controller_->is_active()) {
     auto actual = state_model_.get_actual_joints();
@@ -1350,8 +1360,29 @@ void RobotControllerNode::control_loop_tick() {
         target_finger = jog_finger;
 
         if (!jog_controller_->is_active()) {
+          // Jog 减速完成：进入 settling 阶段，继续发布最后目标等机器人到位
+          jog_settling_ = true;
+          jog_settle_start_time_ = std::chrono::steady_clock::now();
+        }
+      }
+
+      // Jog settling: 保持发布最后目标，等机器人追上后再转 kIdle
+      if (jog_settling_) {
+        bool on_target = state_model_.is_on_target(
+            ControlConstants::kArrivalTolerance);
+        auto settle_elapsed = std::chrono::steady_clock::now() -
+                              jog_settle_start_time_;
+        bool timed_out = std::chrono::duration<double>(settle_elapsed).count() >
+                         0.5;  // 最多 settle 500ms
+
+        if (on_target || timed_out) {
+          // Settling 完成：将 target 对齐到 actual，确保 PendantNode 接管时无跳变
+          target = actual;
+          target_finger = actual_finger;
+          jog_settling_ = false;
           state_machine_.transition_to(RobotState::kIdle);
         }
+        // settling 期间 target 保持不变（最后 jog 目标），WRITE 继续发布
       }
       break;
     }
@@ -1426,6 +1457,7 @@ void RobotControllerNode::control_loop_tick() {
       for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
       jog_controller_->emergency_stop(fb);
     }
+    jog_settling_ = false;
     state_model_.align_target_to_actual();
     state_machine_.transition_to(RobotState::kIdle);
     return;

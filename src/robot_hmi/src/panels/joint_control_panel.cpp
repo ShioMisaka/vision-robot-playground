@@ -162,7 +162,10 @@ void JointControlPanel::onJointFollowTick() {
   // For non-controlled joints: keep command_target_ unchanged (hold position)
   for (int i = 0; i < 7; ++i) {
     if (slider_is_controlled_[i]) {
-      command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
+      double deg = sliderToDeg(slider_joint_[i]->value());
+      command_target_[i] = degToRad(deg);
+      edit_joint_[i]->setText(
+          QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
     }
   }
   node_->update_joint_target(command_target_);
