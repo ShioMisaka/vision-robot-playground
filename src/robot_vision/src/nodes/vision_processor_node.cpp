@@ -1,10 +1,12 @@
 #include "robot_vision/nodes/vision_processor_node.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 
 #include <chrono>
 
-namespace robot_control {
+namespace robot_vision {
+
+using robot_control::ControlConstants;
 
 std::shared_ptr<VisionProcessorNode> VisionProcessorNode::create(
     std::shared_ptr<CameraInterface> processor, const TopicConfig& topics) {
@@ -97,4 +99,4 @@ std::optional<DetectionResult> VisionProcessorNode::wait_for_detection(
   return std::nullopt;
 }
 
-}  // namespace robot_control
+}  // namespace robot_vision

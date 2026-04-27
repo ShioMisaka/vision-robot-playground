@@ -6,7 +6,7 @@
 
 #include "robot_vision/vision/camera_interface.hpp"
 
-namespace robot_control {
+namespace robot_vision {
 
 /// 基于 HSV 颜色范围的目标检测器
 class ColorDetector : public CameraInterface {
@@ -41,4 +41,4 @@ private:
   double cy_ = 240.0;
 };
 
-}  // namespace robot_control
+}  // namespace robot_vision

@@ -5,7 +5,7 @@
 #include <cmath>
 #include <vector>
 
-namespace robot_control {
+namespace robot_vision {
 
 // ---- CameraInterface ----
 
@@ -113,4 +113,4 @@ void ColorDetector::set_camera_intrinsics(double fx, double fy, double cx,
   cy_ = cy;
 }
 
-}  // namespace robot_control
+}  // namespace robot_vision

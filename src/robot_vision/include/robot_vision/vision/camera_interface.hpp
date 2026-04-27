@@ -5,7 +5,7 @@
 
 #include "robot_vision/vision/i_vision_processor.hpp"
 
-namespace robot_control {
+namespace robot_vision {
 
 /// 图像处理抽象基类，子类实现具体检测逻辑
 class CameraInterface {
@@ -29,4 +29,4 @@ public:
                                       double cx, double cy);
 };
 
-}  // namespace robot_control
+}  // namespace robot_vision

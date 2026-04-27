@@ -61,8 +61,8 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 | 状态 | 动作 |
 |------|------|
 | kDetecting | 调用 vision->get_latest_result()，转换到 base 坐标系 |
-| kApproaching | move_to_pose() 到目标上方 approach_height（默认 0.15m） |
-| kDescending | move_to_pose() 到抓取高度（grasp_height_offset 默认 0.02m） |
+| kApproaching | moveJ() 到目标上方 approach_height（默认 0.15m，S 曲线轨迹） |
+| kDescending | moveL() 到抓取高度（grasp_height_offset 默认 0.02m，直线运动） |
 | kGrasping | close_gripper() |
 | kLifting | move_linear() 抬起 approach_height + 0.1m |
 
@@ -105,7 +105,7 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 
 ## 包内依赖
 - **内部依赖**: robot_controller（使用 IRobotController, RobotControllerNode, TopicConfig, ControlConstants）
-- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, eigen
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, eigen, OpenCV
 
 ## 修改指南
 - **替换检测算法** → 创建 `CameraInterface` 子类，实现 `process_image()`，参考 `ColorDetector` 写法
@@ -117,6 +117,7 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 - **修改图像同步策略** → 编辑 `src/nodes/vision_processor_node.cpp` 的 `init()` 中 ApproximateTime 配置
 
 ## 注意事项
+- **命名空间**: 此包所有类使用 `namespace robot_vision`（引用 robot_controller 类型时通过 `using robot_control::XXX`）
 - **依赖方向**: robot_vision → robot_controller 单向依赖，不可反向（避免循环依赖）
 - `process_image()` 为虚函数，ColorDetector 是一个实现示例，生产环境应替换为 YOLO/GraspNet
 - `GraspTaskManager::run()` 是阻塞调用，需在独立线程中执行

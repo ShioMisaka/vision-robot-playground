@@ -1,4 +1,5 @@
 #include "robot_vision/nodes/grasp_task_manager.hpp"
+#include "robot_controller/kinematics/robot_profile.hpp"
 
 #include <Eigen/Geometry>
 #include <rclcpp/logging.hpp>
@@ -8,7 +9,9 @@
 #include <thread>
 #include <vector>
 
-namespace robot_control {
+namespace robot_vision {
+
+using robot_control::rpy_to_rotation;
 
 GraspTaskManager::GraspTaskManager(
     std::shared_ptr<IRobotController> robot,
@@ -98,7 +101,7 @@ void GraspTaskManager::step_approach() {
   auto target = *target_xyz_;
   target[2] += approach_height_;
 
-  robot_->move_to_pose(target, grasp_rpy_, -1.0, 0, 0.08, true);
+  robot_->moveJ(target, grasp_rpy_, -1.0, true);
 
   state_ = GraspState::kDescending;
 }
@@ -111,7 +114,7 @@ void GraspTaskManager::step_descend() {
   auto target = *target_xyz_;
   target[2] += grasp_height_offset_;
 
-  robot_->move_to_pose(target, grasp_rpy_, -1.0, 0, 0.08, true);
+  robot_->moveL(target, grasp_rpy_, -1.0, true);
 
   state_ = GraspState::kGrasping;
 }
@@ -137,10 +140,7 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
   }
 
   // tf = {x, y, z, roll, pitch, yaw}
-  Eigen::AngleAxisd roll((*tf)[3], Eigen::Vector3d::UnitX());
-  Eigen::AngleAxisd pitch((*tf)[4], Eigen::Vector3d::UnitY());
-  Eigen::AngleAxisd yaw((*tf)[5], Eigen::Vector3d::UnitZ());
-  Eigen::Matrix3d R = (yaw * pitch * roll).toRotationMatrix();
+  Eigen::Matrix3d R = rpy_to_rotation((*tf)[3], (*tf)[4], (*tf)[5]);
 
   Eigen::Vector3d t((*tf)[0], (*tf)[1], (*tf)[2]);
   Eigen::Vector3d base_point = R * camera_xyz + t;
@@ -149,4 +149,4 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
                                 base_point.z()};
 }
 
-}  // namespace robot_control
+}  // namespace robot_vision

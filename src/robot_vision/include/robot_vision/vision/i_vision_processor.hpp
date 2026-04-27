@@ -4,7 +4,7 @@
 #include <array>
 #include <optional>
 
-namespace robot_control {
+namespace robot_vision {
 
 /// 单次视觉检测结果
 struct DetectionResult {
@@ -27,4 +27,4 @@ public:
       double timeout = 10.0) = 0;
 };
 
-}  // namespace robot_control
+}  // namespace robot_vision

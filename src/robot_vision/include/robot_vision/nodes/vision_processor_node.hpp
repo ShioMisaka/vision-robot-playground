@@ -14,9 +14,11 @@
 
 #include "robot_vision/vision/camera_interface.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 
-namespace robot_control {
+namespace robot_vision {
+
+using robot_control::TopicConfig;
 
 /// ROS 2 视觉处理节点
 /// 通过 message_filters 同步订阅 RGB + 深度图像
@@ -57,4 +59,4 @@ private:
   mutable std::condition_variable result_cv_;
 };
 
-}  // namespace robot_control
+}  // namespace robot_vision

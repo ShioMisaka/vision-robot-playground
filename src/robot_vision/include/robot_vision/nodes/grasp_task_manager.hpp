@@ -10,7 +10,9 @@
 #include "robot_controller/motion/i_robot_controller.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
 
-namespace robot_control {
+namespace robot_vision {
+
+using robot_control::IRobotController;
 
 /// 抓取任务状态
 enum class GraspState {
@@ -80,4 +82,4 @@ private:
   std::optional<std::array<double, 3>> target_xyz_;
 };
 
-}  // namespace robot_control
+}  // namespace robot_vision
