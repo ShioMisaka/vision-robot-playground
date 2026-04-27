@@ -5,7 +5,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -58,7 +57,7 @@ public:
                        double finger) override;
 
   /// 仅发布夹爪关节指令（kIdle 时维持夹持力，不覆盖 arm）
-  void publish_gripper(double finger);
+  void publish_gripper(double finger) override;
   std::vector<double> get_current_arm() const override;
   double get_current_finger() const override;
   bool wait_for_motion(const std::vector<double>& target_arm,

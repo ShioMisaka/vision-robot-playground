@@ -1,5 +1,6 @@
 #include "robot_controller/motion/robot_motion_controller.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
+#include "robot_controller/kinematics/trajectory_planner.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 
 #include <Eigen/Geometry>

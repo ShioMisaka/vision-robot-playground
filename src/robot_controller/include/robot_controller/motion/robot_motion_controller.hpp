@@ -10,7 +10,6 @@
 #include "robot_controller/motion/i_robot_controller.hpp"
 #include "robot_controller/motion/motion_io_bridge.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/kinematics/trajectory_planner.hpp"
 
 namespace robot_control {
 
