@@ -45,7 +45,11 @@ public:
       const cv::Mat& rgb, const cv::Mat& depth_visual, const cv::Mat& depth_raw)>;
 
   static std::shared_ptr<PendantNode> create(
-      const std::string& robot_service_prefix = "robot_controller_node");
+      const std::string& robot_service_prefix = "robot_controller_node",
+      const std::vector<std::string>& joint_names = {});
+
+  /// 设置关节名（用于流控发布），如未设置则使用默认 panda_joint1..7
+  void set_joint_names(const std::vector<std::string>& names);
 
   ~PendantNode();
 
@@ -204,6 +208,7 @@ private:
   // Direct joint command publisher (bypasses service layer for low-latency streaming)
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;
   std::atomic<double> current_finger_{0.04};  // updated by async_get_state
+  std::vector<std::string> joint_names_;
 
   // Latest joint angles from /joint_states (for resync after jog)
   std::mutex latest_joints_mutex_;

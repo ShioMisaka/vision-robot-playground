@@ -14,6 +14,7 @@
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
   <depend>robot_msgs</depend>
+  <depend>OpenCV</depend>
   <depend>robot_controller</depend>
 
   <build_depend>qtbase5-dev</build_depend>

@@ -7,9 +7,11 @@
 namespace robot_hmi {
 
 std::shared_ptr<PendantNode> PendantNode::create(
-    const std::string& robot_service_prefix) {
+    const std::string& robot_service_prefix,
+    const std::vector<std::string>& joint_names) {
   auto node = std::shared_ptr<PendantNode>(
       new PendantNode(robot_service_prefix));
+  node->joint_names_ = joint_names;
   node->init();
   return node;
 }
@@ -17,6 +19,10 @@ std::shared_ptr<PendantNode> PendantNode::create(
 PendantNode::PendantNode(const std::string& robot_service_prefix)
     : Node("robot_hmi_node"),
       service_prefix_(robot_service_prefix) {}
+
+void PendantNode::set_joint_names(const std::vector<std::string>& names) {
+  joint_names_ = names;
+}
 
 void PendantNode::init() {
   // Service clients
@@ -96,9 +102,9 @@ void PendantNode::init() {
     }
   });
 
-  // 直接发布关节指令（低延迟，绕过 service 层）
+  // 发布关节目标到控制器（由 100Hz 控制循环统一执行，避免双发布竞争）
   joint_cmd_pub_ = create_publisher<sensor_msgs::msg::JointState>(
-      "/joint_command", 10);
+      service_prefix_ + "/joint_target", 10);
 
   // Jog 命令发布器（发送 JogCommand 到 RobotControllerNode）
   jog_pub_ = create_publisher<robot_msgs::msg::JogCommand>(
@@ -562,9 +568,11 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_running_ = true;
   joint_stream_paused_ = false;
   joint_stream_thread_ = std::thread([this]() {
-    const std::vector<std::string> joint_names = {
-        "panda_joint1", "panda_joint2", "panda_joint3",
-        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"};
+    const std::vector<std::string> joint_names = joint_names_.empty()
+        ? std::vector<std::string>{
+              "panda_joint1", "panda_joint2", "panda_joint3",
+              "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"}
+        : joint_names_;
 
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));

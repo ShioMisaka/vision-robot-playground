@@ -18,7 +18,7 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 
 | 名称 | 类型 | 方向 | 说明 |
 |------|------|------|------|
-| `/joint_command` | sensor_msgs/JointState | Pub | 50Hz 关节指令流（关节滑块控制） |
+| `~/joint_target` | sensor_msgs/JointState | Pub | 50Hz 关节目标流（发送到 RobotControllerNode，由 100Hz 控制循环统一执行） |
 | `/jog_command` | robot_msgs/JogCommand | Pub | Jog 点动命令（50Hz 心跳） |
 | `/joint_states` | sensor_msgs/JointState | Sub | 关节反馈 |
 | `~/status` | robot_msgs/RobotStatus | Sub | 机器人状态（检测 Jog 完成和 Fault） |
@@ -56,11 +56,12 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 | `include/robot_hmi/pendant_node.hpp` | PendantNode | 接口定义 |
 
 **PendantNode 关键方法：**
+- `create(service_prefix, joint_names)` → 工厂构造函数（接受关节名称列表）
 - `async_get_state()` → 异步查询状态（后台线程，2s 超时）
 - `async_move_joint()`, `async_move_pose()` → 异步运动（15s 超时）
 - `start_jog(axis, mode, frame)` → 开始 Jog（50Hz 定时器发送 JogCommand）
 - `stop_jog()` → 停止 Jog（发送零速度）
-- `start_joint_stream(initial)` → 启动 50Hz 关节流控线程
+- `start_joint_stream(initial)` → 启动 50Hz 关节目标流控线程（发布到 `~/joint_target`）
 - `emergency_stop()`, `clear_fault()` → 急停/恢复
 - `build_jog_command(axis, frame)` → 构建 JogCommand（线性 50mm/s，角速度 11°/s）
 
@@ -113,7 +114,7 @@ JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
 
 1. **首帧同步**: 首次 `onStateUpdated` 触发 → 发出 `jointStreamReady` 信号 → `PendantNode::start_joint_stream()`
 2. **50Hz 定时器**: `joint_follow_timer_` 以 20ms 间隔检测滑块变化 → 调用 `update_joint_target()`
-3. **后台发布线程**: `PendantNode` 后台线程以 50Hz 发布到 `/joint_command` topic
+3. **后台发布线程**: `PendantNode` 后台线程以 50Hz 发布到 `~/joint_target`（由 RobotControllerNode 的 100Hz 控制循环统一执行，避免双发布竞争）
 4. **交互锁机制**: 用户拖动滑块/编辑角度时暂停自动更新 2 秒（`lock_timer_`）
 
 ## 启动方式
@@ -124,7 +125,7 @@ ros2 run robot_hmi robot_hmi
 
 ## 包内依赖
 - **内部依赖**: robot_controller（内嵌 RobotControllerNode）, robot_msgs
-- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev
+- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV
 
 ## 修改指南
 - **修改 UI 布局** → 编辑 `src/main_window.cpp` 的 `setupUi()`

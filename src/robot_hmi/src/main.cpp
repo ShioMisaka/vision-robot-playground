@@ -5,7 +5,7 @@
 
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 
 #include "robot_hmi/pendant_node.hpp"
 #include "robot_hmi/main_window.hpp"
@@ -14,16 +14,17 @@ int main(int argc, char* argv[]) {
   // 初始化 ROS2
   rclcpp::init(argc, argv);
 
+  // 创建机器人参数（复用同一 profile）
+  auto profile = robot_control::profiles::panda();
+  auto gripper = robot_control::profiles::panda_gripper();
+
   // 创建机器人控制节点（内嵌，提供所有 Service Server）
-  // 与 Python 脚本架构一致：每个客户端自带 RobotControllerNode
   auto robot = robot_control::RobotControllerNode::create(
-      robot_control::profiles::panda(),
-      robot_control::profiles::panda_gripper(),
-      robot_control::TopicConfig());
+      profile, gripper, robot_control::TopicConfig());
 
   // 创建示教器节点（Jog IK 由 RobotControllerNode 处理）
   auto pendant = robot_hmi::PendantNode::create(
-      "robot_controller_node");
+      "robot_controller_node", profile.joint_names);
 
   // 两个节点共享同一个 MultiThreadedExecutor
   rclcpp::executors::MultiThreadedExecutor executor;
