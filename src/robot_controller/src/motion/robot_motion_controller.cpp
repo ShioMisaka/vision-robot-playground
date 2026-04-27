@@ -15,6 +15,24 @@
 
 namespace robot_control {
 
+double RobotMotionController::resolve_finger(double requested) const {
+  return (requested < 0) ? (grasping_ ? gripper_.min_width
+                                      : bridge_->get_current_finger())
+                         : requested;
+}
+
+bool RobotMotionController::wait_until_reached(
+    const std::vector<double>& target, double finger, bool check_finger) const {
+  return bridge_->wait_for_motion(
+      target, finger,
+      ControlConstants::kJointTolerance,
+      ControlConstants::kFingerTolerance,
+      ControlConstants::kMotionTimeout,
+      ControlConstants::kPollInterval,
+      ControlConstants::kSettleTime,
+      check_finger);
+}
+
 RobotMotionController::RobotMotionController(
     std::shared_ptr<IKSolver> ik, const RobotProfile& profile,
     const GripperProfile& gripper,
@@ -40,22 +58,14 @@ void RobotMotionController::interpolate_to(
     }
     // 抓取状态下始终发送目标夹爪宽度以维持夹持力，
     // 非抓取时保持当前夹爪位置避免误动
-    double step_finger = grasping_ ? gripper_.min_width
-                                   : bridge_->get_current_finger();
+    double step_finger = resolve_finger(-1.0);
     bridge_->publish_command(interp, step_finger);
     std::this_thread::sleep_for(
         std::chrono::duration<double>(step_time));
   }
 
   if (block) {
-    bridge_->wait_for_motion(
-        target, finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
+    wait_until_reached(target, finger, !grasping_);
   }
 }
 
@@ -66,20 +76,10 @@ void RobotMotionController::set_arm(const std::vector<double>& angles,
         "set_arm: expected " + std::to_string(profile_.dof) +
         " joint angles, got " + std::to_string(angles.size()));
   }
-  // 抓取状态下发送 min_width 以持续施加夹持力，
-  // 非抓取时保持当前夹爪位置避免误开
-  double finger = grasping_ ? gripper_.min_width
-                            : bridge_->get_current_finger();
+  double finger = resolve_finger(-1.0);
   bridge_->publish_command(angles, finger);
   if (block) {
-    bridge_->wait_for_motion(
-        angles, finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
+    wait_until_reached(angles, finger, !grasping_);
   }
 }
 
@@ -88,14 +88,7 @@ void RobotMotionController::set_gripper(double width, bool block) {
   bridge_->publish_gripper(width);
   if (block) {
     auto arm = bridge_->get_current_arm();
-    bridge_->wait_for_motion(
-        arm, width,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        true);
+    wait_until_reached(arm, width, true);
   }
 }
 
@@ -124,19 +117,14 @@ void RobotMotionController::move_to_pose(
   if (rpy.has_value()) {
     // 完整位姿约束：T_hand = T_tcp_target @ inv(T_tcp_in_hand)
     Eigen::Matrix4d target = Eigen::Matrix4d::Identity();
-    Eigen::AngleAxisd roll_angle((*rpy)[0], Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd pitch_angle((*rpy)[1], Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd yaw_angle((*rpy)[2], Eigen::Vector3d::UnitZ());
-    target.block<3, 3>(0, 0) =
-        (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
+    target.block<3, 3>(0, 0) = rpy_to_rotation((*rpy)[0], (*rpy)[1], (*rpy)[2]);
     target(0, 3) = xyz[0];
     target(1, 3) = xyz[1];
     target(2, 3) = xyz[2];
 
     Eigen::Matrix4d hand_target = target * tcp_offset.inverse();
     Eigen::Vector3d hand_xyz = hand_target.block<3, 1>(0, 3);
-    Eigen::Matrix3d hand_rot = hand_target.block<3, 3>(0, 0);
-    Eigen::Vector3d hand_rpy = hand_rot.eulerAngles(0, 1, 2);
+    Eigen::Vector3d hand_rpy = hand_target.block<3, 3>(0, 0).eulerAngles(0, 1, 2);
 
     std::array<double, 3> h_xyz = {hand_xyz.x(), hand_xyz.y(), hand_xyz.z()};
     std::array<double, 3> h_rpy = {hand_rpy.x(), hand_rpy.y(), hand_rpy.z()};
@@ -164,28 +152,14 @@ void RobotMotionController::move_to_pose(
     angles = *result;
   }
 
-  // finger: -1 表示按抓取状态决定（抓取=min_width，非抓取=保持当前位置）
-  double actual_finger;
-  if (finger < 0) {
-    actual_finger = grasping_ ? gripper_.min_width
-                              : bridge_->get_current_finger();
-  } else {
-    actual_finger = finger;
-  }
+  double actual_finger = resolve_finger(finger);
 
   if (steps > 0) {
     interpolate_to(angles, actual_finger, steps, step_time, block);
   } else {
     bridge_->publish_command(angles, actual_finger);
     if (block) {
-      bridge_->wait_for_motion(
-          angles, actual_finger,
-          ControlConstants::kJointTolerance,
-          ControlConstants::kFingerTolerance,
-          ControlConstants::kMotionTimeout,
-          ControlConstants::kPollInterval,
-          ControlConstants::kSettleTime,
-          !grasping_);
+      wait_until_reached(angles, actual_finger, !grasping_);
     }
   }
 }
@@ -200,11 +174,7 @@ void RobotMotionController::move_linear(const std::array<double, 3>& delta,
   Eigen::Vector3d target_pos = pos;
 
   if (frame == "end_effector") {
-    Eigen::Matrix3d rot =
-        (Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX()) *
-         Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()) *
-         Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()))
-            .toRotationMatrix();
+    Eigen::Matrix3d rot = rpy_to_rotation(rpy.x(), rpy.y(), rpy.z());
     Eigen::Vector3d d(delta[0], delta[1], delta[2]);
     target_pos = pos + rot * d;
   } else {
@@ -236,19 +206,11 @@ void RobotMotionController::go_home(bool block) {
   }
   std::vector<double> arm(profile_.home_joints.begin(),
                           profile_.home_joints.begin() + profile_.dof);
-  // 抓取状态下持续施加夹持力，非抓取时使用 home 默认夹爪宽度
   double finger = grasping_ ? gripper_.min_width
                             : profile_.home_joints[profile_.dof];
   bridge_->publish_command(arm, finger);
   if (block) {
-    bridge_->wait_for_motion(
-        arm, finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
+    wait_until_reached(arm, finger, !grasping_);
   }
 }
 
@@ -360,14 +322,7 @@ void RobotMotionController::moveJ_internal(
     double timeout = steps.back().time_from_start +
                      ControlConstants::kTrajectoryTimeout;
     bridge_->wait_trajectory_completion(timeout);
-    bridge_->wait_for_motion(
-        target_angles, finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
+    wait_until_reached(target_angles, finger, !grasping_);
   }
 }
 
@@ -379,8 +334,7 @@ void RobotMotionController::moveJ(
         " joint angles, got " + std::to_string(target_angles.size()));
   }
 
-  double finger = grasping_ ? gripper_.min_width
-                            : bridge_->get_current_finger();
+  double finger = resolve_finger(-1.0);
   moveJ_internal(target_angles, finger, block);
 }
 
@@ -393,11 +347,7 @@ void RobotMotionController::moveJ(
 
   if (rpy.has_value()) {
     Eigen::Matrix4d target = Eigen::Matrix4d::Identity();
-    Eigen::AngleAxisd roll_angle((*rpy)[0], Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd pitch_angle((*rpy)[1], Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd yaw_angle((*rpy)[2], Eigen::Vector3d::UnitZ());
-    target.block<3, 3>(0, 0) =
-        (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
+    target.block<3, 3>(0, 0) = rpy_to_rotation((*rpy)[0], (*rpy)[1], (*rpy)[2]);
     target(0, 3) = xyz[0];
     target(1, 3) = xyz[1];
     target(2, 3) = xyz[2];
@@ -431,14 +381,7 @@ void RobotMotionController::moveJ(
     target_angles = *result;
   }
 
-  // 求解 finger: -1 表示按抓取状态决定
-  double actual_finger;
-  if (finger < 0) {
-    actual_finger = grasping_ ? gripper_.min_width
-                              : bridge_->get_current_finger();
-  } else {
-    actual_finger = finger;
-  }
+  double actual_finger = resolve_finger(finger);
 
   // 用关节空间 S 曲线 moveJ 执行
   moveJ_internal(target_angles, actual_finger, block);
@@ -467,28 +410,15 @@ void RobotMotionController::moveL(
   auto cart_traj = SCurvePlanner::plan(
       0.0, total_dist, cart_cfg, ControlConstants::kTrajectoryDt);
 
-  // 姿态插值
   Eigen::Vector3d start_rpy(current_pose[3], current_pose[4], current_pose[5]);
-  Eigen::Quaterniond start_quat =
-      (Eigen::AngleAxisd(start_rpy.x(), Eigen::Vector3d::UnitX()) *
-       Eigen::AngleAxisd(start_rpy.y(), Eigen::Vector3d::UnitY()) *
-       Eigen::AngleAxisd(start_rpy.z(), Eigen::Vector3d::UnitZ()));
+  Eigen::Quaterniond start_quat(rpy_to_rotation(start_rpy.x(), start_rpy.y(), start_rpy.z()));
 
   Eigen::Quaterniond end_quat = start_quat;
   if (rpy.has_value()) {
-    end_quat =
-        (Eigen::AngleAxisd((*rpy)[0], Eigen::Vector3d::UnitX()) *
-         Eigen::AngleAxisd((*rpy)[1], Eigen::Vector3d::UnitY()) *
-         Eigen::AngleAxisd((*rpy)[2], Eigen::Vector3d::UnitZ()));
+    end_quat = Eigen::Quaterniond(rpy_to_rotation((*rpy)[0], (*rpy)[1], (*rpy)[2]));
   }
 
-  double actual_finger;
-  if (finger < 0) {
-    actual_finger = grasping_ ? gripper_.min_width
-                              : bridge_->get_current_finger();
-  } else {
-    actual_finger = finger;
-  }
+  double actual_finger = resolve_finger(finger);
 
   auto tcp_offset = tcp_transform_matrix();
 
@@ -539,14 +469,7 @@ void RobotMotionController::moveL(
                      ControlConstants::kTrajectoryTimeout;
     bridge_->wait_trajectory_completion(timeout);
     const auto& final_angles = steps.back().joint_positions;
-    bridge_->wait_for_motion(
-        final_angles, actual_finger,
-        ControlConstants::kJointTolerance,
-        ControlConstants::kFingerTolerance,
-        ControlConstants::kMotionTimeout,
-        ControlConstants::kPollInterval,
-        ControlConstants::kSettleTime,
-        !grasping_);
+    wait_until_reached(final_angles, actual_finger, !grasping_);
   }
 }
 

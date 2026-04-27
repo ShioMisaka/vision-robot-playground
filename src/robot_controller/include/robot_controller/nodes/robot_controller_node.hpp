@@ -6,7 +6,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <variant>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -26,10 +25,6 @@
 #include <robot_msgs/srv/set_speed.hpp>
 #include <robot_msgs/srv/get_robot_state.hpp>
 
-#include <rclcpp_action/rclcpp_action.hpp>
-
-#include <robot_msgs/action/move_j.hpp>
-#include <robot_msgs/action/move_l.hpp>
 #include <robot_msgs/srv/set_tcp.hpp>
 #include <robot_msgs/srv/set_speed_ratio.hpp>
 #include <robot_msgs/srv/robot_cmd.hpp>
@@ -38,7 +33,7 @@
 
 #include "robot_controller/motion/robot_motion_controller.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
@@ -206,24 +201,6 @@ private:
       const std::shared_ptr<robot_msgs::srv::GetRobotState::Request> req,
       std::shared_ptr<robot_msgs::srv::GetRobotState::Response> res);
 
-  // === Action callbacks (MoveJ) ===
-  rclcpp_action::GoalResponse handle_movej_goal(
-      const rclcpp_action::GoalUUID& uuid,
-      std::shared_ptr<const robot_msgs::action::MoveJ::Goal> goal);
-  rclcpp_action::CancelResponse handle_movej_cancel(
-      const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> goal_handle);
-  void handle_movej_accepted(
-      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> goal_handle);
-
-  // === Action callbacks (MoveL) ===
-  rclcpp_action::GoalResponse handle_movel_goal(
-      const rclcpp_action::GoalUUID& uuid,
-      std::shared_ptr<const robot_msgs::action::MoveL::Goal> goal);
-  rclcpp_action::CancelResponse handle_movel_cancel(
-      const std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> goal_handle);
-  void handle_movel_accepted(
-      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> goal_handle);
-
   // === Pendant service callbacks ===
   void handle_pendant_set_tcp(
       const std::shared_ptr<robot_msgs::srv::SetTCP::Request> req,
@@ -249,27 +226,11 @@ private:
   rclcpp::TimerBase::SharedPtr control_loop_timer_;
   RobotStateModel state_model_;
 
-  // === 活跃 Action 追踪 ===
-  struct ActiveMotion {
-    std::variant<
-      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>>,
-      std::shared_ptr<rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>>
-    > goal_handle;
-    std::vector<double> target_angles;
-    double target_finger;
-    std::chrono::steady_clock::time_point start_time;
-    double total_duration;
-    bool cancelled = false;
-  };
-  std::unique_ptr<ActiveMotion> active_motion_;
-  std::mutex active_motion_mutex_;
-  std::chrono::steady_clock::time_point trajectory_done_time_;
-  bool waiting_settle_ = false;
   std::chrono::steady_clock::time_point stopping_start_time_;
+  bool waiting_settle_ = false;
 
   // === 控制循环方法 ===
   void control_loop_tick();
-  bool check_action_completion();
 
   std::atomic<bool> shutdown_{false};
 
@@ -300,10 +261,6 @@ private:
   // === Global speed ratio (atomic for thread-safe access) ===
   std::atomic<double> global_speed_ratio_{1.0};
 
-  // === Action servers ===
-  rclcpp_action::Server<robot_msgs::action::MoveJ>::SharedPtr movej_action_;
-  rclcpp_action::Server<robot_msgs::action::MoveL>::SharedPtr movel_action_;
-
   // === Pendant service servers ===
   rclcpp::Service<robot_msgs::srv::SetTCP>::SharedPtr pendant_set_tcp_srv_;
   rclcpp::Service<robot_msgs::srv::SetSpeedRatio>::SharedPtr set_speed_ratio_srv_;
@@ -328,6 +285,12 @@ private:
   std::mutex ready_mutex_;
   std::condition_variable ready_cv_;
   bool ready_ = false;
+
+  // === External joint target stream (from pendant) ===
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr external_joint_sub_;
+  std::mutex external_target_mutex_;
+  std::vector<double> external_joint_target_;
+  rclcpp::Time external_target_time_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace robot_control

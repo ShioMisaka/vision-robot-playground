@@ -28,7 +28,7 @@
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
 #include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 
 // ---- 目标参数 ----
 constexpr double kTargetX = 0.52699;

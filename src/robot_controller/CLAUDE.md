@@ -2,14 +2,14 @@
 
 ## 职责
 机器人运动控制的核心 C++ 库与 ROS2 节点。提供 IK/FK 求解、七段式 S 曲线轨迹规划、
-Jog 点动控制、100Hz 闭环控制循环，以及完整的 ROS2 Service/Action 接口。
+Jog 点动控制、100Hz 闭环控制循环，以及完整的 ROS2 Service 接口。
 架构上分为 3 个 CMake Target（零 ROS 依赖的核心库 → 运动控制器 → ROS2 节点），
 实现 ROS 无关的核心逻辑与通信层解耦。
 
 ## 节点清单
 | 节点 | 可执行文件 | 功能 |
 |------|-----------|------|
-| robot_controller_node | 内嵌于 robot_hmi / robot_api_python | 主控制节点，100Hz 闭环 + Service/Action/Jog |
+| robot_controller_node | 内嵌于 robot_hmi / robot_api_python | 主控制节点，100Hz 闭环 + Service/Jog |
 
 注：此包编译为共享库（robot_kinematics / robot_motion / robot_nodes），
 无独立可执行节点。节点通过 `robot_hmi::main()` 或 `robot_api_python` 启动。
@@ -24,16 +24,17 @@ robot_motion (共享库)        ← 运动控制器 + Jog + 接口（依赖 kine
 robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 ```
 
-## 话题 / 服务 / Action 接口
+## 话题 / 服务接口
 
 ### 话题
 
 | 名称 | 类型 | 方向 | 说明 |
 |------|------|------|------|
-| `/joint_command` | sensor_msgs/JointState | Pub | 关节指令（9 值：7 臂 + 2 爪），100Hz 发布 |
+| `/joint_command` | sensor_msgs/JointState | Pub | 关节指令（9 值：7 臂 + 2 爪），100Hz 发布（唯一发布者） |
 | `/joint_states` | sensor_msgs/JointState | Sub | Isaac Sim 关节反馈 |
 | `~/status` | robot_msgs/RobotStatus | Pub (10Hz) | 机器人状态遥测 |
 | `~/jog_command` | robot_msgs/JogCommand | Sub | Jog 点动命令（sensor_data QoS） |
+| `~/joint_target` | sensor_msgs/JointState | Sub | 外部关节目标流（来自示教器，200ms 超时） |
 
 ### Service（兼容层，Python 脚本用）
 
@@ -56,13 +57,6 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `~/set_speed_ratio` | SetSpeedRatio | 全局速度比（0.0-1.0） |
 | `~/robot_cmd` | RobotCmd | STOP / EMERGENCY_STOP / CLEAR_FAULT |
 
-### Action
-
-| Action | 说明 |
-|--------|------|
-| `~/move_j` | MoveJ — 关节/笛卡尔运动（带 progress 反馈） |
-| `~/move_l` | MoveL — 线性运动（带 progress 反馈） |
-
 ## 关键参数（硬编码在 control_constants.hpp）
 
 | 参数 | 值 | 说明 |
@@ -84,7 +78,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 
 | 文件 | 类/函数 | 职责 |
 |------|---------|------|
-| `include/.../kinematics/robot_profile.hpp` | RobotProfile, GripperProfile, TcpConfig, MotionLimits | 数据结构定义 |
+| `include/.../kinematics/robot_profile.hpp` | RobotProfile, GripperProfile, TcpConfig, MotionLimits, MotionMode, rpy_to_rotation() | 数据结构 + 工具函数 |
 | `include/.../kinematics/ik_solver.hpp` | IKSolver | IK/FK 求解（KDL + DLS 阻尼） |
 | `src/kinematics/ik_solver.cpp` | IKSolver::solve(), forward(), velocity_ik() | KDL 运动链 + 伪逆雅可比 |
 | `include/.../kinematics/trajectory_planner.hpp` | SCurvePlanner, TrajectoryPlanner | 七段式 S 曲线轨迹规划 |
@@ -101,21 +95,21 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `src/motion/robot_motion_controller.cpp` | moveJ(), moveL(), set_arm() 等 | 运动原语实现 |
 | `include/.../motion/jog_controller.hpp` | JogController | Jog 点动（S-curve 速度规划 + 雅可比速度 IK） |
 | `src/motion/jog_controller.cpp` | JogController::tick(), start(), stop() | 50Hz Jog 控制 |
+| `include/.../motion/topic_config.hpp` | TopicConfig, CameraExtrinsics | ROS2 话题配置（motion 层，无 ROS 依赖） |
 
 ### nodes 层（robot_nodes target）
 
 | 文件 | 类/函数 | 职责 |
 |------|---------|------|
 | `include/.../nodes/robot_controller_node.hpp` | RobotControllerNode, RosMotionBridge | ROS2 主控制节点 |
-| `src/nodes/robot_controller_node.cpp` | control_loop_tick() | 100Hz 闭环（READ→PLAN→MONITOR→WRITE） |
+| `src/nodes/robot_controller_node.cpp` | control_loop_tick(), handle_jog_command() | 100Hz 闭环（READ→PLAN→MONITOR→WRITE）+ Jog |
+| `src/nodes/robot_controller_node_services.cpp` | handle_*() | 11 个 Service 回调实现 |
+| `src/nodes/ros_motion_bridge.cpp` | RosMotionBridge | ROS2 通信适配（发布/订阅/TF/轨迹） |
 | `include/.../nodes/robot_state.hpp` | RobotStateMachine | 状态机（IDLE/MOVING/TEACHING/STOPPING/FAULT） |
 | `src/nodes/robot_state.cpp` | transition_to(), force_state() | 状态转换验证 |
 | `include/.../nodes/robot_state_model.hpp` | RobotStateModel | 线程安全的目标/实际状态数据 |
 | `include/.../nodes/setpoint_generator.hpp` | SetpointGenerator | tick 式轨迹回放 |
 | `src/nodes/setpoint_generator.cpp` | tick(), start(), cancel() | 轨迹插值 + 进度计算 |
-| `include/.../nodes/trajectory_executor.hpp` | TrajectoryExecutor | 线程化轨迹执行 |
-| `src/nodes/trajectory_executor.cpp` | 线程 + sleep_until 精确调度 | |
-| `include/.../nodes/topic_config.hpp` | TopicConfig, CameraExtrinsics | ROS2 话题配置 |
 
 ## 测试与演示
 
@@ -142,7 +136,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 
 ## 包内依赖
 - **内部依赖**: robot_msgs, robot_description
-- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, tf2_ros, tf2, tf2_geometry_msgs, rclcpp_action, ament_index_cpp, orocos_kdl, urdfdom, kdl_parser, eigen
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, tf2_ros, tf2, tf2_geometry_msgs, ament_index_cpp, orocos_kdl, urdfdom, urdf, kdl_parser, eigen
 
 ## 修改指南
 - **修改 IK 算法** → 编辑 `src/kinematics/ik_solver.cpp` 的 `IKSolver::solve()` 和 `velocity_ik()`
@@ -153,14 +147,13 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 - **修改状态机** → 编辑 `src/nodes/robot_state.cpp` 的 `is_valid_transition()`
 - **修改控制常量** → 编辑 `include/.../motion/control_constants.hpp`
 - **新增机器人** → 在 `include/.../profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
-- **新增 Service** → 在 `robot_controller_node.cpp` 的 `init()` 中参考现有 service 创建模式
-- **新增 Action** → 在 `robot_controller_node.cpp` 中参考 `move_j_action_` / `move_l_action_` 写法
+- **新增 Service** → 在 `robot_controller_node_services.cpp` 中添加 handler，在 `robot_controller_node.cpp` 的 `init()` 中注册
 
 ## 注意事项
-- **100Hz 闭环** 是系统核心，所有运动（轨迹、Jog、保持）都由此循环驱动，不可在外部直接发布关节指令
+- **100Hz 闭环** 是系统核心，所有运动（轨迹、Jog、外部目标）都由此循环驱动，`/joint_command` 仅由控制器发布
+- **外部关节目标** 通过 `~/joint_target` 话题接收，200ms 超时后自动回退到保持当前位置
 - **状态机强制转换** 仅用于 EMERGENCY_STOP，其他转换必须通过 `transition_to()` 验证
 - **速度复合**: 有效速度 = 模式速度 × 全局速度比，影响轨迹规划的时间计算
 - **工厂模式**: `RobotControllerNode::create()` 使用两阶段初始化，避免 `shared_from_this()` 问题
 - **线程安全**: `RobotStateModel` 使用 `shared_mutex`（读写锁），高频读不受阻塞
-- **TrajectoryExecutor** 使用 `sleep_until` 绝对时间调度，不要改为 `sleep_for`
 - **moveJ/moveL** 通过 S 曲线规划器以 50Hz 生成轨迹点，不依赖 Isaac Sim 内部规划器

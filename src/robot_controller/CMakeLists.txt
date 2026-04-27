@@ -17,7 +17,6 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(robot_msgs REQUIRED)
-find_package(rclcpp_action REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(orocos_kdl REQUIRED)
@@ -61,9 +60,10 @@ target_link_libraries(robot_motion robot_kinematics)
 # ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
+  src/nodes/robot_controller_node_services.cpp
+  src/nodes/ros_motion_bridge.cpp
   src/nodes/robot_state.cpp
   src/nodes/setpoint_generator.cpp
-  src/nodes/trajectory_executor.cpp
 )
 
 target_include_directories(robot_nodes PUBLIC
@@ -81,7 +81,6 @@ ament_target_dependencies(robot_nodes
   tf2
   tf2_geometry_msgs
   robot_msgs
-  rclcpp_action
   ament_index_cpp
 )
 
@@ -134,7 +133,6 @@ ament_export_dependencies(
   tf2
   tf2_geometry_msgs
   robot_msgs
-  rclcpp_action
   ament_index_cpp
   orocos_kdl
   urdfdom

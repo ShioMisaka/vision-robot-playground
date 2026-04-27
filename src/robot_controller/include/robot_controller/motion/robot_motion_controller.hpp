@@ -86,6 +86,13 @@ private:
   void moveJ_internal(const std::vector<double>& target_angles,
                       double finger, bool block);
 
+  /// 解析夹爪宽度：负值按抓取状态决定，正值直接使用
+  double resolve_finger(double requested) const;
+
+  /// 等待运动到达目标（封装常量参数）
+  bool wait_until_reached(const std::vector<double>& target, double finger,
+                          bool check_finger = true) const;
+
   std::shared_ptr<IKSolver> ik_;
   RobotProfile profile_;
   GripperProfile gripper_;

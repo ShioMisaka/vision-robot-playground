@@ -62,4 +62,14 @@ inline Eigen::Matrix4d tcp_to_matrix4d(const TcpConfig& cfg) {
   return T;
 }
 
+/// 运动模式，用于 set_speed/get_speed
+enum class MotionMode { kMoveJ, kMoveL };
+
+/// 从 RPY 角构建 3x3 旋转矩阵（ZYX 内旋顺序）
+inline Eigen::Matrix3d rpy_to_rotation(double roll, double pitch, double yaw) {
+  return (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+          Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+          Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX())).toRotationMatrix();
+}
+
 }  // namespace robot_control

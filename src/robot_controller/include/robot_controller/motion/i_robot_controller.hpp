@@ -5,10 +5,9 @@
 #include <string>
 #include <vector>
 
-namespace robot_control {
+#include "robot_controller/kinematics/robot_profile.hpp"
 
-/// 运动模式，用于 set_speed/get_speed
-enum class MotionMode { kMoveJ, kMoveL };
+namespace robot_control {
 
 /// 机器人运动控制抽象接口，不依赖任何 ROS 2 组件
 class IRobotController {
