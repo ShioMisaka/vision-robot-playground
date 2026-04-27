@@ -8,7 +8,7 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/nodes/topic_config.hpp"
+#include "robot_controller/motion/topic_config.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
 #include "robot_vision/vision/color_detector.hpp"
@@ -28,6 +28,7 @@
 
 namespace py = pybind11;
 using namespace robot_control;
+using namespace robot_vision;
 
 // ============================================================
 // Eigen → Python 类型转换辅助
