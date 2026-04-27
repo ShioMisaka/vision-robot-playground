@@ -67,6 +67,12 @@ public:
     finger_ = finger;
   }
 
+  void publish_gripper(double finger) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    commands_.push_back({arm_, finger});
+    finger_ = finger;
+  }
+
   std::vector<double> get_current_arm() const override {
     std::lock_guard<std::mutex> lock(mutex_);
     return arm_;

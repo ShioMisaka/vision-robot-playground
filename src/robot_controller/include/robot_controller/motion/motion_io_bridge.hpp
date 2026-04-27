@@ -23,6 +23,9 @@ public:
   virtual void publish_command(const std::vector<double>& arm,
                                double finger) = 0;
 
+  /// 仅发布夹爪指令（不包含臂关节，用于夹爪独立控制）
+  virtual void publish_gripper(double finger) = 0;
+
   /// 获取当前关节角度反馈
   virtual std::vector<double> get_current_arm() const = 0;
 

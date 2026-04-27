@@ -564,8 +564,7 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
   joint_stream_thread_ = std::thread([this]() {
     const std::vector<std::string> joint_names = {
         "panda_joint1", "panda_joint2", "panda_joint3",
-        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7",
-        "panda_finger_joint1", "panda_finger_joint2"};
+        "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"};
 
     while (joint_stream_running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -578,20 +577,16 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
         joint_stream_dirty_ = false;
       }
 
-      // Publish all 9 joints (7 arm + 2 gripper).
-      // Must include gripper joints so the gripper stays at its current
-      // position.  Omitting them would let the controller's 100Hz loop
-      // fight with this 50Hz stream on /joint_command, causing oscillation.
-      double finger = current_finger_.load();
+      // Publish only 7 arm joints — gripper is decoupled and controlled
+      // exclusively through ControlGripper service + controller 100Hz loop.
+      // Including gripper joints here would overwrite service commands.
       sensor_msgs::msg::JointState msg;
       msg.header.stamp = now();
       msg.name = joint_names;
-      msg.position.reserve(9);
+      msg.position.reserve(7);
       for (int i = 0; i < 7; ++i) {
         msg.position.push_back(target[i]);
       }
-      msg.position.push_back(finger);
-      msg.position.push_back(finger);
       joint_cmd_pub_->publish(msg);
     }
   });

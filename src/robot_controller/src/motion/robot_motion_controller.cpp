@@ -85,9 +85,9 @@ void RobotMotionController::set_arm(const std::vector<double>& angles,
 
 void RobotMotionController::set_gripper(double width, bool block) {
   grasping_ = false;
-  auto arm = bridge_->get_current_arm();
-  bridge_->publish_command(arm, width);
+  bridge_->publish_gripper(width);
   if (block) {
+    auto arm = bridge_->get_current_arm();
     bridge_->wait_for_motion(
         arm, width,
         ControlConstants::kJointTolerance,
@@ -104,8 +104,7 @@ void RobotMotionController::open_gripper(bool block) {
 }
 
 void RobotMotionController::close_gripper(bool block) {
-  auto arm = bridge_->get_current_arm();
-  bridge_->publish_command(arm, gripper_.min_width);
+  bridge_->publish_gripper(gripper_.min_width);
   if (block) {
     bridge_->wait_for_finger_settle(
         ControlConstants::kFingerStableCount,
