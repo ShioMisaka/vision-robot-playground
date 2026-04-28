@@ -20,13 +20,15 @@ Eigen::Vector3d CameraInterface::pixel_to_3d(int u, int v, double depth,
 // ---- ColorDetector ----
 
 ColorDetector::ColorDetector(const std::array<int, 3>& lower_hsv,
-                             const std::array<int, 3>& upper_hsv)
+                             const std::array<int, 3>& upper_hsv,
+                             double fx, double fy, double cx, double cy)
     : lower_hsv_(static_cast<double>(lower_hsv[0]),
                  static_cast<double>(lower_hsv[1]),
                  static_cast<double>(lower_hsv[2])),
       upper_hsv_(static_cast<double>(upper_hsv[0]),
                  static_cast<double>(upper_hsv[1]),
-                 static_cast<double>(upper_hsv[2])) {}
+                 static_cast<double>(upper_hsv[2])),
+      fx_(fx), fy_(fy), cx_(cx), cy_(cy) {}
 
 std::optional<Eigen::Vector2i> ColorDetector::detect(
     const cv::Mat& bgr_image) const {

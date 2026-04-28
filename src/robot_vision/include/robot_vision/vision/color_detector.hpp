@@ -14,8 +14,14 @@ public:
   /// @brief 构造颜色检测器
   /// @param lower_hsv HSV 下界 [h, s, v]
   /// @param upper_hsv HSV 上界 [h, s, v]
+  /// @param fx 焦距 x（像素）
+  /// @param fy 焦距 y（像素）
+  /// @param cx 光心 x（像素）
+  /// @param cy 光心 y（像素）
   ColorDetector(const std::array<int, 3>& lower_hsv,
-                const std::array<int, 3>& upper_hsv);
+                const std::array<int, 3>& upper_hsv,
+                double fx = 614.0, double fy = 614.0,
+                double cx = 320.0, double cy = 240.0);
 
   /// @brief 检测颜色区域质心
   /// @param bgr_image BGR 图像

@@ -3,6 +3,7 @@
 #include "robot_controller/motion/control_constants.hpp"
 
 #include <chrono>
+#include <thread>
 
 namespace robot_vision {
 
@@ -53,7 +54,7 @@ void VisionProcessorNode::on_synced_image(
 
   try {
     cv_left = cv_bridge::toCvCopy(left, "bgr8");
-    cv_depth = cv_bridge::toCvCopy(depth, "passthrough");
+    cv_depth = cv_bridge::toCvCopy(depth);
   } catch (const cv_bridge::Exception& e) {
     RCLCPP_ERROR(this->get_logger(), "CV bridge error: %s", e.what());
     return;
@@ -97,6 +98,52 @@ std::optional<DetectionResult> VisionProcessorNode::wait_for_detection(
 
   RCLCPP_WARN(this->get_logger(), "Detection timeout (%.1fs)", timeout);
   return std::nullopt;
+}
+
+std::optional<DetectionResult> VisionProcessorNode::average_detections(
+    int sample_count, double sample_interval, double timeout) {
+  auto deadline = std::chrono::steady_clock::now() +
+                  std::chrono::duration<double>(timeout);
+
+  Eigen::Vector3d sum_xyz = Eigen::Vector3d::Zero();
+  Eigen::Vector2d sum_uv = Eigen::Vector2d::Zero();
+  double sum_conf = 0.0;
+  int valid_count = 0;
+
+  for (int i = 0; i < sample_count; ++i) {
+    if (std::chrono::steady_clock::now() >= deadline) break;
+
+    if (i > 0) {
+      std::this_thread::sleep_for(
+          std::chrono::duration<double>(sample_interval));
+    }
+
+    auto result = get_latest_result();
+    if (result.has_value() && result->detected) {
+      sum_xyz += result->xyz;
+      sum_uv += result->uv.cast<double>();
+      sum_conf += result->confidence;
+      ++valid_count;
+    }
+  }
+
+  if (valid_count == 0) {
+    RCLCPP_WARN(this->get_logger(),
+                "average_detections: 0/%d valid samples", sample_count);
+    return std::nullopt;
+  }
+
+  DetectionResult avg;
+  avg.detected = true;
+  avg.xyz = sum_xyz / valid_count;
+  avg.uv = (sum_uv / valid_count).cast<int>();
+  avg.confidence = sum_conf / valid_count;
+
+  RCLCPP_INFO(this->get_logger(),
+              "average_detections: %d/%d valid, xyz=[%.4f, %.4f, %.4f]",
+              valid_count, sample_count, avg.xyz.x(), avg.xyz.y(),
+              avg.xyz.z());
+  return avg;
 }
 
 }  // namespace robot_vision

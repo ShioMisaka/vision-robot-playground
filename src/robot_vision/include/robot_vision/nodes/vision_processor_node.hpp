@@ -33,6 +33,10 @@ public:
   std::optional<DetectionResult> get_latest_result() const override;
   std::optional<DetectionResult> wait_for_detection(
       double timeout = 10.0) override;
+  std::optional<DetectionResult> average_detections(
+      int sample_count = 5,
+      double sample_interval = 0.1,
+      double timeout = 5.0) override;
 
 private:
   VisionProcessorNode(std::shared_ptr<CameraInterface> processor,
