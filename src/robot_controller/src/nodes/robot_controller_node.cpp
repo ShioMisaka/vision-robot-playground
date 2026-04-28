@@ -57,7 +57,22 @@ void RobotControllerNode::init() {
       ik_, profile_, gripper_, bridge_);
 
   bridge_->set_on_trajectory_started([this]() {
-    if (state_machine_.state() == RobotState::kIdle) {
+    auto s = state_machine_.state();
+    if (s == RobotState::kTeaching) {
+      // 从 jog 模式强制切回轨迹模式（可能由残留 jog 消息触发）
+      RCLCPP_WARN(this->get_logger(),
+                  "Trajectory started while in TEACHING state, forcing to IDLE");
+      if (jog_controller_ && jog_controller_->is_active()) {
+        auto actual_j = state_model_.get_actual_joints();
+        std::array<double, 7> fb{};
+        for (size_t i = 0; i < 7 && i < actual_j.size(); ++i) fb[i] = actual_j[i];
+        jog_controller_->emergency_stop(fb);
+      }
+      jog_settling_ = false;
+      state_machine_.transition_to(RobotState::kIdle);
+      s = RobotState::kIdle;
+    }
+    if (s == RobotState::kIdle) {
       state_machine_.transition_to(RobotState::kMoving);
     }
   });
@@ -222,6 +237,12 @@ void RobotControllerNode::handle_jog_command(
   if (state != RobotState::kIdle && state != RobotState::kTeaching) {
     return;
   }
+
+  RCLCPP_WARN(this->get_logger(),
+              "[DIAG] Jog command received in state %s (vel=[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f])",
+              RobotStateMachine::state_name(state),
+              msg->velocity[0], msg->velocity[1], msg->velocity[2],
+              msg->velocity[3], msg->velocity[4], msg->velocity[5]);
 
   // 检测零速度（停止指令）
   bool all_zero = true;

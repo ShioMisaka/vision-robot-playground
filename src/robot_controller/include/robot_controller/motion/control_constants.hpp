@@ -17,7 +17,7 @@ struct ControlConstants {
   static constexpr double kReadyTimeout = 5.0;
   static constexpr double kTrajectoryDt = 0.02;
   static constexpr double kFollowingErrorLimit = 0.50;  ///< 轨迹执行跟踪误差阈值（rad）—— Isaac Sim 物理延迟需宽松阈值（实测峰值 ~0.32）
-  static constexpr double kTeachingFollowErrorLimit = 0.3;  ///< Jog 模式跟踪误差阈值（rad），比轨迹宽松
+  static constexpr double kTeachingFollowErrorLimit = 0.50;  ///< Jog 模式跟踪误差阈值（rad），Isaac Sim 物理延迟需宽松阈值
   static constexpr double kArrivalTolerance = 0.01;      ///< 到位判定阈值（rad）
   static constexpr double kArrivalSettleTime = 0.2;      ///< 到位稳定等待时间（秒）
   static constexpr double kTrajectoryTimeout = 15.0;     ///< 轨迹执行超时（秒）
