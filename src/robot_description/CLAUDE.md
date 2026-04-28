@@ -33,8 +33,8 @@
 - **4 个固定关节**: panda_joint8, panda_hand_joint, 相机安装, 抓取目标
 
 ### 相机安装参数
-- 安装位置（相对 panda_hand）: `xyz="0.015 0 0.03"`, `rpy="0 1.5708 3.1416"`
-- eye-in-hand 配置，朝下安装
+- 安装位置（相对 panda_hand）: `xyz="0.015 0 0.03"`, `rpy="0 -1.5708 0"`
+- eye-in-hand 配置，朝下安装（camera_link X 轴 → hand Z 轴，即朝下方向）
 
 ### 网格文件引用
 URDF 引用外部 mesh 文件（不在本包内）：

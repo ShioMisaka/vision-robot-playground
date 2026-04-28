@@ -7,7 +7,7 @@ namespace robot_control {
 
 struct CameraExtrinsics {
   std::array<double, 3> xyz = {0.015, 0.0, 0.03};
-  std::array<double, 3> rpy = {0.0, 1.57079632679, 3.14159265359};
+  std::array<double, 3> rpy = {0.0, -1.57079632679, 0.0};
 };
 
 struct TopicConfig {
