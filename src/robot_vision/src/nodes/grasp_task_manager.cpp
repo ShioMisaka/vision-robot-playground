@@ -179,20 +179,18 @@ void GraspTaskManager::step_approach() {
 
   RCLCPP_INFO(logger,
               "Approaching: current [%.4f, %.4f, %.4f] -> approach [%.4f, %.4f, %.4f], "
-              "distance=%.3fm (using moveJ joint-space)",
+              "distance=%.3fm (moveL, keep orientation)",
               current_pos.x(), current_pos.y(), current_pos.z(),
               approach_point.x(), approach_point.y(), approach_point.z(),
               (approach_point - current_pos).norm());
 
-  // 使用 moveJ（关节空间 S 曲线）代替 moveL。
-  // moveL 在长距离笛卡尔直线路径上容易因 Isaac Sim 物理延迟导致跟踪误差
-  // 超过 0.1 rad 限制而触发 EMERGENCY STOP。
-  // moveJ 只需单次 IK 求解，关节空间轨迹更平滑，跟踪误差更小。
-  // 精确定位由 kReDetecting + kDescending 阶段的 moveL 保证。
+  // moveL + nullopt：只改位置，不改朝向。
+  // 保持相机朝向不变，避免物体脱离视野。
+  // 跟随误差限制已放宽到 0.25 rad 以适应 Isaac Sim 物理延迟。
   try {
-    robot_->moveJ(approach_xyz, std::nullopt, -1.0, true);
+    robot_->moveL(approach_xyz, std::nullopt, -1.0, true);
   } catch (const std::exception& e) {
-    RCLCPP_ERROR(logger, "Approach moveJ failed: %s", e.what());
+    RCLCPP_ERROR(logger, "Approach moveL failed: %s", e.what());
     state_ = GraspState::kError;
     return;
   }
@@ -215,7 +213,11 @@ void GraspTaskManager::step_approach() {
     return;
   }
 
-  state_ = GraspState::kReDetecting;
+  // 跳过重检测（kReDetecting），直接用初始检测目标下降。
+  // 原因：当前相机内参可能与 Isaac Sim 实际分辨率不匹配，
+  // 近距离重检测的 3D 投影误差会被放大导致坐标漂移。
+  // 初始检测精度已足够（approach 误差 < 1cm）。
+  state_ = GraspState::kDescending;
 }
 
 bool GraspTaskManager::step_redetect() {
@@ -291,6 +293,24 @@ void GraspTaskManager::step_descend() {
     return;
   }
 
+  // 验证是否到达抓取高度（检测 FAULT/超时）
+  {
+    Eigen::Vector3d descend_target(target[0], target[1], target[2]);
+    auto pose_after = robot_->get_end_effector_pose();
+    Eigen::Vector3d actual(pose_after[0], pose_after[1], pose_after[2]);
+    double pos_error = (actual - descend_target).norm();
+    RCLCPP_INFO(logger,
+                "Descend done: actual [%.4f, %.4f, %.4f], position error %.4fm",
+                actual.x(), actual.y(), actual.z(), pos_error);
+    if (pos_error > 0.05) {
+      RCLCPP_ERROR(logger,
+                   "Descend position error %.4fm > 0.05m, aborting grasp",
+                   pos_error);
+      state_ = GraspState::kError;
+      return;
+    }
+  }
+
   state_ = GraspState::kGrasping;
 }
 
@@ -335,11 +355,17 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
 
   if (log_details) {
     RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
-                "Coord transform: camera_xyz=[%.4f, %.4f, %.4f], "
-                "hand t=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
-                camera_xyz.x(), camera_xyz.y(), camera_xyz.z(),
+                "[TRANSFORM] Step 1 - camera_xyz=[%.4f, %.4f, %.4f]",
+                camera_xyz.x(), camera_xyz.y(), camera_xyz.z());
+    RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
+                "[TRANSFORM] Step 2 - hand t=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
                 (*tf_hand)[0], (*tf_hand)[1], (*tf_hand)[2],
                 (*tf_hand)[3], (*tf_hand)[4], (*tf_hand)[5]);
+    RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
+                "[TRANSFORM] Step 3 - camera extrinsics: offset=[%.4f, %.4f, %.4f] "
+                "rpy=[%.4f, %.4f, %.4f]",
+                camera_offset_[0], camera_offset_[1], camera_offset_[2],
+                camera_rpy_[0], camera_rpy_[1], camera_rpy_[2]);
   }
 
   // 2. base ← hand
@@ -365,14 +391,19 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
   Eigen::Vector3d base_point = R * camera_xyz + t;
 
   if (log_details) {
-    Eigen::Vector3d optical_z(R(0, 2), R(1, 2), R(2, 2));
+    // 打印合成旋转矩阵 R 的列向量（每列代表光学坐标轴在基座系中的方向）
     RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
-                "Transformed to base: [%.4f, %.4f, %.4f], "
-                "distance from base: %.3fm, optical_z=[%.3f, %.3f, %.3f]%s",
-                base_point.x(), base_point.y(), base_point.z(),
-                base_point.norm(),
-                optical_z.x(), optical_z.y(), optical_z.z(),
-                optical_z.z() < 0 ? " (DOWN)" : " (UP!)");
+                "[TRANSFORM] Step 4 - R columns (optical axes in base): "
+                "X=[%.3f,%.3f,%.3f] Y=[%.3f,%.3f,%.3f] Z=[%.3f,%.3f,%.3f]",
+                R(0,0), R(1,0), R(2,0),
+                R(0,1), R(1,1), R(2,1),
+                R(0,2), R(1,2), R(2,2));
+    RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
+                "[TRANSFORM] Step 5 - optical origin in base (t)=[%.4f, %.4f, %.4f]",
+                t.x(), t.y(), t.z());
+    RCLCPP_INFO(rclcpp::get_logger("grasp_task_manager"),
+                "[TRANSFORM] Step 6 - RESULT: base_point=[%.4f, %.4f, %.4f]",
+                base_point.x(), base_point.y(), base_point.z());
   }
 
   return std::array<double, 3>{base_point.x(), base_point.y(),

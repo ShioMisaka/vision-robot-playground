@@ -49,14 +49,15 @@ const std::array<int, 3> kLowerHsv = {0, 100, 100};
 const std::array<int, 3> kUpperHsv = {10, 255, 255};
 
 // ---- 相机内参（需匹配 Isaac Sim 中 ZED 相机配置）----
-const double kCameraFx = 614.0;
-const double kCameraFy = 614.0;
-const double kCameraCx = 320.0;
-const double kCameraCy = 240.0;
+// 实际图像为 1280x720，使用对应内参
+const double kCameraFx = 700.0;
+const double kCameraFy = 700.0;
+const double kCameraCx = 640.0;
+const double kCameraCy = 360.0;
 
 // ---- 运动参数 ----
-constexpr double kMoveJSpeed = 50.0;
-constexpr double kMoveLSpeed = 30.0;
+constexpr double kMoveJSpeed = 40.0;
+constexpr double kMoveLSpeed = 20.0;
 
 // ---- 抓取参数 ----
 constexpr double kApproachHeight = 0.15;      // 目标上方 15cm
@@ -132,22 +133,9 @@ int main(int argc, char* argv[]) {
     RCLCPP_INFO(logger, "[DIAG] 速度: moveJ=%.0f%%, moveL=%.0f%%",
                 kMoveJSpeed, kMoveLSpeed);
 
-    // ---- 移动到观察位 ----
-    RCLCPP_INFO(logger, "移动到观察位...");
-    ctrl->move_to_pose(
-        std::array<double, 3>{0.526, 0.0, 0.4},
-        std::optional<std::array<double, 3>>{{0.0, -M_PI, -M_PI}},
-        gripper.max_width, 0, 0.08, true);
-
-    if (!rclcpp::ok()) goto cleanup;
-
-    // ---- 诊断日志：观察位 TCP ----
-    {
-      auto pose = ctrl->get_end_effector_pose();
-      RCLCPP_INFO(logger,
-                  "[DIAG] 观察位 TCP: xyz=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
-                  pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
-    }
+    // ---- 不移动观察位 ----
+    // 用户在 Isaac Sim 中已手动定位机器人，直接使用当前位置作为观察位。
+    // 确保相机朝下（rpy Z 分量 ≈ -π）且物块在视野内即可。
 
     // ---- 张开夹爪 ----
     RCLCPP_INFO(logger, "张开夹爪");
@@ -165,6 +153,17 @@ int main(int argc, char* argv[]) {
                 "[DIAG] 首次检测: uv=[%d, %d], camera_xyz=[%.4f, %.4f, %.4f]",
                 first_result->uv.x(), first_result->uv.y(),
                 first_result->xyz.x(), first_result->xyz.y(),
+                first_result->xyz.z());
+    // 诊断：验证 uv 到 camera_xyz 的投影是否一致
+    double verify_x = (first_result->uv.x() - kCameraCx) *
+                      first_result->xyz.z() / kCameraFx;
+    double verify_y = (first_result->uv.y() - kCameraCy) *
+                      first_result->xyz.z() / kCameraFy;
+    RCLCPP_INFO(logger,
+                "[DIAG] 投影验证: 由uv反算 x=%.4f (实际%.4f) y=%.4f (实际%.4f) "
+                "depth=%.4f",
+                verify_x, first_result->xyz.x(),
+                verify_y, first_result->xyz.y(),
                 first_result->xyz.z());
 
     if (!rclcpp::ok()) goto cleanup;

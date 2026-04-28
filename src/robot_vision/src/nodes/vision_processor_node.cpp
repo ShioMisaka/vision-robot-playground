@@ -49,6 +49,16 @@ void VisionProcessorNode::init(const TopicConfig& topics) {
 void VisionProcessorNode::on_synced_image(
     const sensor_msgs::msg::Image::ConstSharedPtr& left,
     const sensor_msgs::msg::Image::ConstSharedPtr& depth) {
+  // 诊断：首帧打印图像尺寸信息
+  static bool first_frame_logged = false;
+  if (!first_frame_logged) {
+    RCLCPP_INFO(this->get_logger(),
+                "[DIAG] Image: rgb=%dx%d encoding=%s, depth=%dx%d encoding=%s",
+                left->width, left->height, left->encoding.c_str(),
+                depth->width, depth->height, depth->encoding.c_str());
+    first_frame_logged = true;
+  }
+
   cv_bridge::CvImagePtr cv_left;
   cv_bridge::CvImagePtr cv_depth;
 
