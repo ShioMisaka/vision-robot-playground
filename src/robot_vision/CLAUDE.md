@@ -28,7 +28,7 @@ robot_vision_nodes (共享库)  ← ROS2 视觉节点 + 抓取任务管理器（
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB（message_filters 同步） |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图（message_filters 同步） |
 
-无 Service / Action。视觉结果通过 `IVisionProcessor` 接口（`get_latest_result()` / `wait_for_detection()`）供 `GraspTaskManager` 调用。
+无 Service / Action。视觉结果通过 `IVisionProcessor` 接口（`get_latest_result()` / `wait_for_detection()` / `average_detections()`）供 `GraspTaskManager` 调用。
 
 ## 核心类与修改入口
 
@@ -36,7 +36,7 @@ robot_vision_nodes (共享库)  ← ROS2 视觉节点 + 抓取任务管理器（
 
 | 文件 | 类 | 职责 |
 |------|-----|------|
-| `include/.../vision/i_vision_processor.hpp` | IVisionProcessor | 视觉处理抽象接口（DetectionResult 结构体） |
+| `include/.../vision/i_vision_processor.hpp` | IVisionProcessor | 视觉处理抽象接口（DetectionResult 结构体：detected, xyz, uv, confidence, label） |
 | `include/.../vision/camera_interface.hpp` | CameraInterface | 图像处理基类（`pixel_to_3d()` 针孔相机投影） |
 | `include/.../vision/color_detector.hpp` | ColorDetector | HSV 颜色检测器（继承 CameraInterface） |
 | `src/vision/color_detector.cpp` | ColorDetector::detect(), process_image() | BGR→HSV + 轮廓面积筛选 + 深度 3D 投影 |
@@ -53,7 +53,7 @@ robot_vision_nodes (共享库)  ← ROS2 视觉节点 + 抓取任务管理器（
 ### GraspTaskManager 状态机
 
 ```
-kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting → kDone
+kIdle → kDetecting → kApproaching → kReDetecting → kDescending → kGrasping → kLifting → kDone
                                         ↓ (任何阶段异常)
                                       kError
 ```
@@ -61,8 +61,9 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 | 状态 | 动作 |
 |------|------|
 | kDetecting | 调用 vision->get_latest_result()，转换到 base 坐标系 |
-| kApproaching | moveJ() 到目标上方 approach_height（默认 0.15m，S 曲线轨迹） |
-| kDescending | moveL() 到抓取高度（grasp_height_offset 默认 0.02m，直线运动） |
+| kApproaching | 一次性 moveJ() 关节空间运动到目标正上方（保持朝向不变），不更新 target_xyz_；移动后验证到达精度（>5cm 视为失败） |
+| kReDetecting | 近距离多样本平均检测（average_detections()），更新 target_xyz_，失败重试 3 次 |
+| kDescending | moveL() 到精确抓取高度（grasp_height_offset 默认 0.02m，直线运动，保持当前朝向避免 IK 问题） |
 | kGrasping | close_gripper() |
 | kLifting | move_linear() 抬起 approach_height + 0.1m |
 
@@ -75,6 +76,9 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 | approach_height | 0.15 m | 接近阶段高度偏移 |
 | grasp_height_offset | 0.02 m | 抓取高度偏移 |
 | grasp_rpy | [π, 0, π] | 抓取朝向 |
+| redetect_samples | 5 | 近距离重检测采样次数 |
+| redetect_interval | 0.1 s | 重检测采样间隔 |
+| max_reach | 0.85 m | 最大工作半径，超出拒绝抓取 |
 
 ## ColorDetector 相机内参
 
@@ -83,7 +87,8 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 | fx, fy | 614 | 焦距（像素） |
 | cx, cy | 320, 240 | 光心（像素） |
 
-通过 `set_camera_intrinsics(fx, fy, cx, cy)` 修改。
+通过构造函数或 `set_camera_intrinsics(fx, fy, cx, cy)` 修改。
+需匹配 Isaac Sim 中 ZED 相机的实际分辨率和内参。
 
 ## 测试与演示
 
@@ -123,3 +128,10 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 - `GraspTaskManager::run()` 是阻塞调用，需在独立线程中执行
 - 深度图支持两种格式：CV_16U（单位 mm）和 CV_32F（单位 m），`process_image()` 自动检测
 - `VisionProcessorNode` 使用 `message_filters::ApproximateTime` 同步 RGB 和深度图，队列大小 10，最大时间差 0.1s
+- **坐标变换不依赖 TF 发布的相机帧**：`transform_to_base()` 直接从 hand TF + 已知相机外参计算（camera_offset / camera_rpy 构造参数），避免 Isaac Sim 使用旧 URDF 发布错误相机 TF 的问题
+- **approach 阶段不更新 target_xyz_**：Isaac Sim 图像管线延迟导致 `get_latest_result()` 的 camera_xyz 与 `lookup_transform()` 的 hand TF 存在时序不同步，若在运动中用旧 camera_xyz + 新 hand TF 更新目标，会产生朝运动方向持续漂移的正反馈循环。approach 仅使用初始静止检测的坐标，精确重定位由 kReDetecting 负责
+- **approach 使用 moveJ（关节空间）**：不用 moveL 的原因是长距离笛卡尔轨迹在 Isaac Sim 中容易因物理延迟导致跟踪误差超过 0.1 rad 限制触发 EMERGENCY STOP。moveJ 只需单次 IK 求解，关节空间轨迹更平滑。精确定位由 kReDetecting + kDescending 保证
+- **descend 使用 moveL + 保持朝向**：下降阶段使用 moveL 保证直线运动（避免侧向碰撞），但保持当前朝向（std::nullopt）而非使用 grasp_rpy_，因为观察位朝向 RPY≈[-π,0,0] 与 grasp_rpy_=[π,0,π] 虽然都是朝下但相差 180° Z 旋转，SLERP 插值可能导致某些中间姿态 IK 无解
+- **移动后位置验证**：approach 完成后检查实际 TCP 位置与目标偏差，超过 5cm 视为失败（可能是 FAULT 状态或超时导致未到达）
+- **中止机制**：GraspTaskManager 支持 `request_abort()` 方法，主线程可设置中止标志，抓取循环在每个状态转换前检查
+- **异常捕获**：所有运动命令用 try-catch 包裹，IK 失败等异常不会导致未定义行为

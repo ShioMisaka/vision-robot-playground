@@ -91,7 +91,13 @@ add_executable(demo_camera
 target_link_libraries(demo_camera robot_controller::robot_nodes)
 target_link_libraries(demo_camera robot_vision_nodes)
 
-install(TARGETS test_robot_node test_camera_tf demo_camera
+add_executable(demo_vision_grasp
+  demo/demo_vision_grasp.cpp
+)
+target_link_libraries(demo_vision_grasp robot_controller::robot_nodes)
+target_link_libraries(demo_vision_grasp robot_vision_nodes)
+
+install(TARGETS test_robot_node test_camera_tf demo_camera demo_vision_grasp
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
