@@ -178,13 +178,15 @@ PYBIND11_MODULE(_core, m) {
                              [](const DetectionResult& r) {
                                return vec2i_to_list(r.uv);
                              })
-      .def_readwrite("confidence", &DetectionResult::confidence);
+      .def_readwrite("confidence", &DetectionResult::confidence)
+      .def_readwrite("label", &DetectionResult::label);
 
   // GraspState 枚举
   py::enum_<GraspState>(m, "GraspState")
       .value("IDLE", GraspState::kIdle)
       .value("DETECTING", GraspState::kDetecting)
       .value("APPROACHING", GraspState::kApproaching)
+      .value("RE_DETECTING", GraspState::kReDetecting)
       .value("DESCENDING", GraspState::kDescending)
       .value("GRASPING", GraspState::kGrasping)
       .value("LIFTING", GraspState::kLifting)
@@ -336,14 +338,17 @@ PYBIND11_MODULE(_core, m) {
                     std::shared_ptr<IVisionProcessor>,
                     const std::string&, const std::string&,
                     double, double,
-                    const std::array<double, 3>&>(),
+                    const std::array<double, 3>&,
+                    int, double>(),
            py::arg("robot"), py::arg("vision"),
            py::arg("base_frame") = "panda_link0",
            py::arg("camera_frame") = "camera_color_optical_frame",
            py::arg("approach_height") = 0.15,
            py::arg("grasp_height_offset") = 0.02,
            py::arg("grasp_rpy") =
-               std::array<double, 3>{M_PI, 0.0, M_PI})
+               std::array<double, 3>{M_PI, 0.0, M_PI},
+           py::arg("redetect_samples") = 5,
+           py::arg("redetect_interval") = 0.1)
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())
@@ -382,6 +387,11 @@ PYBIND11_MODULE(_core, m) {
       .def("get_latest_result", &VisionProcessorNode::get_latest_result)
       .def("wait_for_detection", &VisionProcessorNode::wait_for_detection,
            py::arg("timeout") = 10.0,
+           py::call_guard<py::gil_scoped_release>())
+      .def("average_detections", &VisionProcessorNode::average_detections,
+           py::arg("sample_count") = 5,
+           py::arg("sample_interval") = 0.1,
+           py::arg("timeout") = 5.0,
            py::call_guard<py::gil_scoped_release>())
       .def("get_logger",
            [](VisionProcessorNode& self) -> rclcpp::Logger {
