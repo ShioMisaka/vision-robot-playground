@@ -86,9 +86,11 @@ void RobotMotionController::set_arm(const std::vector<double>& angles,
 
 void RobotMotionController::set_gripper(double width, bool block) {
   grasping_ = false;
-  bridge_->publish_gripper(width);
+  // Use publish_command (all joints) — Isaac Sim requires full 9-joint messages;
+  // publish_gripper (partial) may be silently ignored.
+  auto arm = bridge_->get_current_arm();
+  bridge_->publish_command(arm, width);
   if (block) {
-    auto arm = bridge_->get_current_arm();
     wait_until_reached(arm, width, true);
   }
 }
@@ -98,7 +100,8 @@ void RobotMotionController::open_gripper(bool block) {
 }
 
 void RobotMotionController::close_gripper(bool block) {
-  bridge_->publish_gripper(gripper_.min_width);
+  auto arm = bridge_->get_current_arm();
+  bridge_->publish_command(arm, gripper_.min_width);
   if (block) {
     bridge_->wait_for_finger_settle(
         ControlConstants::kFingerStableCount,
