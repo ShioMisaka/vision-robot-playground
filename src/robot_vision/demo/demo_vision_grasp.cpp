@@ -61,7 +61,7 @@ constexpr double kMoveLSpeed = 10.0;
 
 // ---- 抓取参数 ----
 constexpr double kApproachHeight = 0.15;      // 目标上方 15cm
-constexpr double kGraspHeightOffset = 0.02;   // 抓取高度偏移 2cm
+constexpr double kGraspHeightOffset = 0.08;   // 抓取高度偏移 8cm（panda_grasptarget 距 panda_hand 0.105m，对齐 5cm 物块中心）
 constexpr int kRedetectSamples = 5;            // 重检测采样次数
 constexpr double kRedetectInterval = 0.1;      // 采样间隔 100ms
 
