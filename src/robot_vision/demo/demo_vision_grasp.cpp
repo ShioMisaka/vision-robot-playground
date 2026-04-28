@@ -57,7 +57,7 @@ const double kCameraCy = 360.0;
 
 // ---- 运动参数 ----
 constexpr double kMoveJSpeed = 40.0;
-constexpr double kMoveLSpeed = 20.0;
+constexpr double kMoveLSpeed = 10.0;
 
 // ---- 抓取参数 ----
 constexpr double kApproachHeight = 0.15;      // 目标上方 15cm
