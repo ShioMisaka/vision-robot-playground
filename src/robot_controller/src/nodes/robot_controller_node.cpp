@@ -503,13 +503,10 @@ void RobotControllerNode::control_loop_tick() {
   }
 
   // === 4. WRITE ===
-  if (state == RobotState::kIdle || state == RobotState::kFault) {
-    if (controller_->is_grasping()) {
-      bridge_->publish_gripper(target_finger);
-    }
-  } else {
-    bridge_->publish_command(target, target_finger);
-  }
+  // Always publish full command (arm + gripper) — PendantNode publishes to
+  // ~/joint_target (not /joint_command directly), so the controller is the
+  // sole publisher to /joint_command and must send arm joints in all states.
+  bridge_->publish_command(target, target_finger);
 }
 
 // ===== Destructor =====
