@@ -56,6 +56,9 @@ public:
   void publish_command(const std::vector<double>& arm,
                        double finger) override;
 
+  /// 仅发布臂关节指令（不包含夹爪，用于 kIdle 时发布外部关节目标）
+  void publish_arm(const std::vector<double>& arm) override;
+
   /// 仅发布夹爪关节指令（kIdle 时维持夹持力，不覆盖 arm）
   void publish_gripper(double finger) override;
   std::vector<double> get_current_arm() const override;

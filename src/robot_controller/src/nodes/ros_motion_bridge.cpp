@@ -73,6 +73,18 @@ void RosMotionBridge::publish_command(const std::vector<double>& arm,
   cmd_pub_->publish(msg);
 }
 
+void RosMotionBridge::publish_arm(const std::vector<double>& arm) {
+  sensor_msgs::msg::JointState msg;
+  msg.header.stamp = node_->now();
+
+  for (size_t i = 0; i < arm.size() && i < profile_.joint_names.size(); ++i) {
+    msg.name.push_back(profile_.joint_names[i]);
+    msg.position.push_back(arm[i]);
+  }
+
+  cmd_pub_->publish(msg);
+}
+
 void RosMotionBridge::publish_gripper(double finger) {
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();

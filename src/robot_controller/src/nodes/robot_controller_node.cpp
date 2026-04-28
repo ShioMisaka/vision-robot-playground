@@ -503,10 +503,28 @@ void RobotControllerNode::control_loop_tick() {
   }
 
   // === 4. WRITE ===
-  // Always publish full command (arm + gripper) — PendantNode publishes to
-  // ~/joint_target (not /joint_command directly), so the controller is the
-  // sole publisher to /joint_command and must send arm joints in all states.
-  bridge_->publish_command(target, target_finger);
+  if (state == RobotState::kIdle || state == RobotState::kFault) {
+    // Arm: publish only when external joint target stream is active
+    // (PendantNode joint dragging). Published separately from gripper to
+    // avoid overwriting direct API calls like open_gripper()/close_gripper().
+    bool has_external = false;
+    {
+      std::lock_guard<std::mutex> lock(external_target_mutex_);
+      has_external = !external_joint_target_.empty() &&
+                     (this->now() - external_target_time_).seconds() < 0.2;
+    }
+    if (has_external) {
+      bridge_->publish_arm(target);
+    }
+    // Gripper: maintain force only when grasping (old behavior).
+    // Direct API calls (open/close_gripper) work because the loop does NOT
+    // publish gripper when not grasping.
+    if (controller_->is_grasping()) {
+      bridge_->publish_gripper(target_finger);
+    }
+  } else {
+    bridge_->publish_command(target, target_finger);
+  }
 }
 
 // ===== Destructor =====

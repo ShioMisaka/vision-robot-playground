@@ -23,6 +23,9 @@ public:
   virtual void publish_command(const std::vector<double>& arm,
                                double finger) = 0;
 
+  /// 仅发布臂关节指令（不包含夹爪，用于 kIdle 时发布外部关节目标）
+  virtual void publish_arm(const std::vector<double>& arm) = 0;
+
   /// 仅发布夹爪指令（不包含臂关节，用于夹爪独立控制）
   virtual void publish_gripper(double finger) = 0;
 
