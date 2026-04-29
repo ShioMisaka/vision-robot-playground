@@ -2,6 +2,8 @@
 #include "robot_controller/motion/topic_config.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 
+#include <robot_logger/logger.hpp>
+
 #include <chrono>
 #include <thread>
 
@@ -43,7 +45,7 @@ void VisionProcessorNode::init(const TopicConfig& topics) {
       static_cast<int64_t>(ControlConstants::kImageSyncSlop * 1e9), 0));
   sync_->registerCallback(&VisionProcessorNode::on_synced_image, this);
 
-  RCLCPP_INFO(this->get_logger(), "VisionProcessorNode started");
+  LOG_INFO("VisionProcessorNode started");
 }
 
 void VisionProcessorNode::on_synced_image(
@@ -52,10 +54,9 @@ void VisionProcessorNode::on_synced_image(
   // 诊断：首帧打印图像尺寸信息
   static bool first_frame_logged = false;
   if (!first_frame_logged) {
-    RCLCPP_INFO(this->get_logger(),
-                "[DIAG] Image: rgb=%dx%d encoding=%s, depth=%dx%d encoding=%s",
-                left->width, left->height, left->encoding.c_str(),
-                depth->width, depth->height, depth->encoding.c_str());
+    LOG_INFO("[DIAG] Image: rgb={}x{} encoding={}, depth={}x{} encoding={}",
+             left->width, left->height, left->encoding,
+             depth->width, depth->height, depth->encoding);
     first_frame_logged = true;
   }
 
@@ -66,7 +67,7 @@ void VisionProcessorNode::on_synced_image(
     cv_left = cv_bridge::toCvCopy(left, "bgr8");
     cv_depth = cv_bridge::toCvCopy(depth);
   } catch (const cv_bridge::Exception& e) {
-    RCLCPP_ERROR(this->get_logger(), "CV bridge error: %s", e.what());
+    LOG_ERROR("CV bridge error: {}", e.what());
     return;
   }
 
@@ -106,7 +107,7 @@ std::optional<DetectionResult> VisionProcessorNode::wait_for_detection(
     }
   }
 
-  RCLCPP_WARN(this->get_logger(), "Detection timeout (%.1fs)", timeout);
+  LOG_WARN("Detection timeout ({:.1f}s)", timeout);
   return std::nullopt;
 }
 
@@ -138,8 +139,7 @@ std::optional<DetectionResult> VisionProcessorNode::average_detections(
   }
 
   if (valid_count == 0) {
-    RCLCPP_WARN(this->get_logger(),
-                "average_detections: 0/%d valid samples", sample_count);
+    LOG_WARN("average_detections: 0/{} valid samples", sample_count);
     return std::nullopt;
   }
 
@@ -149,10 +149,9 @@ std::optional<DetectionResult> VisionProcessorNode::average_detections(
   avg.uv = (sum_uv / valid_count).cast<int>();
   avg.confidence = sum_conf / valid_count;
 
-  RCLCPP_INFO(this->get_logger(),
-              "average_detections: %d/%d valid, xyz=[%.4f, %.4f, %.4f]",
-              valid_count, sample_count, avg.xyz.x(), avg.xyz.y(),
-              avg.xyz.z());
+  LOG_INFO("average_detections: {}/{} valid, xyz=[{:.4f}, {:.4f}, {:.4f}]",
+           valid_count, sample_count, avg.xyz.x(), avg.xyz.y(),
+           avg.xyz.z());
   return avg;
 }
 

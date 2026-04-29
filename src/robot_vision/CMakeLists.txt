@@ -20,6 +20,7 @@ find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(robot_controller REQUIRED)
+find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
 add_library(robot_vision_core SHARED
   src/vision/color_detector.cpp
@@ -35,6 +36,8 @@ ament_target_dependencies(robot_vision_core
   Eigen3
 )
 
+target_link_libraries(robot_vision_core robot_logger::robot_logger_lib)
+
 # ===== robot_vision_nodes: ROS2 视觉节点 + 任务管理器（依赖 vision_core + motion）=====
 add_library(robot_vision_nodes SHARED
   src/nodes/vision_processor_node.cpp
@@ -46,7 +49,8 @@ target_include_directories(robot_vision_nodes PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_vision_nodes robot_vision_core robot_controller::robot_motion)
+target_link_libraries(robot_vision_nodes robot_vision_core robot_controller::robot_motion robot_logger::robot_logger_lib)
+target_compile_definitions(robot_vision_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 ament_target_dependencies(robot_vision_nodes
   rclcpp
@@ -75,27 +79,31 @@ install(TARGETS robot_vision_core robot_vision_nodes
 add_executable(test_robot_node
   test/test_robot_node.cpp
 )
-target_link_libraries(test_robot_node robot_controller::robot_nodes)
+target_link_libraries(test_robot_node robot_controller::robot_nodes robot_logger::robot_logger_lib)
 target_link_libraries(test_robot_node robot_vision_nodes)
+target_compile_definitions(test_robot_node PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 add_executable(test_camera_tf
   test/test_camera_tf.cpp
 )
-target_link_libraries(test_camera_tf robot_controller::robot_nodes)
+target_link_libraries(test_camera_tf robot_controller::robot_nodes robot_logger::robot_logger_lib)
 target_link_libraries(test_camera_tf robot_vision_nodes)
+target_compile_definitions(test_camera_tf PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 # ===== 演示 =====
 add_executable(demo_camera
   demo/demo_camera.cpp
 )
-target_link_libraries(demo_camera robot_controller::robot_nodes)
+target_link_libraries(demo_camera robot_controller::robot_nodes robot_logger::robot_logger_lib)
 target_link_libraries(demo_camera robot_vision_nodes)
+target_compile_definitions(demo_camera PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 add_executable(demo_vision_grasp
   demo/demo_vision_grasp.cpp
 )
-target_link_libraries(demo_vision_grasp robot_controller::robot_nodes)
+target_link_libraries(demo_vision_grasp robot_controller::robot_nodes robot_logger::robot_logger_lib)
 target_link_libraries(demo_vision_grasp robot_vision_nodes)
+target_compile_definitions(demo_vision_grasp PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 install(TARGETS test_robot_node test_camera_tf demo_camera demo_vision_grasp
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -114,6 +122,7 @@ ament_export_dependencies(
   Eigen3
   OpenCV
   robot_controller
+  robot_logger
 )
 
 ament_package()

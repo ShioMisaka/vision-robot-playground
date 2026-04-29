@@ -28,6 +28,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <robot_logger/logger.hpp>
 
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
@@ -94,6 +95,8 @@ int main(int argc, char* argv[]) {
   auto gripper = profiles::panda_gripper();
   TopicConfig topics;
 
+  (void)logger;  // suppress unused warning
+
   auto robot_node = RobotControllerNode::create(profile, gripper, topics);
   auto detector = std::make_shared<ColorDetector>(
       kLowerHsv, kUpperHsv, kCameraFx, kCameraFy, kCameraCx, kCameraCy);
@@ -106,11 +109,11 @@ int main(int argc, char* argv[]) {
   std::thread spin_thread([executor]() { executor->spin(); });
 
   // ---- 等待就绪 ----
-  RCLCPP_INFO(logger, "等待与 Isaac Sim 建立连接...");
+  LOG_INFO("等待与 Isaac Sim 建立连接...");
 
   bool ready = robot_node->wait_for_ready(ControlConstants::kReadyTimeout);
   if (!ready) {
-    RCLCPP_ERROR(logger, "等待关节状态超时，请确认 Isaac Sim 已启动");
+    LOG_ERROR("等待关节状态超时，请确认 Isaac Sim 已启动");
     goto cleanup;
   }
 
@@ -122,56 +125,51 @@ int main(int argc, char* argv[]) {
     // ---- 诊断日志：初始状态 ----
     {
       auto pose = ctrl->get_end_effector_pose();
-      RCLCPP_INFO(logger,
-                  "[DIAG] 初始 TCP: xyz=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
-                  pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+      LOG_INFO("[DIAG] 初始 TCP: xyz=[{:.4f}, {:.4f}, {:.4f}] rpy=[{:.4f}, {:.4f}, {:.4f}]",
+               pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
     }
 
     // ---- 设置速度 ----
     ctrl->set_speed(MotionMode::kMoveJ, kMoveJSpeed);
     ctrl->set_speed(MotionMode::kMoveL, kMoveLSpeed);
-    RCLCPP_INFO(logger, "[DIAG] 速度: moveJ=%.0f%%, moveL=%.0f%%",
-                kMoveJSpeed, kMoveLSpeed);
+    LOG_INFO("[DIAG] 速度: moveJ={:.0f}%, moveL={:.0f}%",
+             kMoveJSpeed, kMoveLSpeed);
 
     // ---- 不移动观察位 ----
     // 用户在 Isaac Sim 中已手动定位机器人，直接使用当前位置作为观察位。
     // 确保相机朝下（rpy Z 分量 ≈ -π）且物块在视野内即可。
 
     // ---- 张开夹爪 ----
-    RCLCPP_INFO(logger, "张开夹爪");
+    LOG_INFO("张开夹爪");
     ctrl->open_gripper(true);
 
     // ---- 等待首次检测（诊断）----
-    RCLCPP_INFO(logger, "[DIAG] 等待视觉检测（10s 超时）...");
+    LOG_INFO("[DIAG] 等待视觉检测（10s 超时）...");
     auto first_result = vision_node->wait_for_detection(10.0);
     if (!first_result.has_value() || !first_result->detected) {
-      RCLCPP_ERROR(logger,
-                   "[DIAG] 初始检测失败，请确认红色物块在相机视野内");
+      LOG_ERROR("[DIAG] 初始检测失败，请确认红色物块在相机视野内");
       goto cleanup;
     }
-    RCLCPP_INFO(logger,
-                "[DIAG] 首次检测: uv=[%d, %d], camera_xyz=[%.4f, %.4f, %.4f]",
-                first_result->uv.x(), first_result->uv.y(),
-                first_result->xyz.x(), first_result->xyz.y(),
-                first_result->xyz.z());
+    LOG_INFO("[DIAG] 首次检测: uv=[{}, {}], camera_xyz=[{:.4f}, {:.4f}, {:.4f}]",
+             first_result->uv.x(), first_result->uv.y(),
+             first_result->xyz.x(), first_result->xyz.y(),
+             first_result->xyz.z());
     // 诊断：验证 uv 到 camera_xyz 的投影是否一致
     double verify_x = (first_result->uv.x() - kCameraCx) *
                       first_result->xyz.z() / kCameraFx;
     double verify_y = (first_result->uv.y() - kCameraCy) *
                       first_result->xyz.z() / kCameraFy;
-    RCLCPP_INFO(logger,
-                "[DIAG] 投影验证: 由uv反算 x=%.4f (实际%.4f) y=%.4f (实际%.4f) "
-                "depth=%.4f",
-                verify_x, first_result->xyz.x(),
-                verify_y, first_result->xyz.y(),
-                first_result->xyz.z());
+    LOG_INFO("[DIAG] 投影验证: 由uv反算 x={:.4f} (实际{:.4f}) y={:.4f} (实际{:.4f}) "
+             "depth={:.4f}",
+             verify_x, first_result->xyz.x(),
+             verify_y, first_result->xyz.y(),
+             first_result->xyz.z());
 
     if (!rclcpp::ok()) goto cleanup;
 
     // ---- 执行两阶段抓取 ----
-    RCLCPP_INFO(logger,
-                "开始两阶段视觉引导抓取"
-                "（粗检测 → moveJ接近 → 精确重检测 → moveL下降 → 抓取）");
+    LOG_INFO("开始两阶段视觉引导抓取"
+             "（粗检测 → moveJ接近 → 精确重检测 → moveL下降 → 抓取）");
 
     GraspTaskManager task(
         ctrl, vision_node,
@@ -200,7 +198,7 @@ int main(int argc, char* argv[]) {
     // 主线程：等待抓取完成或 Ctrl+C
     while (grasp_thread.joinable()) {
       if (!rclcpp::ok() || g_abort.load(std::memory_order_acquire)) {
-        RCLCPP_INFO(logger, "[SIGNAL] 收到中止信号，正在停止抓取...");
+        LOG_INFO("[SIGNAL] 收到中止信号，正在停止抓取...");
         task.request_abort();
         break;
       }
@@ -211,13 +209,13 @@ int main(int argc, char* argv[]) {
       grasp_thread.join();
     }
 
-    RCLCPP_INFO(logger, "抓取结果: %s, 最终状态: %s",
-                success ? "成功" : "失败",
-                state_name(task.get_state()));
+    LOG_INFO("抓取结果: {}, 最终状态: {}",
+             success ? "成功" : "失败",
+             state_name(task.get_state()));
   }
 
 cleanup:
-  RCLCPP_INFO(logger, "正在清理...");
+  LOG_INFO("正在清理...");
   executor->cancel();
   if (spin_thread.joinable()) {
     spin_thread.join();

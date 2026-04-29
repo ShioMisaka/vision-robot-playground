@@ -19,6 +19,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <robot_logger/logger.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -71,9 +72,8 @@ private:
         static_cast<int64_t>(robot_control::ControlConstants::kImageSyncSlop * 1e9), 0));
     sync_->registerCallback(&CameraDisplayNode::on_images, this);
 
-    RCLCPP_INFO(this->get_logger(),
-                "CameraDisplayNode 已启动，订阅：[%s, %s]",
-                topics.camera_left.c_str(), topics.camera_depth.c_str());
+    LOG_INFO("CameraDisplayNode 已启动，订阅：[{}, {}]",
+             topics.camera_left, topics.camera_depth);
   }
 
   void on_images(const sensor_msgs::msg::Image::ConstSharedPtr& left_msg,
@@ -85,7 +85,7 @@ private:
       cv_left = cv_bridge::toCvCopy(left_msg, "bgr8");
       cv_depth = cv_bridge::toCvCopy(depth_msg);
     } catch (const cv_bridge::Exception& e) {
-      RCLCPP_ERROR(this->get_logger(), "cv_bridge 转换失败: %s", e.what());
+      LOG_ERROR("cv_bridge 转换失败: {}", e.what());
       return;
     }
 
@@ -107,10 +107,9 @@ private:
     left_frame_ = cv_left->image;
     depth_frame_ = depth_color;
 
-    RCLCPP_INFO(this->get_logger(),
-                "收到图像: 左目 %dx%d encoding=%s, 深度 %dx%d encoding=%s",
-                left_msg->width, left_msg->height, left_msg->encoding.c_str(),
-                depth_msg->width, depth_msg->height, depth_msg->encoding.c_str());
+    LOG_INFO("收到图像: 左目 {}x{} encoding={}, 深度 {}x{} encoding={}",
+             left_msg->width, left_msg->height, left_msg->encoding,
+             depth_msg->width, depth_msg->height, depth_msg->encoding);
   }
 
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
@@ -134,7 +133,7 @@ int main(int argc, char* argv[]) {
   executor->add_node(display_node);
   auto spin_thread = std::thread([executor]() { executor->spin(); });
 
-  RCLCPP_INFO(display_node->get_logger(), "等待相机图像...按 q 退出");
+  LOG_INFO("等待相机图像...按 q 退出");
 
   try {
     while (rclcpp::ok()) {
@@ -167,12 +166,12 @@ int main(int argc, char* argv[]) {
 
       int key = cv::waitKey(1) & 0xFF;
       if (key == 'q') {
-        RCLCPP_INFO(display_node->get_logger(), "用户退出");
+        LOG_INFO("用户退出");
         break;
       }
     }
   } catch (const std::exception& e) {
-    RCLCPP_ERROR(display_node->get_logger(), "异常: %s", e.what());
+    LOG_ERROR("异常: {}", e.what());
   }
 
   cv::destroyAllWindows();
