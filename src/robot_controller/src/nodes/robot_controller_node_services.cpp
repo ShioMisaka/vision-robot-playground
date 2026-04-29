@@ -217,6 +217,7 @@ void RobotControllerNode::handle_robot_cmd(
         {
           stopping_start_time_ = std::chrono::steady_clock::now();
         }
+        motion_owner_.store(MotionOwner::kNone);
         res->success = true;
         res->message = "STOP executed";
       } else if (state_machine_.state() == RobotState::kStopping) {
@@ -239,6 +240,7 @@ void RobotControllerNode::handle_robot_cmd(
         state_machine_.clear_error();
         state_model_.align_target_to_actual();
         state_machine_.transition_to(RobotState::kIdle);
+        motion_owner_.store(MotionOwner::kNone);
         res->success = true;
         res->message = "FAULT cleared";
       } else {
