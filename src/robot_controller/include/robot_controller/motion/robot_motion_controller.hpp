@@ -73,6 +73,9 @@ public:
   /// @brief 查询当前是否处于抓取状态（抓取时夹爪持续施力）
   bool is_grasping() const { return grasping_; }
 
+  /// @brief 获取当前夹爪目标宽度（用于控制循环持续发布）
+  double get_finger_target() const { return finger_target_; }
+
 private:
   /// 关节空间线性插值运动
   void interpolate_to(const std::vector<double>& target, double finger,
@@ -99,6 +102,7 @@ private:
   std::string current_tcp_;
   TcpConfig current_tcp_config_;
   bool grasping_ = false;  // 夹取物体标志
+  double finger_target_ = 0.04;  // 夹爪目标宽度（由 set_gripper/close_gripper 更新）
   double movej_speed_ = 50.0;
   double movel_speed_ = 50.0;
 };

@@ -253,6 +253,11 @@ void RosMotionBridge::set_tcp_name(const std::string& name) {
 
 void RosMotionBridge::submit_trajectory(
     const std::vector<TrajectoryStep>& steps, double finger) {
+  RCLCPP_INFO(node_->get_logger(),
+              "[DIAG] submit_trajectory: %zu steps, duration=%.3fs, finger=%.4f",
+              steps.size(),
+              steps.empty() ? 0.0 : steps.back().time_from_start,
+              finger);
   setpoint_gen_.start(steps, finger);
   if (on_trajectory_started_) {
     on_trajectory_started_();

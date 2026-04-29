@@ -58,6 +58,9 @@ void RobotControllerNode::init() {
 
   bridge_->set_on_trajectory_started([this]() {
     auto s = state_machine_.state();
+    RCLCPP_WARN(this->get_logger(),
+                "[DIAG] on_trajectory_started: current state=%s",
+                RobotStateMachine::state_name(s));
     if (s == RobotState::kTeaching) {
       // 从 jog 模式强制切回轨迹模式（可能由残留 jog 消息触发）
       RCLCPP_WARN(this->get_logger(),
@@ -74,6 +77,11 @@ void RobotControllerNode::init() {
     }
     if (s == RobotState::kIdle) {
       state_machine_.transition_to(RobotState::kMoving);
+      RCLCPP_WARN(this->get_logger(), "[DIAG] state transitioned to MOVING");
+    } else {
+      RCLCPP_WARN(this->get_logger(),
+                  "[DIAG] state NOT transitioned (stays %s)",
+                  RobotStateMachine::state_name(s));
     }
   });
 
@@ -387,10 +395,19 @@ void RobotControllerNode::control_loop_tick() {
         target_finger = sp.finger_width;
 
         if (sp.done) {
+          RCLCPP_WARN(this->get_logger(),
+                      "[DIAG] trajectory DONE (progress=%.2f), -> IDLE", sp.progress);
           state_machine_.transition_to(RobotState::kIdle);
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
+        } else {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+              "[DIAG] kMoving tick: progress=%.2f, remaining=%.2fs, target_sz=%zu",
+              sp.progress, sp.time_remaining, target.size());
         }
+      } else {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+            "[DIAG] kMoving but gen NOT active!");
       }
       break;
     }
@@ -467,7 +484,7 @@ void RobotControllerNode::control_loop_tick() {
       }
       target_finger = controller_->is_grasping()
                           ? gripper_.min_width
-                          : bridge_->get_current_finger();
+                          : controller_->get_finger_target();
       break;
   }
 
@@ -475,6 +492,14 @@ void RobotControllerNode::control_loop_tick() {
 
   // === 3. MONITOR ===
   double error = state_model_.max_following_error();
+
+  if (state == RobotState::kMoving) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+        "[DIAG] kMoving MONITOR: following_error=%.4f rad, target[0]=%.4f actual[0]=%.4f",
+        error,
+        target.empty() ? 0.0 : target[0],
+        actual.empty() ? 0.0 : actual[0]);
+  }
 
   if (state == RobotState::kMoving &&
       error > ControlConstants::kFollowingErrorLimit) {
@@ -503,23 +528,9 @@ void RobotControllerNode::control_loop_tick() {
   }
 
   // === 4. WRITE ===
-  if (state == RobotState::kIdle || state == RobotState::kFault) {
-    // Only publish when there's a reason to — otherwise let direct API calls
-    // (open_gripper, close_gripper, set_arm, etc.) work without interference.
-    bool has_external = false;
-    {
-      std::lock_guard<std::mutex> lock(external_target_mutex_);
-      has_external = !external_joint_target_.empty() &&
-                     (this->now() - external_target_time_).seconds() < 0.2;
-    }
-    if (has_external || controller_->is_grasping()) {
-      // Use publish_command (full 9-joint message) — Isaac Sim requires
-      // complete messages; partial publish_gripper may be silently ignored.
-      bridge_->publish_command(target, target_finger);
-    }
-  } else {
-    bridge_->publish_command(target, target_finger);
-  }
+  // Always publish to Isaac Sim — the position controller needs continuous
+  // commands at 100Hz to maintain joint targets and execute motions.
+  bridge_->publish_command(target, target_finger);
 }
 
 // ===== Destructor =====
