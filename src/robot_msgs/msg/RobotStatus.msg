@@ -12,3 +12,7 @@ float64[6] tcp_pose
 float64 finger_width
 string tcp_name
 bool is_connected
+uint8 OWNER_NONE=0
+uint8 OWNER_PENDANT=1
+uint8 OWNER_SCRIPT=2
+uint8 motion_owner
