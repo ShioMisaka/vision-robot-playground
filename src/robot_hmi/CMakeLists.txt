@@ -16,6 +16,7 @@ find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(robot_logger REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
 
 # AUTOMOC must be set after Qt5 find_package and ament_cmake
@@ -60,7 +61,10 @@ target_link_libraries(robot_hmi
   Qt5::Widgets
   Qt5::Core
   Qt5::Gui
+  robot_logger::robot_logger_lib
 )
+
+target_compile_definitions(robot_hmi PRIVATE ROBOT_LOGGER_MODULE_NAME="hmi")
 
 ament_target_dependencies(robot_hmi
   rclcpp

@@ -1,5 +1,7 @@
 #include "robot_hmi/pendant_node.hpp"
 
+#include <robot_logger/logger.hpp>
+
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -125,10 +127,9 @@ void PendantNode::init() {
                      cli_home_->service_is_ready();
         bool was_ready = services_ready_.exchange(ready);
         if (ready && !was_ready) {
-          RCLCPP_INFO(get_logger(), "All robot services discovered and ready");
+          LOG_INFO("All robot services discovered and ready");
         } else if (!ready && !was_ready) {
-          RCLCPP_DEBUG(get_logger(),
-              "Waiting for services: state=%d joint=%d pose=%d linear=%d gripper=%d home=%d",
+          LOG_DEBUG("Waiting for services: state={} joint={} pose={} linear={} gripper={} home={}",
               cli_state_->service_is_ready(),
               cli_move_joint_->service_is_ready(),
               cli_move_pose_->service_is_ready(),
@@ -138,8 +139,8 @@ void PendantNode::init() {
         }
       });
 
-  RCLCPP_INFO(get_logger(), "TeachingPendantNode started (service prefix: %s)",
-              service_prefix_.c_str());
+  LOG_INFO("TeachingPendantNode started (service prefix: {})",
+              service_prefix_);
 }
 
 PendantNode::~PendantNode() {
@@ -268,8 +269,7 @@ void PendantNode::image_callback(
       image_cb_(rgb, depth_color, depth_f);
     }
   } catch (const cv_bridge::Exception& e) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                         "Image conversion failed: %s", e.what());
+    LOG_WARN_THROTTLE(5000, "Image conversion failed: {}", e.what());
   }
 }
 
@@ -521,7 +521,7 @@ void PendantNode::on_robot_status(
   if (!is_idle && !jog_active_.load()) {
     // Controller is busy with a trajectory or in fault — pause joint stream
     if (!joint_stream_paused_.load()) {
-      RCLCPP_INFO(get_logger(), "Controller busy (state=%u), pausing joint stream",
+      LOG_INFO("Controller busy (state={}), pausing joint stream",
                   msg->state);
       pause_joint_stream();
     }
@@ -529,7 +529,7 @@ void PendantNode::on_robot_status(
 
   if (is_idle && was_not_idle) {
     // Controller returned to IDLE — sync to actual position and resume
-    RCLCPP_INFO(get_logger(), "Controller back to IDLE, resuming joint stream");
+    LOG_INFO("Controller back to IDLE, resuming joint stream");
     {
       std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
