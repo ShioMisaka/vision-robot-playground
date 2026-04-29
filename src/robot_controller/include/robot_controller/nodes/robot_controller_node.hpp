@@ -37,6 +37,7 @@
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
 #include "robot_controller/nodes/setpoint_generator.hpp"
+#include "robot_controller/nodes/motion_owner.hpp"
 
 namespace robot_control {
 
@@ -45,7 +46,7 @@ class IKSolver;
 /// MotionIOBridge 的 ROS 2 实现
 class RosMotionBridge : public MotionIOBridge {
 public:
-  using TrajectoryStartedCallback = std::function<void()>;
+  using TrajectoryStartedCallback = std::function<void(MotionSource)>;
 
   RosMotionBridge(rclcpp::Node::SharedPtr node,
                   const TopicConfig& topics,
@@ -79,7 +80,8 @@ public:
   void set_tcp_name(const std::string& name) override;
 
   void submit_trajectory(
-      const std::vector<TrajectoryStep>& steps, double finger) override;
+      const std::vector<TrajectoryStep>& steps, double finger,
+      MotionSource source = MotionSource::kApi) override;
   bool wait_trajectory_completion(double timeout) override;
   void cancel_trajectory() override;
 
@@ -167,6 +169,13 @@ public:
   /// @brief 获取状态机（只读）
   const RobotStateMachine& state_machine() const { return state_machine_; }
 
+  /// @brief 声明运动控制权
+  void claim_ownership(MotionOwner owner) { motion_owner_.store(owner); }
+  /// @brief 释放运动控制权
+  void release_ownership() { motion_owner_.store(MotionOwner::kNone); }
+  /// @brief 获取当前运动控制权持有者
+  MotionOwner get_motion_owner() const { return motion_owner_.load(); }
+
   ~RobotControllerNode();
 
 private:
@@ -235,6 +244,7 @@ private:
   void control_loop_tick();
 
   std::atomic<bool> shutdown_{false};
+  std::atomic<MotionOwner> motion_owner_{MotionOwner::kNone};
 
   std::shared_ptr<RosMotionBridge> bridge_;
   std::shared_ptr<RobotMotionController> controller_;

@@ -114,7 +114,9 @@ public:
 
   void submit_trajectory(
       const std::vector<robot_control::TrajectoryStep>& steps,
-      double finger) override {
+      double finger,
+      robot_control::MotionSource /*source*/ =
+          robot_control::MotionSource::kApi) override {
     // Mock: 直接执行所有步骤（同原 moveJ_internal 行为）
     for (const auto& step : steps) {
       publish_command(step.joint_positions, finger);

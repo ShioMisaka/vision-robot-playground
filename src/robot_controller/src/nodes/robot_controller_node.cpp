@@ -56,11 +56,16 @@ void RobotControllerNode::init() {
   controller_ = std::make_shared<RobotMotionController>(
       ik_, profile_, gripper_, bridge_);
 
-  bridge_->set_on_trajectory_started([this]() {
+  bridge_->set_on_trajectory_started([this](MotionSource source) {
     auto s = state_machine_.state();
     RCLCPP_WARN(this->get_logger(),
-                "[DIAG] on_trajectory_started: current state=%s",
-                RobotStateMachine::state_name(s));
+                "[DIAG] on_trajectory_started: current state=%s, source=%d",
+                RobotStateMachine::state_name(s),
+                static_cast<int>(source));
+    // Set ownership based on source
+    motion_owner_.store(source == MotionSource::kApi
+                            ? MotionOwner::kScript
+                            : MotionOwner::kPendant);
     if (s == RobotState::kTeaching) {
       // 从 jog 模式强制切回轨迹模式（可能由残留 jog 消息触发）
       RCLCPP_WARN(this->get_logger(),
@@ -193,6 +198,15 @@ void RobotControllerNode::init() {
   external_joint_sub_ = create_subscription<sensor_msgs::msg::JointState>(
       "~/joint_target", 10,
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
+        auto owner = motion_owner_.load();
+        if (owner != MotionOwner::kNone && owner != MotionOwner::kPendant) {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+              "Joint target rejected: owner=%d", static_cast<int>(owner));
+          return;
+        }
+        if (owner == MotionOwner::kNone) {
+          motion_owner_.store(MotionOwner::kPendant);
+        }
         std::lock_guard<std::mutex> lock(external_target_mutex_);
         external_joint_target_.assign(
             msg->position.begin(), msg->position.end());
@@ -241,6 +255,10 @@ bool RobotControllerNode::wait_for_ready(double timeout) {
 
 void RobotControllerNode::handle_jog_command(
     const robot_msgs::msg::JogCommand::SharedPtr msg) {
+  if (motion_owner_.load() == MotionOwner::kScript) {
+    return;
+  }
+
   auto state = state_machine_.state();
   if (state != RobotState::kIdle && state != RobotState::kTeaching) {
     return;
@@ -327,6 +345,7 @@ void RobotControllerNode::jog_watchdog_callback() {
 
 void RobotControllerNode::emergency_stop() {
   bridge_->setpoint_generator().cancel();
+  motion_owner_.store(MotionOwner::kNone);
   jog_settling_ = false;
 
   if (jog_controller_ && jog_controller_->is_active()) {
@@ -367,6 +386,8 @@ void RobotControllerNode::publish_status() {
     std::lock_guard<std::mutex> lock(ready_mutex_);
     msg->is_connected = ready_;
   }
+
+  msg->motion_owner = static_cast<uint8_t>(motion_owner_.load());
 
   status_pub_->publish(std::move(msg));
 }
@@ -476,9 +497,14 @@ void RobotControllerNode::control_loop_tick() {
       {
         std::lock_guard<std::mutex> lock(external_target_mutex_);
         auto elapsed = (this->now() - external_target_time_).seconds();
-        if (!external_joint_target_.empty() && elapsed < 0.2) {
+        if (motion_owner_.load() == MotionOwner::kPendant &&
+            !external_joint_target_.empty() && elapsed < 0.2) {
           target = external_joint_target_;
         } else {
+          // Auto-release pendant on 200ms timeout
+          if (motion_owner_.load() == MotionOwner::kPendant && elapsed >= 0.2) {
+            motion_owner_.store(MotionOwner::kNone);
+          }
           target = actual;
         }
       }

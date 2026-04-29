@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "robot_controller/nodes/motion_owner.hpp"
+
 namespace robot_control {
 
 /// @brief 轨迹执行步骤
@@ -59,7 +61,8 @@ public:
 
   /// 提交轨迹给指令发生器（由控制循环执行）
   virtual void submit_trajectory(
-      const std::vector<TrajectoryStep>& steps, double finger) = 0;
+      const std::vector<TrajectoryStep>& steps, double finger,
+      MotionSource source = MotionSource::kApi) = 0;
 
   /// 阻塞等待提交的轨迹执行完成
   /// @return true 正常完成，false 被取消或超时
