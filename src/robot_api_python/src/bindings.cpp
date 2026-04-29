@@ -5,6 +5,7 @@
 #include <pybind11/stl.h>
 
 #include <rclcpp/rclcpp.hpp>
+#include <robot_logger/logger.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "robot_controller/motion/control_constants.hpp"
@@ -81,16 +82,60 @@ PYBIND11_MODULE(_core, m) {
     rclcpp::shutdown(rclcpp::contexts::get_global_default_context(), "shutdown");
   }, "Shutdown rclcpp (replaces rclpy.shutdown)");
 
+  // robot_logger Python submodule
+  py::module_ logger_mod = m.def_submodule("robot_logger");
+  logger_mod.def("info", [](const std::string& msg) {
+      LOG_INFO("{}", msg);
+  });
+  logger_mod.def("info", [](const std::string& module, const std::string& msg) {
+      ::robot_logger::LoggerManager::instance().get(module)->info("{}", msg);
+  });
+  logger_mod.def("debug", [](const std::string& msg) {
+      LOG_DEBUG("{}", msg);
+  });
+  logger_mod.def("debug", [](const std::string& module, const std::string& msg) {
+      ::robot_logger::LoggerManager::instance().get(module)->debug("{}", msg);
+  });
+  logger_mod.def("warn", [](const std::string& msg) {
+      LOG_WARN("{}", msg);
+  });
+  logger_mod.def("warn", [](const std::string& module, const std::string& msg) {
+      ::robot_logger::LoggerManager::instance().get(module)->warn("{}", msg);
+  });
+  logger_mod.def("error", [](const std::string& msg) {
+      LOG_ERROR("{}", msg);
+  });
+  logger_mod.def("error", [](const std::string& module, const std::string& msg) {
+      ::robot_logger::LoggerManager::instance().get(module)->error("{}", msg);
+  });
+  logger_mod.def("critical", [](const std::string& msg) {
+      LOG_CRITICAL("{}", msg);
+  });
+  logger_mod.def("critical", [](const std::string& module, const std::string& msg) {
+      ::robot_logger::LoggerManager::instance().get(module)->critical("{}", msg);
+  });
+  logger_mod.def("set_level", [](const std::string& level) {
+      ::robot_logger::LoggerManager::instance().set_global_level(
+          spdlog::level::from_str(level));
+  });
+  logger_mod.def("set_level", [](const std::string& module, const std::string& level) {
+      ::robot_logger::LoggerManager::instance().set_level(
+          module, spdlog::level::from_str(level));
+  });
+  logger_mod.def("flush", []() {
+      ::robot_logger::LoggerManager::instance().flush();
+  });
+
   // ===== rclcpp::Logger =====
   py::class_<rclcpp::Logger>(m, "Logger")
-      .def("info", [](rclcpp::Logger& log, const std::string& msg) {
-        RCLCPP_INFO(log, "%s", msg.c_str());
+      .def("info", [](rclcpp::Logger& /*log*/, const std::string& msg) {
+          LOG_INFO("{}", msg);
       })
-      .def("warn", [](rclcpp::Logger& log, const std::string& msg) {
-        RCLCPP_WARN(log, "%s", msg.c_str());
+      .def("warn", [](rclcpp::Logger& /*log*/, const std::string& msg) {
+          LOG_WARN("{}", msg);
       })
-      .def("error", [](rclcpp::Logger& log, const std::string& msg) {
-        RCLCPP_ERROR(log, "%s", msg.c_str());
+      .def("error", [](rclcpp::Logger& /*log*/, const std::string& msg) {
+          LOG_ERROR("{}", msg);
       });
 
   // ===== rclcpp::Node 基类 =====

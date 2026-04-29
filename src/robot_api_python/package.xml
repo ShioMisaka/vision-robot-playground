@@ -13,6 +13,7 @@
   <depend>rclcpp</depend>
   <depend>robot_controller</depend>
   <depend>robot_vision</depend>
+  <depend>robot_logger</depend>
 
   <build_depend>pybind11-dev</build_depend>
 

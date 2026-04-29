@@ -1,6 +1,7 @@
 #include "robot_api_python/robot_client_node.hpp"
 
 #include <chrono>
+#include <robot_logger/logger.hpp>
 
 namespace robot_api_python {
 
@@ -15,8 +16,7 @@ RobotClientNode::RobotClientNode(const std::string& service_prefix)
     : Node("robot_client_node") {
   controller_ = std::make_shared<ServiceRobotController>(
       shared_from_this(), service_prefix);
-  RCLCPP_INFO(get_logger(), "RobotClientNode created (prefix: %s)",
-              service_prefix.c_str());
+  LOG_INFO("RobotClientNode created (prefix: {})", service_prefix);
 }
 
 bool RobotClientNode::wait_for_services(double timeout) {
@@ -33,15 +33,14 @@ bool RobotClientNode::wait_for_services(double timeout) {
   while (std::chrono::steady_clock::now() < deadline) {
     if (cli_move->service_is_ready() && cli_pose->service_is_ready() &&
         cli_gripper->service_is_ready() && cli_state->service_is_ready()) {
-      RCLCPP_INFO(get_logger(), "All robot services ready");
+      LOG_INFO("All robot services ready");
       return true;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (!rclcpp::ok()) return false;
   }
 
-  RCLCPP_ERROR(get_logger(), "Timeout waiting for robot services (%.1fs)",
-               timeout);
+  LOG_ERROR("Timeout waiting for robot services ({:.1f}s)", timeout);
   return false;
 }
 
