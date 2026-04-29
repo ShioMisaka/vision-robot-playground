@@ -1,4 +1,5 @@
 #include "robot_vision/nodes/grasp_task_manager.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
 
 #include <Eigen/Geometry>
@@ -12,6 +13,22 @@
 namespace robot_vision {
 
 using robot_control::rpy_to_rotation;
+
+// ---- OwnershipGuard implementation ----
+OwnershipGuard::OwnershipGuard(
+    std::shared_ptr<robot_control::RobotControllerNode> node)
+    : node_(std::move(node)) {
+  if (node_) {
+    node_->claim_ownership(robot_control::MotionOwner::kScript);
+    active_ = true;
+  }
+}
+
+OwnershipGuard::~OwnershipGuard() {
+  if (active_ && node_) {
+    node_->release_ownership();
+  }
+}
 
 namespace {
 const char* state_name(GraspState s) {
@@ -43,7 +60,8 @@ GraspTaskManager::GraspTaskManager(
     int max_approach_steps, int max_consecutive_failures,
     const std::string& hand_frame,
     const std::array<double, 3>& camera_offset,
-    const std::array<double, 3>& camera_rpy)
+    const std::array<double, 3>& camera_rpy,
+    std::shared_ptr<robot_control::RobotControllerNode> controller_node)
     : robot_(std::move(robot)),
       vision_(std::move(vision)),
       base_frame_(base_frame),
@@ -60,9 +78,15 @@ GraspTaskManager::GraspTaskManager(
       redetect_interval_(redetect_interval),
       hand_frame_(hand_frame),
       camera_offset_(camera_offset),
-      camera_rpy_(camera_rpy) {}
+      camera_rpy_(camera_rpy),
+      controller_node_(std::move(controller_node)) {}
 
 bool GraspTaskManager::run(double timeout) {
+  std::optional<OwnershipGuard> owner_guard;
+  if (controller_node_) {
+    owner_guard.emplace(controller_node_);
+  }
+
   auto start = std::chrono::steady_clock::now();
   state_ = GraspState::kDetecting;
 

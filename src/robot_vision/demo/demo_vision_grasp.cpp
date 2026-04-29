@@ -181,7 +181,16 @@ int main(int argc, char* argv[]) {
         kGraspHeightOffset,
         kGraspRpy,
         kRedetectSamples,
-        kRedetectInterval);
+        kRedetectInterval,
+        0.85,     // max_reach
+        0.025,    // approach_step_size
+        0.01,     // approach_tolerance
+        50,       // max_approach_steps
+        3,        // max_consecutive_failures
+        "panda_hand",
+        {0.015, 0.0, 0.03},
+        {0.0, -1.57079632679, 0.0},
+        robot_node);
 
     // 在后台线程执行抓取，主线程监控 Ctrl+C
     bool success = false;

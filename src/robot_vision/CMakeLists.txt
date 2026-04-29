@@ -20,8 +20,7 @@ find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(robot_controller REQUIRED)
-
-# ===== robot_vision_core: 视觉处理（零 ROS 依赖）=====
+find_package(tf2_ros REQUIRED)
 add_library(robot_vision_core SHARED
   src/vision/color_detector.cpp
 )
@@ -57,6 +56,7 @@ ament_target_dependencies(robot_vision_nodes
   message_filters
   image_transport
   robot_msgs
+  tf2_ros
 )
 
 # ===== 安装 =====

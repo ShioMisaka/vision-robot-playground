@@ -8,11 +8,30 @@
 #include <string>
 
 #include "robot_controller/motion/i_robot_controller.hpp"
+#include "robot_controller/nodes/motion_owner.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
+
+namespace robot_control {
+class RobotControllerNode;
+}  // namespace robot_control
 
 namespace robot_vision {
 
 using robot_control::IRobotController;
+
+/// RAII guard: claims script ownership on construction, releases on destruction.
+/// Requires linking against robot_controller::robot_nodes for the full definition.
+struct OwnershipGuard {
+  std::shared_ptr<robot_control::RobotControllerNode> node_;
+  bool active_ = false;
+
+  explicit OwnershipGuard(
+      std::shared_ptr<robot_control::RobotControllerNode> node);
+  ~OwnershipGuard();
+
+  OwnershipGuard(const OwnershipGuard&) = delete;
+  OwnershipGuard& operator=(const OwnershipGuard&) = delete;
+};
 
 /// 抓取任务状态
 enum class GraspState {
@@ -68,7 +87,8 @@ public:
                    const std::array<double, 3>& camera_offset = {
                        0.015, 0.0, 0.03},
                    const std::array<double, 3>& camera_rpy = {
-                       0.0, -1.57079632679, 0.0});
+                       0.0, -1.57079632679, 0.0},
+                   std::shared_ptr<robot_control::RobotControllerNode> controller_node = nullptr);
 
   /// @brief 运行完整抓取流程（阻塞）
   /// @param timeout 整体超时（秒）
@@ -125,6 +145,7 @@ private:
   std::atomic<GraspState> state_ = GraspState::kIdle;
   std::atomic<bool> abort_requested_{false};
   std::optional<std::array<double, 3>> target_xyz_;
+  std::shared_ptr<robot_control::RobotControllerNode> controller_node_;
 };
 
 }  // namespace robot_vision
