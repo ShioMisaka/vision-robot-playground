@@ -12,6 +12,8 @@
 #include <robot_msgs/msg/robot_status.hpp>
 #include <robot_msgs/msg/jog_command.hpp>
 
+#include <robot_logger/logger.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -58,8 +60,7 @@ void RobotControllerNode::init() {
 
   bridge_->set_on_trajectory_started([this](MotionSource source) {
     auto s = state_machine_.state();
-    RCLCPP_WARN(this->get_logger(),
-                "[DIAG] on_trajectory_started: current state=%s, source=%d",
+    LOG_WARN("[DIAG] on_trajectory_started: current state={}, source={}",
                 RobotStateMachine::state_name(s),
                 static_cast<int>(source));
     // Set ownership based on source
@@ -68,8 +69,7 @@ void RobotControllerNode::init() {
                             : MotionOwner::kPendant);
     if (s == RobotState::kTeaching) {
       // 从 jog 模式强制切回轨迹模式（可能由残留 jog 消息触发）
-      RCLCPP_WARN(this->get_logger(),
-                  "Trajectory started while in TEACHING state, forcing to IDLE");
+      LOG_WARN("Trajectory started while in TEACHING state, forcing to IDLE");
       if (jog_controller_ && jog_controller_->is_active()) {
         auto actual_j = state_model_.get_actual_joints();
         std::array<double, 7> fb{};
@@ -82,10 +82,9 @@ void RobotControllerNode::init() {
     }
     if (s == RobotState::kIdle) {
       state_machine_.transition_to(RobotState::kMoving);
-      RCLCPP_WARN(this->get_logger(), "[DIAG] state transitioned to MOVING");
+      LOG_WARN("[DIAG] state transitioned to MOVING");
     } else {
-      RCLCPP_WARN(this->get_logger(),
-                  "[DIAG] state NOT transitioned (stays %s)",
+      LOG_WARN("[DIAG] state NOT transitioned (stays {})",
                   RobotStateMachine::state_name(s));
     }
   });
@@ -168,7 +167,7 @@ void RobotControllerNode::init() {
         handle_get_state(req, res);
       });
 
-  RCLCPP_INFO(this->get_logger(), "RobotControllerNode started (with services)");
+  LOG_INFO("RobotControllerNode started (with services)");
 
   // === Pendant service servers ===
   pendant_set_tcp_srv_ = create_service<robot_msgs::srv::SetTCP>(
@@ -200,8 +199,8 @@ void RobotControllerNode::init() {
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
         auto owner = motion_owner_.load();
         if (owner != MotionOwner::kNone && owner != MotionOwner::kPendant) {
-          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-              "Joint target rejected: owner=%d", static_cast<int>(owner));
+          LOG_WARN_THROTTLE(2000,
+              "Joint target rejected: owner={}", static_cast<int>(owner));
           return;
         }
         if (owner == MotionOwner::kNone) {
@@ -240,8 +239,7 @@ void RobotControllerNode::init() {
       std::chrono::milliseconds(100),
       [this]() { publish_status(); }, pub_cbg_);
 
-  RCLCPP_INFO(this->get_logger(),
-              "RobotControllerNode: pendant interface ready (jog, status)");
+  LOG_INFO("RobotControllerNode: pendant interface ready (jog, status)");
 }
 
 bool RobotControllerNode::wait_for_ready(double timeout) {
@@ -264,8 +262,7 @@ void RobotControllerNode::handle_jog_command(
     return;
   }
 
-  RCLCPP_WARN(this->get_logger(),
-              "[DIAG] Jog command received in state %s (vel=[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f])",
+  LOG_WARN("[DIAG] Jog command received in state {} (vel=[{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f}])",
               RobotStateMachine::state_name(state),
               msg->velocity[0], msg->velocity[1], msg->velocity[2],
               msg->velocity[3], msg->velocity[4], msg->velocity[5]);
@@ -329,7 +326,7 @@ void RobotControllerNode::jog_watchdog_callback() {
 
   auto elapsed = (this->now() - last_jog_time_).seconds();
   if (elapsed > 0.2) {
-    RCLCPP_WARN(this->get_logger(), "Jog watchdog: no command for %.2fs, stopping", elapsed);
+    LOG_WARN("Jog watchdog: no command for {:.2f}s, stopping", elapsed);
     auto actual = state_model_.get_actual_joints();
     std::array<double, 7> fb{};
     for (int i = 0; i < 7 && i < static_cast<int>(actual.size()); ++i) {
@@ -362,7 +359,7 @@ void RobotControllerNode::emergency_stop() {
   state_model_.align_target_to_actual();
   state_machine_.force_state(RobotState::kFault);
   state_machine_.set_error(100, "EMERGENCY_STOP activated");
-  RCLCPP_ERROR(this->get_logger(), "EMERGENCY_STOP activated");
+  LOG_ERROR("EMERGENCY_STOP activated");
 }
 
 // ===== Status Publisher =====
@@ -416,18 +413,17 @@ void RobotControllerNode::control_loop_tick() {
         target_finger = sp.finger_width;
 
         if (sp.done) {
-          RCLCPP_WARN(this->get_logger(),
-                      "[DIAG] trajectory DONE (progress=%.2f), -> IDLE", sp.progress);
+          LOG_WARN("[DIAG] trajectory DONE (progress={:.2f}), -> IDLE", sp.progress);
           state_machine_.transition_to(RobotState::kIdle);
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
         } else {
-          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-              "[DIAG] kMoving tick: progress=%.2f, remaining=%.2fs, target_sz=%zu",
+          LOG_WARN_THROTTLE(1000,
+              "[DIAG] kMoving tick: progress={:.2f}, remaining={:.2f}s, target_sz={}",
               sp.progress, sp.time_remaining, target.size());
         }
       } else {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+        LOG_WARN_THROTTLE(1000,
             "[DIAG] kMoving but gen NOT active!");
       }
       break;
@@ -485,9 +481,9 @@ void RobotControllerNode::control_loop_tick() {
       if (settled || timed_out) {
         state_machine_.transition_to(RobotState::kIdle);
         if (timed_out) {
-          RCLCPP_WARN(this->get_logger(), "STOP timeout -> IDLE");
+          LOG_WARN("STOP timeout -> IDLE");
         } else {
-          RCLCPP_INFO(this->get_logger(), "STOP complete -> IDLE");
+          LOG_INFO("STOP complete -> IDLE");
         }
       }
       break;
@@ -528,8 +524,8 @@ void RobotControllerNode::control_loop_tick() {
   double error = state_model_.max_following_error();
 
   if (state == RobotState::kMoving) {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-        "[DIAG] kMoving MONITOR: following_error=%.4f rad, target[0]=%.4f actual[0]=%.4f",
+    LOG_WARN_THROTTLE(1000,
+        "[DIAG] kMoving MONITOR: following_error={:.4f} rad, target[0]={:.4f} actual[0]={:.4f}",
         error,
         target.empty() ? 0.0 : target[0],
         actual.empty() ? 0.0 : actual[0]);
@@ -537,8 +533,7 @@ void RobotControllerNode::control_loop_tick() {
 
   if (state == RobotState::kMoving &&
       error > ControlConstants::kFollowingErrorLimit) {
-    RCLCPP_ERROR(this->get_logger(),
-                 "Following error %.4f rad exceeds limit %.4f rad -- EMERGENCY STOP",
+    LOG_ERROR("Following error {:.4f} rad exceeds limit {:.4f} rad -- EMERGENCY STOP",
                  error, ControlConstants::kFollowingErrorLimit);
     emergency_stop();
     return;
@@ -546,8 +541,7 @@ void RobotControllerNode::control_loop_tick() {
 
   if (state == RobotState::kTeaching &&
       error > ControlConstants::kTeachingFollowErrorLimit) {
-    RCLCPP_WARN(this->get_logger(),
-                "Jog following error %.4f rad exceeds limit %.4f rad -- stopping jog gracefully",
+    LOG_WARN("Jog following error {:.4f} rad exceeds limit {:.4f} rad -- stopping jog gracefully",
                 error, ControlConstants::kTeachingFollowErrorLimit);
     if (jog_controller_ && jog_controller_->is_active()) {
       auto actual_j = state_model_.get_actual_joints();

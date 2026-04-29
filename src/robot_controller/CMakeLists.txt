@@ -23,6 +23,7 @@ find_package(orocos_kdl REQUIRED)
 find_package(urdfdom REQUIRED)
 find_package(urdf REQUIRED)
 find_package(kdl_parser REQUIRED)
+find_package(robot_logger REQUIRED)
 
 # ===== robot_kinematics: IK + 轨迹规划（零 ROS 依赖）=====
 add_library(robot_kinematics SHARED
@@ -44,6 +45,9 @@ ament_target_dependencies(robot_kinematics
   ament_index_cpp
 )
 
+target_link_libraries(robot_kinematics robot_logger::robot_logger_lib)
+target_compile_definitions(robot_kinematics PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
+
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
 add_library(robot_motion SHARED
   src/motion/robot_motion_controller.cpp
@@ -55,7 +59,8 @@ target_include_directories(robot_motion PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_motion robot_kinematics)
+target_link_libraries(robot_motion robot_kinematics robot_logger::robot_logger_lib)
+target_compile_definitions(robot_motion PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
@@ -71,7 +76,8 @@ target_include_directories(robot_nodes PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_nodes robot_motion)
+target_link_libraries(robot_nodes robot_motion robot_logger::robot_logger_lib)
+target_compile_definitions(robot_nodes PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
 
 ament_target_dependencies(robot_nodes
   rclcpp
@@ -88,30 +94,35 @@ ament_target_dependencies(robot_nodes
 add_executable(test_trajectory_planner
   test/test_trajectory_planner.cpp
 )
-target_link_libraries(test_trajectory_planner robot_kinematics)
+target_link_libraries(test_trajectory_planner robot_kinematics robot_logger::robot_logger_lib)
+target_compile_definitions(test_trajectory_planner PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 add_executable(test_motion_controller
   test/test_motion_controller.cpp
 )
-target_link_libraries(test_motion_controller robot_motion)
+target_link_libraries(test_motion_controller robot_motion robot_logger::robot_logger_lib)
+target_compile_definitions(test_motion_controller PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 add_executable(test_ik_solver
   test/test_ik_solver.cpp
 )
-target_link_libraries(test_ik_solver robot_kinematics)
+target_link_libraries(test_ik_solver robot_kinematics robot_logger::robot_logger_lib)
+target_compile_definitions(test_ik_solver PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== 独立控制器节点 =====
 add_executable(robot_controller_node
   src/nodes/standalone_main.cpp
 )
-target_link_libraries(robot_controller_node robot_nodes)
+target_link_libraries(robot_controller_node robot_nodes robot_logger::robot_logger_lib)
 ament_target_dependencies(robot_controller_node rclcpp)
+target_compile_definitions(robot_controller_node PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== 演示 =====
 add_executable(demo_grasp_tcp
   demo/demo_grasp_tcp.cpp
 )
-target_link_libraries(demo_grasp_tcp robot_nodes)
+target_link_libraries(demo_grasp_tcp robot_nodes robot_logger::robot_logger_lib)
+target_compile_definitions(demo_grasp_tcp PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== 安装 =====
 install(DIRECTORY include/

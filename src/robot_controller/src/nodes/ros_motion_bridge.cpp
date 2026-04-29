@@ -15,6 +15,8 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 
+#include <robot_logger/logger.hpp>
+
 #include <chrono>
 #include <cmath>
 #include <map>
@@ -148,13 +150,12 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
 
     poll_count++;
     if (poll_count % 50 == 0) {  // 每秒输出一次（50 * 0.02 = 1秒）
-      RCLCPP_DEBUG(node_->get_logger(),
-                   "wait_for_motion poll %d: max_error=%.4f @ joint %d, arm_ok=%d, finger_ok=%d",
+      LOG_DEBUG("wait_for_motion poll {}: max_error={:.4f} @ joint {}, arm_ok={}, finger_ok={}",
                    poll_count, max_error, max_error_idx, arm_ok, finger_ok);
     }
 
     if (arm_ok && finger_ok) {
-      RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion: settling for %.1fs...", settle_time);
+      LOG_DEBUG("wait_for_motion: settling for {:.1f}s...", settle_time);
       std::this_thread::sleep_for(
           std::chrono::duration<double>(settle_time));
       // settle 后重新检查，防止振荡导致误判到位
@@ -177,10 +178,10 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
       }
       finger_ok =
           !check_finger || std::abs(finger - current_finger) < finger_tol;
-      RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion after settle: max_error=%.4f, arm_ok=%d",
+      LOG_DEBUG("wait_for_motion after settle: max_error={:.4f}, arm_ok={}",
                    max_error, arm_ok);
       if (arm_ok && finger_ok) {
-        RCLCPP_DEBUG(node_->get_logger(), "wait_for_motion: SUCCESS");
+        LOG_DEBUG("wait_for_motion: SUCCESS");
         return true;
       }
     }
@@ -189,7 +190,7 @@ bool RosMotionBridge::wait_for_motion(const std::vector<double>& target_arm,
         std::chrono::duration<double>(poll_interval));
   }
 
-  RCLCPP_WARN(node_->get_logger(), "wait_for_motion: TIMEOUT after %d polls", poll_count);
+  LOG_WARN("wait_for_motion: TIMEOUT after {} polls", poll_count);
   return false;
 }
 
@@ -238,7 +239,7 @@ std::optional<std::array<double, 6>> RosMotionBridge::lookup_transform(
 
     return std::array<double, 6>{x, y, z, roll, pitch, yaw};
   } catch (const tf2::TransformException& e) {
-    RCLCPP_WARN(node_->get_logger(), "TF lookup failed: %s", e.what());
+    LOG_WARN("TF lookup failed: {}", e.what());
     return std::nullopt;
   }
 }
@@ -254,8 +255,7 @@ void RosMotionBridge::set_tcp_name(const std::string& name) {
 void RosMotionBridge::submit_trajectory(
     const std::vector<TrajectoryStep>& steps, double finger,
     MotionSource source) {
-  RCLCPP_INFO(node_->get_logger(),
-              "[DIAG] submit_trajectory: %zu steps, duration=%.3fs, finger=%.4f, source=%d",
+  LOG_INFO("[DIAG] submit_trajectory: {} steps, duration={:.3f}s, finger={:.4f}, source={}",
               steps.size(),
               steps.empty() ? 0.0 : steps.back().time_from_start,
               finger, static_cast<int>(source));
@@ -365,8 +365,8 @@ void RosMotionBridge::publish_ee_tf(
       tf_broadcaster_->sendTransform(t_tcp);
     }
   } catch (const std::exception& e) {
-    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000,
-                         "FK computation failed: %s", e.what());
+    LOG_WARN_THROTTLE(5000,
+                         "FK computation failed: {}", e.what());
   }
 }
 
