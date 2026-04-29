@@ -32,6 +32,9 @@ from robot_api_python._core import (
     # Layer 2: ROS2 nodes
     RobotControllerNode,
     VisionProcessorNode,
+    # New service-client based API
+    RobotClient,
+    ServiceRobotController,
     # Profiles
     profiles,
     # Constants
@@ -75,6 +78,8 @@ __all__ = [
     "GraspTaskManager",
     "RobotControllerNode",
     "VisionProcessorNode",
+    "RobotClient",
+    "ServiceRobotController",
     "profiles",
     "JOINT_TOLERANCE",
     "FINGER_TOLERANCE",

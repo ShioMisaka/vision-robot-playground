@@ -10,6 +10,8 @@ find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_vision REQUIRED)
+find_package(robot_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 # Python3 必须在 pybind11 之前查找（包含 Development 用于编译）
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)
@@ -20,6 +22,12 @@ find_package(pybind11 REQUIRED)
 # ===== pybind11 模块 =====
 pybind11_add_module(_core MODULE
   src/bindings.cpp
+  src/service_robot_controller.cpp
+  src/robot_client_node.cpp
+)
+
+target_include_directories(_core PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
 target_link_libraries(_core PRIVATE
@@ -29,6 +37,8 @@ target_link_libraries(_core PRIVATE
   robot_vision::robot_vision_core
   robot_vision::robot_vision_nodes
 )
+# robot_msgs and tf2_ros headers are pulled in transitively via
+# robot_controller::robot_nodes and robot_vision::robot_vision_nodes.
 
 # ===== 安装 =====
 set(PY_VER "${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}")
