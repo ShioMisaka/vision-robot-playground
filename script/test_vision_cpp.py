@@ -3,6 +3,8 @@
 使用 C++ VisionProcessorNode + ColorDetector 进行目标检测，
 Python 侧实现视觉伺服居中逻辑。
 
+注意：此脚本需要独立 robot_controller_node 先启动。
+
 流程：
     1. 移动到观察位（俯视桌面）
     2. 检测红色物块，连续锁定 15 帧确认
@@ -18,12 +20,11 @@ import threading
 from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
-    RobotControllerNode,
+    RobotClient,
     VisionProcessorNode,
     MultiThreadedExecutor,
     TopicConfig,
     ColorDetector,
-    profiles,
 )
 
 
@@ -44,12 +45,10 @@ IMAGE_HEIGHT = 480
 def main() -> None:
     rclcpp_init()
 
-    profile = profiles.panda()
-    gripper = profiles.panda_gripper()
     detector = ColorDetector([0, 100, 100], [10, 255, 255])
     topics = TopicConfig()
 
-    robot = RobotControllerNode.create(profile, gripper, topics)
+    robot = RobotClient.create()
     vision = VisionProcessorNode.create(detector, topics)
 
     executor = MultiThreadedExecutor()
@@ -59,8 +58,8 @@ def main() -> None:
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
 
-    robot.get_logger().info("等待机器人就绪...")
-    robot.wait_for_ready()
+    robot.get_logger().info("等待控制器就绪...")
+    robot.wait_for_services()
 
     ctrl = robot.get_controller()
     ctrl.open_gripper()

@@ -15,7 +15,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(robot_msgs REQUIRED)
-find_package(robot_controller REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
 
@@ -58,7 +57,6 @@ set_target_properties(robot_hmi PROPERTIES
 )
 
 target_link_libraries(robot_hmi
-  robot_controller::robot_nodes
   Qt5::Widgets
   Qt5::Core
   Qt5::Gui

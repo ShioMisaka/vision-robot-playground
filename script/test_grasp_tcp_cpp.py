@@ -1,5 +1,7 @@
 """演示：使用 grasptarget TCP 抓取指定位置 — C++ 核心库后端
 
+注意：此脚本需要独立 robot_controller_node 先启动。
+
 流程：
     1. 切换到 grasptarget TCP（指尖坐标系）
     2. 张开夹爪
@@ -15,9 +17,8 @@ import threading
 from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
-    RobotControllerNode,
+    RobotClient,
     MultiThreadedExecutor,
-    TopicConfig,
     profiles,
 )
 
@@ -33,9 +34,8 @@ GRIPPER_DOWN_RPY = [0.0, math.radians(-180), math.radians(-180)]
 def main() -> None:
     rclcpp_init()
 
-    profile = profiles.panda()
     gripper = profiles.panda_gripper()
-    robot = RobotControllerNode.create(profile, gripper, TopicConfig())
+    robot = RobotClient.create()
 
     executor = MultiThreadedExecutor()
     executor.add_node(robot)
@@ -43,8 +43,8 @@ def main() -> None:
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
 
-    robot.get_logger().info("等待与 Isaac Sim 建立连接...")
-    robot.wait_for_ready()
+    robot.get_logger().info("等待控制器就绪...")
+    robot.wait_for_services()
 
     ctrl = robot.get_controller()
 

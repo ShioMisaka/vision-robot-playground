@@ -32,8 +32,6 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
-namespace robot_control { class RobotControllerNode; }
-
 namespace robot_hmi {
 
 /// ROS2 节点：示教器后端，管理所有 ROS2 通信
@@ -120,9 +118,6 @@ public:
   void stop_joint_stream();
   void pause_joint_stream();
   void resume_joint_stream();
-
-  /// @brief 设置内嵌控制器节点引用（用于在脚本接管时暂停其 100Hz 循环）
-  void set_controller_node(std::shared_ptr<robot_control::RobotControllerNode> node);
 
   // === 连接状态 ===
 
@@ -219,10 +214,8 @@ private:
   std::mutex latest_joints_mutex_;
   std::array<double, 7> latest_joints_{};
 
-  // Script ownership state
-  std::atomic<bool> script_active_{false};
-  rclcpp::Time last_script_status_time_{0, 0, RCL_ROS_TIME};
-  std::shared_ptr<robot_control::RobotControllerNode> controller_node_;
+  // State tracking for joint stream control
+  uint8_t last_robot_state_ = robot_msgs::msg::RobotStatus::IDLE;
 
   // 后台任务队列
   std::mutex task_mutex_;

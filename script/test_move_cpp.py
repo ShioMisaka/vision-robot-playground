@@ -1,6 +1,8 @@
 """演示：IK 位姿控制 — 使用 C++ 核心库后端
 
-使用 C++ RobotMotionController + rclcpp 执行运动控制，
+注意：此脚本需要独立 robot_controller_node 先启动。
+
+使用 C++ ServiceRobotController + rclcpp 执行运动控制，
 pybind11 桥接 Python 与 C++ 库。
 """
 
@@ -10,9 +12,8 @@ import threading
 from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
-    RobotControllerNode,
+    RobotClient,
     MultiThreadedExecutor,
-    TopicConfig,
     profiles,
 )
 
@@ -22,15 +23,12 @@ APPROACH_HEIGHT = 0.10   # 目标上方 10cm
 LIFT_HEIGHT = 0.15       # 提起高度 15cm
 GRIPPER_DOWN_RPY = [0.0, math.radians(-180), math.radians(-180)]
 
-# ---- 运动参数 ----
-
 
 def main() -> None:
     rclcpp_init()
 
-    profile = profiles.panda()
     gripper = profiles.panda_gripper()
-    robot = RobotControllerNode.create(profile, gripper, TopicConfig())
+    robot = RobotClient.create()
 
     executor = MultiThreadedExecutor()
     executor.add_node(robot)
@@ -38,8 +36,8 @@ def main() -> None:
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
 
-    robot.get_logger().info("等待与 Isaac Sim 建立连接...")
-    robot.wait_for_ready()
+    robot.get_logger().info("等待控制器就绪...")
+    robot.wait_for_services()
 
     ctrl = robot.get_controller()
 
@@ -61,8 +59,6 @@ def main() -> None:
 
     robot.get_logger().info("--- 旋转 ---")
     ctrl.rotate_joint(0, math.radians(90))
-
-    # ctrl.rotate_joint(3, math.radians(90))
 
     robot.get_logger().info("完成!")
 

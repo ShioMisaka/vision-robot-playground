@@ -1,5 +1,4 @@
 #include "robot_hmi/pendant_node.hpp"
-#include "robot_controller/nodes/robot_controller_node.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -26,25 +25,28 @@ void PendantNode::set_joint_names(const std::vector<std::string>& names) {
 }
 
 void PendantNode::init() {
+  // Ensure absolute service/topic names (avoid namespace resolution ambiguity)
+  const std::string prefix = "/" + service_prefix_;
+
   // Service clients
   cli_move_joint_ = create_client<robot_msgs::srv::MoveJoint>(
-      service_prefix_ + "/move_joint");
+      prefix + "/move_joint");
   cli_move_pose_ = create_client<robot_msgs::srv::MovePose>(
-      service_prefix_ + "/move_pose");
+      prefix + "/move_pose");
   cli_move_linear_ = create_client<robot_msgs::srv::MoveLinear>(
-      service_prefix_ + "/move_linear");
+      prefix + "/move_linear");
   cli_gripper_ = create_client<robot_msgs::srv::ControlGripper>(
-      service_prefix_ + "/control_gripper");
+      prefix + "/control_gripper");
   cli_home_ = create_client<robot_msgs::srv::GoHome>(
-      service_prefix_ + "/go_home");
+      prefix + "/go_home");
   cli_speed_ = create_client<robot_msgs::srv::SetSpeed>(
-      service_prefix_ + "/set_speed");
+      prefix + "/set_speed");
   cli_state_ = create_client<robot_msgs::srv::GetRobotState>(
-      service_prefix_ + "/get_state");
+      prefix + "/get_state");
 
   // E-STOP service client (forwards to RobotControllerNode)
   cli_robot_cmd_ = create_client<robot_msgs::srv::RobotCmd>(
-      service_prefix_ + "/robot_cmd");
+      prefix + "/robot_cmd");
 
   // Joint state subscriber
   auto state_cbg = create_callback_group(
@@ -61,7 +63,7 @@ void PendantNode::init() {
 
   // RobotStatus subscription (detect jog completion)
   status_sub_ = create_subscription<robot_msgs::msg::RobotStatus>(
-      service_prefix_ + "/status", 10,
+      prefix + "/status", 10,
       [this](const robot_msgs::msg::RobotStatus::SharedPtr msg) {
         on_robot_status(msg);
       });
@@ -105,11 +107,11 @@ void PendantNode::init() {
 
   // 发布关节目标到控制器（由 100Hz 控制循环统一执行，避免双发布竞争）
   joint_cmd_pub_ = create_publisher<sensor_msgs::msg::JointState>(
-      service_prefix_ + "/joint_target", 10);
+      prefix + "/joint_target", 10);
 
   // Jog 命令发布器（发送 JogCommand 到 RobotControllerNode）
   jog_pub_ = create_publisher<robot_msgs::msg::JogCommand>(
-      service_prefix_ + "/jog_command", 10);
+      prefix + "/jog_command", 10);
 
   // 服务发现定时器
   discovery_timer_ = create_wall_timer(
@@ -124,6 +126,15 @@ void PendantNode::init() {
         bool was_ready = services_ready_.exchange(ready);
         if (ready && !was_ready) {
           RCLCPP_INFO(get_logger(), "All robot services discovered and ready");
+        } else if (!ready && !was_ready) {
+          RCLCPP_DEBUG(get_logger(),
+              "Waiting for services: state=%d joint=%d pose=%d linear=%d gripper=%d home=%d",
+              cli_state_->service_is_ready(),
+              cli_move_joint_->service_is_ready(),
+              cli_move_pose_->service_is_ready(),
+              cli_move_linear_->service_is_ready(),
+              cli_gripper_->service_is_ready(),
+              cli_home_->service_is_ready());
         }
       });
 
@@ -500,43 +511,39 @@ void PendantNode::on_robot_status(
     emergency_active_ = false;
   }
 
-  // === Script ownership handling ===
-  // Use timer-based detection: stay paused as long as SCRIPT status was seen
-  // within the last second. This handles the case where both HMI and demo
-  // controllers publish status to the same topic — we must not resume on
-  // seeing NONE from the HMI's controller while the demo's is still active.
-  if (msg->motion_owner == robot_msgs::msg::RobotStatus::OWNER_SCRIPT) {
-    last_script_status_time_ = this->now();
-    if (!script_active_.load()) {
-      RCLCPP_INFO(get_logger(), "Script took motion ownership, pausing joint stream and control loop");
+  // === State-driven joint stream control ===
+  // When the controller is busy (MOVING / TEACHING / STOPPING / FAULT),
+  // pause the joint stream to avoid conflicts. Resume when it returns to IDLE.
+  bool is_idle = (msg->state == robot_msgs::msg::RobotStatus::IDLE);
+  bool was_not_idle = (last_robot_state_ != robot_msgs::msg::RobotStatus::IDLE);
+  last_robot_state_ = msg->state;
+
+  if (!is_idle && !jog_active_.load()) {
+    // Controller is busy with a trajectory or in fault — pause joint stream
+    if (!joint_stream_paused_.load()) {
+      RCLCPP_INFO(get_logger(), "Controller busy (state=%u), pausing joint stream",
+                  msg->state);
       pause_joint_stream();
-      if (controller_node_) controller_node_->pause();
-      script_active_.store(true);
-    }
-  } else if (script_active_.load()) {
-    // Only resume if no SCRIPT status for > 1 second (demo controller gone)
-    auto elapsed = (this->now() - last_script_status_time_).seconds();
-    if (elapsed > 1.0) {
-      RCLCPP_INFO(get_logger(), "Script released motion ownership (no SCRIPT status for %.1fs), resuming",
-                  elapsed);
-      script_active_.store(false);
-      if (controller_node_) controller_node_->resume();
-      {
-        std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
-        std::lock_guard<std::mutex> slock(joint_stream_mutex_);
-        joint_stream_target_ = latest_joints_;
-        joint_stream_dirty_ = true;
-      }
-      resume_joint_stream();
     }
   }
 
+  if (is_idle && was_not_idle) {
+    // Controller returned to IDLE — sync to actual position and resume
+    RCLCPP_INFO(get_logger(), "Controller back to IDLE, resuming joint stream");
+    {
+      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+      joint_stream_target_ = latest_joints_;
+      joint_stream_dirty_ = true;
+    }
+    resume_joint_stream();
+  }
+
+  // Jog completion detection (kTeaching → kIdle)
   if (jog_active_.load() && !emergency_active_.load() &&
       msg->state == robot_msgs::msg::RobotStatus::IDLE) {
-    // 控制器从 kTeaching 转为 kIdle → Jog 减速完成
     jog_active_ = false;
 
-    // 同步关节流目标到当前实际位置，避免恢复时机器人跳回旧位置
     {
       std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
@@ -649,11 +656,6 @@ void PendantNode::stop_joint_stream() {
 
 void PendantNode::pause_joint_stream() {
   joint_stream_paused_ = true;
-}
-
-void PendantNode::set_controller_node(
-    std::shared_ptr<robot_control::RobotControllerNode> node) {
-  controller_node_ = std::move(node);
 }
 
 void PendantNode::resume_joint_stream() {
