@@ -115,6 +115,7 @@ void RobotMotionController::move_to_pose(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,
     double finger, int steps, double step_time, bool block) {
+  ik_->set_seed(bridge_->get_current_arm());
   auto tcp_offset = tcp_transform_matrix();
   std::vector<double> angles;
 
@@ -348,6 +349,7 @@ void RobotMotionController::moveJ(
     const std::optional<std::array<double, 3>>& rpy,
     double finger, bool block,
     MotionSource source) {
+  ik_->set_seed(bridge_->get_current_arm());
   auto tcp_offset = tcp_transform_matrix();
   std::vector<double> target_angles;
 
@@ -398,6 +400,7 @@ void RobotMotionController::moveL(
     const std::optional<std::array<double, 3>>& rpy,
     double finger, bool block,
     MotionSource source) {
+  ik_->set_seed(bridge_->get_current_arm());
   auto current_pose = get_end_effector_pose();
   Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
   Eigen::Vector3d end_pos(xyz[0], xyz[1], xyz[2]);

@@ -56,6 +56,10 @@ public:
       const std::vector<double>& current_joints,
       const std::array<double, 6>& cartesian_delta) const;
 
+  /// @brief 设置下次 solve() 的初始猜测（更新 last_result 缓存）
+  /// @param seed 初始关节角度猜测（通常为当前关节角度）
+  void set_seed(const std::vector<double>& seed) const;
+
   /// @brief 从指定初始猜测求解 IK（不修改 last_result 缓存）
   /// 适用于 Jog 等需要从当前实际关节位置开始求解的场景
   /// @param xyz 目标位置 [x, y, z]（米）

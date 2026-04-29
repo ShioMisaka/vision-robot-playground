@@ -278,6 +278,11 @@ std::optional<std::vector<double>> IKSolver::velocity_ik(
   return result;
 }
 
+void IKSolver::set_seed(const std::vector<double>& seed) const {
+  std::lock_guard<std::mutex> lock(impl_->last_result_mutex_);
+  impl_->last_result = seed;
+}
+
 std::optional<std::vector<double>> IKSolver::solve_from(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,

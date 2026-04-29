@@ -1,4 +1,5 @@
 #include "robot_hmi/pendant_node.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -500,23 +501,34 @@ void PendantNode::on_robot_status(
   }
 
   // === Script ownership handling ===
+  // Use timer-based detection: stay paused as long as SCRIPT status was seen
+  // within the last second. This handles the case where both HMI and demo
+  // controllers publish status to the same topic — we must not resume on
+  // seeing NONE from the HMI's controller while the demo's is still active.
   if (msg->motion_owner == robot_msgs::msg::RobotStatus::OWNER_SCRIPT) {
+    last_script_status_time_ = this->now();
     if (!script_active_.load()) {
-      RCLCPP_INFO(get_logger(), "Script took motion ownership, pausing joint stream");
+      RCLCPP_INFO(get_logger(), "Script took motion ownership, pausing joint stream and control loop");
       pause_joint_stream();
+      if (controller_node_) controller_node_->pause();
       script_active_.store(true);
     }
-  } else if (script_active_.load() &&
-             msg->motion_owner == robot_msgs::msg::RobotStatus::OWNER_NONE) {
-    RCLCPP_INFO(get_logger(), "Script released motion ownership, resuming joint stream");
-    script_active_.store(false);
-    {
-      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
-      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
-      joint_stream_target_ = latest_joints_;
-      joint_stream_dirty_ = true;
+  } else if (script_active_.load()) {
+    // Only resume if no SCRIPT status for > 1 second (demo controller gone)
+    auto elapsed = (this->now() - last_script_status_time_).seconds();
+    if (elapsed > 1.0) {
+      RCLCPP_INFO(get_logger(), "Script released motion ownership (no SCRIPT status for %.1fs), resuming",
+                  elapsed);
+      script_active_.store(false);
+      if (controller_node_) controller_node_->resume();
+      {
+        std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+        std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+        joint_stream_target_ = latest_joints_;
+        joint_stream_dirty_ = true;
+      }
+      resume_joint_stream();
     }
-    resume_joint_stream();
   }
 
   if (jog_active_.load() && !emergency_active_.load() &&
@@ -637,6 +649,11 @@ void PendantNode::stop_joint_stream() {
 
 void PendantNode::pause_joint_stream() {
   joint_stream_paused_ = true;
+}
+
+void PendantNode::set_controller_node(
+    std::shared_ptr<robot_control::RobotControllerNode> node) {
+  controller_node_ = std::move(node);
 }
 
 void PendantNode::resume_joint_stream() {

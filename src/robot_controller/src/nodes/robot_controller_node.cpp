@@ -395,7 +395,7 @@ void RobotControllerNode::publish_status() {
 // ===== 100Hz Control Loop =====
 
 void RobotControllerNode::control_loop_tick() {
-  if (shutdown_.load()) return;
+  if (shutdown_.load() || paused_.load()) return;
 
   // === 1. READ ===
   auto actual = bridge_->get_current_arm();
@@ -493,7 +493,6 @@ void RobotControllerNode::control_loop_tick() {
       break;
     }
     case RobotState::kIdle:
-    case RobotState::kFault:
       {
         std::lock_guard<std::mutex> lock(external_target_mutex_);
         auto elapsed = (this->now() - external_target_time_).seconds();
@@ -505,12 +504,21 @@ void RobotControllerNode::control_loop_tick() {
           if (motion_owner_.load() == MotionOwner::kPendant && elapsed >= 0.2) {
             motion_owner_.store(MotionOwner::kNone);
           }
-          target = actual;
+          // Script owns control — keep last trajectory target for convergence.
+          // This allows the robot to continue converging to the target after
+          // the trajectory completes, rather than immediately holding actual.
+          if (motion_owner_.load() != MotionOwner::kScript) {
+            target = actual;
+          }
         }
       }
       target_finger = controller_->is_grasping()
                           ? gripper_.min_width
                           : controller_->get_finger_target();
+      break;
+    case RobotState::kFault:
+      target = actual;
+      target_finger = actual_finger;
       break;
   }
 
