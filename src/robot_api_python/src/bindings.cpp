@@ -310,18 +310,24 @@ PYBIND11_MODULE(_core, m) {
                          &RobotMotionController::moveJ),
            py::arg("target_angles"), py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("moveJ", static_cast<void (RobotMotionController::*)(
-                         const std::array<double, 3>&,
-                         const std::optional<std::array<double, 3>>&,
-                         double, bool)>(
-                         &RobotMotionController::moveJ),
+      .def("moveJ", [](RobotMotionController& self,
+                         const std::array<double, 3>& xyz,
+                         const std::optional<std::array<double, 3>>& rpy,
+                         double finger, bool block) {
+             py::gil_scoped_release release;
+             self.moveJ(xyz, rpy, finger, block);
+           },
            py::arg("xyz"), py::arg("rpy") = py::none(),
-           py::arg("finger") = -1.0, py::arg("block") = true,
-           py::call_guard<py::gil_scoped_release>())
-      .def("moveL", &RobotMotionController::moveL,
+           py::arg("finger") = -1.0, py::arg("block") = true)
+      .def("moveL", [](RobotMotionController& self,
+                         const std::array<double, 3>& xyz,
+                         const std::optional<std::array<double, 3>>& rpy,
+                         double finger, bool block) {
+             py::gil_scoped_release release;
+             self.moveL(xyz, rpy, finger, block);
+           },
            py::arg("xyz"), py::arg("rpy") = py::none(),
-           py::arg("finger") = -1.0, py::arg("block") = true,
-           py::call_guard<py::gil_scoped_release>())
+           py::arg("finger") = -1.0, py::arg("block") = true)
       .def("set_speed", &RobotMotionController::set_speed,
            py::arg("mode"), py::arg("percent"))
       .def("get_speed", &RobotMotionController::get_speed,
@@ -339,7 +345,12 @@ PYBIND11_MODULE(_core, m) {
                     const std::string&, const std::string&,
                     double, double,
                     const std::array<double, 3>&,
-                    int, double>(),
+                    int, double,
+                    double, double, double, int, int,
+                    const std::string&,
+                    const std::array<double, 3>&,
+                    const std::array<double, 3>&,
+                    std::shared_ptr<robot_control::RobotControllerNode>>(),
            py::arg("robot"), py::arg("vision"),
            py::arg("base_frame") = "panda_link0",
            py::arg("camera_frame") = "camera_color_optical_frame",
@@ -348,7 +359,18 @@ PYBIND11_MODULE(_core, m) {
            py::arg("grasp_rpy") =
                std::array<double, 3>{M_PI, 0.0, M_PI},
            py::arg("redetect_samples") = 5,
-           py::arg("redetect_interval") = 0.1)
+           py::arg("redetect_interval") = 0.1,
+           py::arg("max_reach") = 0.85,
+           py::arg("approach_step_size") = 0.05,
+           py::arg("approach_tolerance") = 0.01,
+           py::arg("max_approach_steps") = 100,
+           py::arg("max_consecutive_failures") = 3,
+           py::arg("hand_frame") = "panda_hand",
+           py::arg("camera_offset") =
+               std::array<double, 3>{0.0, 0.0, 0.0},
+           py::arg("camera_rpy") =
+               std::array<double, 3>{-1.57079632679, 0.0, -1.57079632679},
+           py::arg("controller_node") = py::none())
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())
