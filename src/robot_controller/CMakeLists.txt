@@ -100,6 +100,13 @@ add_executable(test_ik_solver
 )
 target_link_libraries(test_ik_solver robot_kinematics)
 
+# ===== 独立控制器节点 =====
+add_executable(robot_controller_node
+  src/nodes/standalone_main.cpp
+)
+target_link_libraries(robot_controller_node robot_nodes)
+ament_target_dependencies(robot_controller_node rclcpp)
+
 # ===== 演示 =====
 add_executable(demo_grasp_tcp
   demo/demo_grasp_tcp.cpp
@@ -119,7 +126,7 @@ install(TARGETS robot_kinematics robot_motion robot_nodes
 )
 
 install(TARGETS test_trajectory_planner test_motion_controller test_ik_solver
-  demo_grasp_tcp
+  demo_grasp_tcp robot_controller_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

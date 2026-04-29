@@ -176,11 +176,6 @@ public:
   /// @brief 获取当前运动控制权持有者
   MotionOwner get_motion_owner() const { return motion_owner_.load(); }
 
-  /// @brief 暂停 100Hz 控制循环（停止发布 /joint_command）
-  void pause() { paused_.store(true); }
-  /// @brief 恢复 100Hz 控制循环
-  void resume() { paused_.store(false); }
-
   ~RobotControllerNode();
 
 private:
@@ -249,7 +244,6 @@ private:
   void control_loop_tick();
 
   std::atomic<bool> shutdown_{false};
-  std::atomic<bool> paused_{false};
   std::atomic<MotionOwner> motion_owner_{MotionOwner::kNone};
 
   std::shared_ptr<RosMotionBridge> bridge_;

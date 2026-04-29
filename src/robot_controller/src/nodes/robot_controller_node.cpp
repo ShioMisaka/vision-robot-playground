@@ -395,7 +395,7 @@ void RobotControllerNode::publish_status() {
 // ===== 100Hz Control Loop =====
 
 void RobotControllerNode::control_loop_tick() {
-  if (shutdown_.load() || paused_.load()) return;
+  if (shutdown_.load()) return;
 
   // === 1. READ ===
   auto actual = bridge_->get_current_arm();
