@@ -285,7 +285,8 @@ double RobotMotionController::get_speed(MotionMode mode) const {
 }
 
 void RobotMotionController::moveJ_internal(
-    const std::vector<double>& target_angles, double finger, bool block) {
+    const std::vector<double>& target_angles, double finger, bool block,
+    MotionSource source) {
   auto current = bridge_->get_current_arm();
 
   // 检查是否有实际运动量
@@ -320,7 +321,7 @@ void RobotMotionController::moveJ_internal(
     steps.push_back({trajectory[i], static_cast<double>(i) * dt});
   }
 
-  bridge_->submit_trajectory(steps, finger);
+  bridge_->submit_trajectory(steps, finger, source);
 
   if (block) {
     double timeout = steps.back().time_from_start +
@@ -345,7 +346,8 @@ void RobotMotionController::moveJ(
 void RobotMotionController::moveJ(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,
-    double finger, bool block) {
+    double finger, bool block,
+    MotionSource source) {
   auto tcp_offset = tcp_transform_matrix();
   std::vector<double> target_angles;
 
@@ -388,13 +390,14 @@ void RobotMotionController::moveJ(
   double actual_finger = resolve_finger(finger);
 
   // 用关节空间 S 曲线 moveJ 执行
-  moveJ_internal(target_angles, actual_finger, block);
+  moveJ_internal(target_angles, actual_finger, block, source);
 }
 
 void RobotMotionController::moveL(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,
-    double finger, bool block) {
+    double finger, bool block,
+    MotionSource source) {
   auto current_pose = get_end_effector_pose();
   Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
   Eigen::Vector3d end_pos(xyz[0], xyz[1], xyz[2]);
@@ -466,7 +469,7 @@ void RobotMotionController::moveL(
     steps.push_back({joint_traj[i], t});
   }
 
-  bridge_->submit_trajectory(steps, actual_finger);
+  bridge_->submit_trajectory(steps, actual_finger, source);
 
   if (block && !steps.empty()) {
     double timeout = steps.back().time_from_start +
