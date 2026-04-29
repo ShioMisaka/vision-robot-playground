@@ -499,6 +499,26 @@ void PendantNode::on_robot_status(
     emergency_active_ = false;
   }
 
+  // === Script ownership handling ===
+  if (msg->motion_owner == robot_msgs::msg::RobotStatus::OWNER_SCRIPT) {
+    if (!script_active_.load()) {
+      RCLCPP_INFO(get_logger(), "Script took motion ownership, pausing joint stream");
+      pause_joint_stream();
+      script_active_.store(true);
+    }
+  } else if (script_active_.load() &&
+             msg->motion_owner == robot_msgs::msg::RobotStatus::OWNER_NONE) {
+    RCLCPP_INFO(get_logger(), "Script released motion ownership, resuming joint stream");
+    script_active_.store(false);
+    {
+      std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
+      std::lock_guard<std::mutex> slock(joint_stream_mutex_);
+      joint_stream_target_ = latest_joints_;
+      joint_stream_dirty_ = true;
+    }
+    resume_joint_stream();
+  }
+
   if (jog_active_.load() && !emergency_active_.load() &&
       msg->state == robot_msgs::msg::RobotStatus::IDLE) {
     // 控制器从 kTeaching 转为 kIdle → Jog 减速完成

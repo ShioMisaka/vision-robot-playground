@@ -214,6 +214,9 @@ private:
   std::mutex latest_joints_mutex_;
   std::array<double, 7> latest_joints_{};
 
+  // Script ownership state
+  std::atomic<bool> script_active_{false};
+
   // 后台任务队列
   std::mutex task_mutex_;
   std::condition_variable task_cv_;
