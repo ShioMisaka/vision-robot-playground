@@ -115,8 +115,7 @@ isaac_ros_project/
 │   │   │   ├── test_robot_node.cpp
 │   │   │   └── test_camera_tf.cpp
 │   │   └── demo/
-│   │       ├── demo_camera.cpp
-│   │       └── demo_vision_grasp.cpp
+│   │       └── demo_camera.cpp
 │   │
 │   ├── robot_hmi/                # 示教器界面（Qt5）
 │   │   ├── include/robot_hmi/
@@ -135,12 +134,18 @@ isaac_ros_project/
 │   │       ├── panels/                       # Panel 实现
 │   │       └── main.cpp                      # 入口
 │   │
-│   └── robot_api_python/          # Python API 封装
-│       ├── src/bindings.cpp                # pybind11 绑定代码（~560 行）
-│       ├── src/robot_client_node.cpp       # RobotClient 实现
-│       ├── src/service_robot_controller.cpp # ServiceRobotController 实现
+│   └── robot_api_python/          # Python API 封装 + C++ 客户端库
+│       ├── include/robot_api_python/
+│       │   ├── robot_client_node.hpp          # C++ 客户端节点（连接外部控制器）
+│       │   └── service_robot_controller.hpp   # C++ Service 代理控制器
+│       ├── src/
+│       │   ├── bindings.cpp                   # pybind11 绑定代码（~560 行）
+│       │   ├── robot_client_node.cpp
+│       │   └── service_robot_controller.cpp
+│       ├── demo/
+│       │   └── demo_vision_grasp.cpp          # C++ 视觉抓取演示（客户端模式）
 │       └── robot_api_python/
-│           └── __init__.py                 # Python 包入口
+│           └── __init__.py                    # Python 包入口
 │
 ├── script/
 │   ├── test_move_cpp.py            # Python + C++ 后端：IK 位姿控制
@@ -155,7 +160,87 @@ isaac_ros_project/
 └── README.md
 ```
 
-## 分层架构
+## 系统架构
+
+### 单控制器多客户端模式
+
+整个系统的核心设计原则是 **「只有一个进程拥有机器人控制权」**。所有前端（示教器、Python 脚本、视觉抓取 demo）都不直接控制机器人硬件，而是通过 ROS2 话题/服务向 **`robot_controller_node`** 发送请求，由它统一决策和执行。
+
+```
+                         ┌──────────────────────────────────┐
+                         │   Isaac Sim (物理仿真引擎)        │
+                         │   发布 /joint_states (关节反馈)   │
+                         │   接收 /joint_command (关节指令)   │
+                         └────────▲──────────────┬──────────┘
+                                  │              │
+                         /joint_states    /joint_command
+                          (反馈)            (100Hz 指令，唯一发布者)
+                                  │              │
+┌─────────────────────────────────┼──────────────┼──────────────────┐
+│                                 │              │                  │
+│  robot_controller_node          │              │                  │
+│  (独立进程，系统核心)           │              │                  │
+│                                 │              │                  │
+│  ┌──────────────────────────────┴──────────────┴───────────────┐  │
+│  │  100Hz 控制循环：READ → PLAN → MONITOR → WRITE              │  │
+│  │  11 个 ROS2 Service（move_joint, move_pose, go_home...）    │  │
+│  │  订阅 ~/joint_target（示教器 50Hz 关节流）                  │  │
+│  │  订阅 ~/jog_command（示教器 50Hz Jog 心跳）                 │  │
+│  │  状态机（IDLE / MOVING / TEACHING / STOPPING / FAULT）      │  │
+│  │  运动控制权（MotionOwner: NONE / PENDANT / SCRIPT）         │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                 ▲                                 │
+└─────────────────────────────────┼─────────────────────────────────┘
+                                  │
+                    ROS2 Service / Topic (请求，不是指令)
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          │                       │                       │
+┌─────────┴─────────┐  ┌──────────┴─────────┐  ┌──────────┴────────┐
+│  robot_hmi        │  │  Python 脚本       │  │  demo_vision_grasp│
+│  (Qt5 示教器)     │  │ (robot_api_python) │  │  (C++ 可执行文件) │
+│                   │  │                    │  │                   │
+│  • Service 调用   │  │  • Service 调用    │  │  • Service 调用   │
+│  • 50Hz 关节流    │  │                    │  │                   │
+│  • 50Hz Jog 心跳  │  │  RobotClientNode   │  │  RobotClientNode  │
+│  (PendantNode)    │  │                    │  │                   │
+└───────────────────┘  └────────────────────┘  └───────────────────┘
+```
+
+### 为什么多个客户端不会冲突？
+
+关键在于 **`/joint_command` 只有一个发布者**（`robot_controller_node`），所有客户端发送的是「请求」而非「指令」：
+
+1. **单一指令源**：只有 `robot_controller_node` 的 100Hz 循环发布 `/joint_command`，不存在两个控制器竞争写入的情况
+2. **运动控制权（MotionOwner）**：控制器内部维护当前谁在控制（`NONE` / `PENDANT` / `SCRIPT`），同一时刻只有一个所有者
+3. **状态机保护**：所有状态转换经过 `is_valid_transition()` 验证，非法请求被拒绝
+4. **200ms 看门狗**：示教器的关节流 200ms 无更新自动失效，防止卡死
+
+### 包间依赖
+
+```
+robot_msgs          ← 叶子包（无项目内依赖）
+     │
+     ▼
+robot_logger        ← 统一日志（被所有非叶子包依赖）
+robot_description   ← 叶子包（URDF 模型）
+     │
+     ▼
+robot_controller    ← robot_kinematics / robot_motion / robot_nodes
+     │
+     ▼
+robot_vision        ← robot_vision_core / robot_vision_nodes
+     │
+     ├──▶ robot_hmi           ← Qt5 示教器（PendantNode 连接外部节点）
+     └──▶ robot_api_python    ← pybind11 Python API + C++ 客户端库 + demo
+
+robot_bringup       ← launch 文件（controller + full_system）
+```
+
+注意：`robot_controller` → `robot_vision` 单向依赖，不可反向。
+`robot_hmi` 和 `robot_api_python` 中的客户端代码 **不嵌入** `RobotControllerNode`，而是通过 Service / Topic 连接独立运行的 `robot_controller_node` 进程。
+
+### 代码分层
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -185,30 +270,6 @@ isaac_ros_project/
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 包间依赖
-
-```
-robot_msgs          ← 叶子包（无项目内依赖）
-     │
-     ▼
-robot_logger        ← 统一日志（被所有非叶子包依赖）
-robot_description   ← 叶子包（URDF 模型）
-     │
-     ▼
-robot_controller    ← robot_kinematics / robot_motion / robot_nodes
-     │
-     ▼
-robot_vision        ← robot_vision_core / robot_vision_nodes
-     │
-     ├──▶ robot_hmi           ← Qt5 示教器（连接外部节点）
-     └──▶ robot_api_python    ← pybind11 Python API
-
-robot_bringup       ← launch 文件（controller + full_system）
-```
-
-注意：`robot_controller` → `robot_vision` 单向依赖，不可反向。依赖 `robot_vision` 的集成测试放在 `robot_vision/` 下。
-`robot_hmi` 不嵌入 `RobotControllerNode`，而是通过 `PendantNode` 连接外部独立运行的 `robot_controller_node`。
-
 ## 编译
 
 ```bash
@@ -225,7 +286,7 @@ colcon build --base-paths src --packages-select robot_controller
 colcon build --base-paths src --packages-up-to robot_hmi
 ```
 
-**编译顺序：** robot_msgs → robot_description → robot_controller → robot_vision → robot_hmi / robot_api_python
+**编译顺序：** robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi（可并行）→ robot_api_python
 
 **编译产物：**
 - `install/robot_msgs/` — ROS2 接口定义（Services + Actions + Messages）
@@ -236,7 +297,9 @@ colcon build --base-paths src --packages-up-to robot_hmi
 - `install/robot_controller/lib/robot_controller/robot_controller_node` — 独立控制器可执行文件
 - `install/robot_vision/lib/librobot_vision_core.so` — 视觉处理核心
 - `install/robot_vision/lib/librobot_vision_nodes.so` — 视觉 ROS2 节点
-- `install/robot_api_python/` — pybind11 Python 模块（含 RobotClient + ServiceRobotController）
+- `install/robot_api_python/lib/librobot_api_client_lib.so` — C++ 客户端库（ServiceRobotController + RobotClientNode）
+- `install/robot_api_python/` — pybind11 Python 模块
+- `install/robot_api_python/lib/robot_api_python/demo_vision_grasp` — C++ 视觉抓取演示（客户端模式）
 - `install/robot_hmi/lib/robot_hmi/robot_hmi` — Qt5 示教器可执行文件
 
 ### 导出编译数据库（IDE 代码补全）
@@ -248,6 +311,19 @@ ln -s build/robot_controller/compile_commands.json ./
 
 ## 运行
 
+### 启动顺序总览
+
+系统采用 **「先启控制器，后启前端」** 的启动模式。所有前端（示教器、脚本、demo）都是 `robot_controller_node` 的客户端，不创建自己的控制器实例。
+
+```
+Step 1: Isaac Sim           ← 物理仿真，提供关节反馈和相机图像
+Step 2: robot_controller_node ← 100Hz 控制循环（系统核心，唯一发布 /joint_command）
+Step 3: 前端（可同时启动多个）
+        ├── robot_hmi       ← Qt5 示教器
+        ├── Python 脚本      ← robot_api_python RobotClient
+        └── demo_vision_grasp ← C++ 视觉抓取演示
+```
+
 ### 1. 启动 Isaac Sim
 
 在 Isaac Sim 中加载 Franka Panda 场景，确保 ROS2 bridge 已启动。验证话题：
@@ -257,27 +333,45 @@ ros2 topic list
 # 应看到: /joint_states, /joint_command, /camera/image_raw/left, /camera/image_raw/depth
 ```
 
-### 2. C++ IK 独立测试（无需 Isaac Sim）
+### 2. 启动控制器节点（必须先于所有前端）
+
+控制器节点是系统的唯一控制核心，负责 100Hz 闭环控制、状态机管理、Service 响应。
 
 ```bash
 source install/setup.zsh
-ros2 run robot_controller test_ik_solver
-# 预期输出: 结果: 12/12 通过
+
+# 方式一：仅启动控制器
+ros2 run robot_controller robot_controller_node
+
+# 方式二：通过 launch 文件启动
+ros2 launch robot_bringup controller.launch.py
 ```
 
-### 3. Python IKSolver 离线测试（无需 Isaac Sim）
+启动后控制器会：
+- 订阅 `/joint_states`（Isaac Sim 关节反馈）
+- 发布 `/joint_command` @ 100Hz（唯一发布者）
+- 提供 11 个 ROS2 Service（move_joint, move_pose, go_home 等）
+- 接受 `~/joint_target`（示教器关节流）和 `~/jog_command`（Jog 命令）
+
+### 3. 启动前端（可同时启动多个，互不冲突）
+
+所有前端通过 ROS2 Service / Topic 向 `robot_controller_node` 发送请求，由控制器统一执行。多个前端可以安全共存，因为 `/joint_command` 只有控制器一个发布者。
+
+#### Qt5 示教器
 
 ```bash
 source install/setup.zsh
-python3 -c "
-import robot_api_python as rc
-ik = rc.IKSolver(rc.profiles.panda())
-print('FK:', ik.forward([0, 0, 0, -1.57, 0, 1.57, 0]))
-print('IK:', ik.solve([0.5, 0, 0.2]))
-"
+
+# 方式一：launch 一键启动（控制器 + 示教器）
+ros2 launch robot_bringup full_system.launch.py
+
+# 方式二：手动启动（控制器已在运行时）
+ros2 run robot_hmi robot_hmi
 ```
 
-### 4. Python 演示（C++ 后端，需要 Isaac Sim）
+示教器通过 `PendantNode` 连接 `robot_controller_node`，使用 Service 调用 + 50Hz 关节流 + 50Hz Jog 心跳。
+
+#### Python 脚本
 
 ```bash
 source install/setup.zsh
@@ -286,72 +380,71 @@ python3 script/test_grasp_tcp_cpp.py    # TCP 抓取
 python3 script/test_vision_cpp.py       # 视觉伺服抓取
 ```
 
-### 5. C++ 抓取演示（需要 Isaac Sim）
+Python 脚本使用 `RobotClient`（底层是 pybind11 包装的 C++ `RobotClientNode`），通过 ROS2 Service 调用控制机器人。
+
+#### C++ 视觉抓取演示
 
 ```bash
 source install/setup.zsh
+# 注意：demo 已迁移至 robot_api_python 包（不再在 robot_vision 中）
+ros2 run robot_api_python demo_vision_grasp
+```
+
+此 demo 使用 `RobotClientNode` 连接外部 `robot_controller_node`，不会创建自己的控制器实例。可以和示教器同时运行。
+
+### 4. C++ 抓取演示（独立模式，需单独运行）
+
+```bash
+source install/setup.zsh
+# 此 demo 内嵌 RobotControllerNode，会自己启动控制器循环
+# 不要和其他前端同时运行（会竞争 /joint_command）
 ros2 run robot_controller demo_grasp_tcp
 ```
 
-### 6. Qt5 示教器（需要 Isaac Sim + robot_controller_node 运行中）
+> **注意**：`demo_grasp_tcp`（在 `robot_controller` 包中）是旧式 demo，内嵌了控制器实例。
+> 如果需要和其他前端共存，请使用上面第 3 节中的客户端模式 demo。
+
+### 离线测试（无需 Isaac Sim）
 
 ```bash
 source install/setup.zsh
 
-# 方式一：launch 文件一键启动（控制器 + 示教器）
-ros2 launch robot_bringup full_system.launch.py
+# C++ IK 测试
+ros2 run robot_controller test_ik_solver
+# 预期输出: 结果: 12/12 通过
 
-# 方式二：手动分别启动
-ros2 run robot_controller robot_controller_node  # 终端 1：控制器
-ros2 run robot_hmi robot_hmi                     # 终端 2：示教器
+# Python IK 测试
+python3 -c "
+import robot_api_python as rc
+ik = rc.IKSolver(rc.profiles.panda())
+print('FK:', ik.forward([0, 0, 0, -1.57, 0, 1.57, 0]))
+print('IK:', ik.solve([0.5, 0, 0.2]))
+"
 ```
 
 ## Python 快速开始
 
-### 模式一：RobotClient（推荐，连接外部节点）
+### 推荐模式：RobotClient（连接外部节点）
 
 ```python
+import threading
 import robot_api_python as rc
 
 rc.rclcpp_init()
 
 # 创建轻量客户端（连接独立运行的 robot_controller_node）
 robot = rc.RobotClient.create("robot_controller_node")
-robot.wait_for_services()
 
-# 运动控制（通过 Service 调用）
-ctrl = robot.get_controller()
-ctrl.open_gripper()
-ctrl.move_to_pose([0.5, 0, 0.3], [0, -3.14, -3.14])
-ctrl.close_gripper()
-ctrl.move_linear([0, 0, 0.2])
-
-rc.rclcpp_shutdown()
-```
-
-### 模式二：RobotControllerNode（内嵌 C++ 库）
-
-```python
-import threading
-import robot_api_python as rc
-
-# 初始化 rclcpp（替代 rclpy.init，二者不能共存）
-rc.rclcpp_init()
-
-# 创建机器人控制节点（直接链接 C++ 库）
-robot = rc.RobotControllerNode.create(
-    rc.profiles.panda(), rc.profiles.panda_gripper(), rc.TopicConfig())
-
-# 后台 spin
+# 后台 spin（rclcpp 节点需要 executor 驱动）
 executor = rc.MultiThreadedExecutor()
 executor.add_node(robot)
 thread = threading.Thread(target=executor.spin, daemon=True)
 thread.start()
 
-# 等待连接
-robot.wait_for_ready()
+# 等待服务就绪（确保 robot_controller_node 已启动）
+robot.wait_for_services()
 
-# 运动控制
+# 运动控制（全部通过 ROS2 Service 调用，不直接控制硬件）
 ctrl = robot.get_controller()
 ctrl.open_gripper()
 ctrl.move_to_pose([0.5, 0, 0.3], [0, -3.14, -3.14])
@@ -363,6 +456,15 @@ executor.cancel()
 thread.join()
 rc.rclcpp_shutdown()
 ```
+
+> **为什么 Python 也要用 rclcpp？** 此项目使用 pybind11 将 C++ 核心（IK、轨迹规划、视觉检测）暴露给 Python。
+> Python 端通过 `rclcpp`（C++ ROS2 客户端库）而非 `rclpy` 与 ROS2 通信。
+> 两者不能共存，因此所有 Python 脚本必须使用 `rc.rclcpp_init()` 而非 `rclpy.init()`。
+
+### ~~已弃用模式：RobotControllerNode（内嵌 C++ 库）~~
+
+> **不要使用此模式**。它会创建自己的 100Hz 控制循环，与已运行的 `robot_controller_node` 竞争 `/joint_command`，
+> 导致机器人不可预测运动。仅在没有外部控制器节点的单进程场景下可用。
 
 ## 接口隔离
 
