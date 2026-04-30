@@ -111,6 +111,10 @@ void MainWindow::onRefreshState() {
   bool services = node_->are_services_ready();
   connection_bar_->onRobotConnectionChanged(robot_topic, services);
 
+  // 查询相机→基坐标系变换，传递给 CameraPanel
+  auto tf = node_->lookup_camera_to_base_transform();
+  camera_panel_->onTransformUpdated(tf);
+
   if (!services) return;
 
   node_->async_get_state(

@@ -6,6 +6,10 @@
 #include <QImage>
 
 #include <opencv2/core.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+
+#include <optional>
+#include <mutex>
 
 namespace robot_hmi {
 
@@ -18,6 +22,8 @@ public slots:
   void onImageReceived(const QImage& rgb, const QImage& depth,
                        const cv::Mat& depth_raw);
   void onEstopChanged(bool active);
+  void onTransformUpdated(
+      const std::optional<geometry_msgs::msg::TransformStamped>& tf);
 
 private slots:
   void onToggleRgbDepth();
@@ -39,6 +45,10 @@ private:
   QImage rgb_image_;
   QImage depth_image_;
   cv::Mat depth_raw_;
+
+  /// 缓存的相机→基坐标系变换（由 MainWindow 5Hz 更新）
+  mutable std::mutex tf_mutex_;
+  std::optional<geometry_msgs::msg::TransformStamped> camera_to_base_;
 };
 
 }  // namespace robot_hmi
