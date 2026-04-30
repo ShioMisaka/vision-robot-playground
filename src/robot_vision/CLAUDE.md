@@ -106,7 +106,8 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 | 演示文件 | 功能 |
 |---------|------|
 | demo/demo_camera.cpp | 显示同步 RGB + 深度图（JET colormap） |
-| demo/demo_vision_grasp.cpp | C++ 版两阶段视觉引导抓取演示（含诊断日志 + Ctrl+C 处理） |
+
+注：`demo_vision_grasp` 已迁移至 `robot_api_python/demo/`，使用 `RobotClientNode` 连接外部控制器，避免多实例竞争。
 
 ## 启动方式
 此包无可独立运行的节点。通过 `robot_api_python` 或 `robot_hmi` 内嵌启动。

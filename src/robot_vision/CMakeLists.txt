@@ -98,14 +98,7 @@ target_link_libraries(demo_camera robot_controller::robot_nodes robot_logger::ro
 target_link_libraries(demo_camera robot_vision_nodes)
 target_compile_definitions(demo_camera PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
-add_executable(demo_vision_grasp
-  demo/demo_vision_grasp.cpp
-)
-target_link_libraries(demo_vision_grasp robot_controller::robot_nodes robot_logger::robot_logger_lib)
-target_link_libraries(demo_vision_grasp robot_vision_nodes)
-target_compile_definitions(demo_vision_grasp PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
-
-install(TARGETS test_robot_node test_camera_tf demo_camera demo_vision_grasp
+install(TARGETS test_robot_node test_camera_tf demo_camera
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
