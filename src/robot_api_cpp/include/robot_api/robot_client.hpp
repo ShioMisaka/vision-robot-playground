@@ -5,15 +5,15 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "robot_api_python/service_robot_controller.hpp"
+#include "robot_api/service_robot_controller.hpp"
 
-namespace robot_api_python {
+namespace robot_api {
 
 /// 轻量 ROS2 客户端节点，连接到独立 robot_controller_node
 /// 持有 ServiceRobotController，通过 ROS2 Service 控制机器人
-class RobotClientNode : public rclcpp::Node {
+class RobotClient : public rclcpp::Node {
  public:
-  static std::shared_ptr<RobotClientNode> create(
+  static std::shared_ptr<RobotClient> create(
       const std::string& service_prefix = "robot_controller_node");
 
   /// 获取运动控制器（通过 Service 调用实现）
@@ -28,11 +28,11 @@ class RobotClientNode : public rclcpp::Node {
   using rclcpp::Node::get_logger;
 
  private:
-  explicit RobotClientNode(const std::string& service_prefix);
+  explicit RobotClient(const std::string& service_prefix);
   void init();
 
   std::string service_prefix_;
   std::shared_ptr<ServiceRobotController> controller_;
 };
 
-}  // namespace robot_api_python
+}  // namespace robot_api

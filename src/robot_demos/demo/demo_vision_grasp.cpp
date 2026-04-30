@@ -4,7 +4,7 @@
 /// 编译后运行（需要 Isaac Sim 已启动 + robot_controller_node 已运行）：
 ///   source /opt/ros/jazzy/setup.bash
 ///   source install/setup.bash
-///   ros2 run robot_api_python demo_vision_grasp
+///   ros2 run robot_demos demo_vision_grasp
 ///
 /// 按 Ctrl+C 可安全中止，不会卡死。
 ///
@@ -30,15 +30,14 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <robot_logger/logger.hpp>
 
-#include "robot_api_python/robot_client_node.hpp"
-
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_api/robot_client.hpp"
 
 #include "robot_vision/vision/color_detector.hpp"
+#include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
 #include "robot_vision/nodes/grasp_task_manager.hpp"
 
-using namespace robot_api_python;
+using namespace robot_api;
 using namespace robot_vision;
 
 // ---- 全局中止标志 ----
@@ -88,11 +87,11 @@ int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
 
   // ---- 创建客户端节点（连接外部 robot_controller_node）----
-  auto robot_client = RobotClientNode::create("robot_controller_node");
+  auto robot_client = RobotClient::create("robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
       kLowerHsv, kUpperHsv, kCameraFx, kCameraFy, kCameraCx, kCameraCy);
-  robot_control::TopicConfig topics;
-  auto vision_node = VisionProcessorNode::create(detector, topics);
+  robot_vision::VisionTopicConfig config;
+  auto vision_node = VisionProcessorNode::create(detector, config);
 
   // ---- 后台 Executor ----
   auto executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();

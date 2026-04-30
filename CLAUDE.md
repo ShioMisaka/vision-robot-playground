@@ -19,11 +19,13 @@ Franka Panda 7-DOF + 二指夹爪，ZED_X_Mini 双目深度相机，Qt5 示教�
 | robot_msgs | ROS2 自定义接口（11 Service + 2 Action + 2 Message） |
 | robot_logger | 统一日志系统（spdlog，宏接口，文件轮转） |
 | robot_description | URDF 机器人模型（Panda + 夹爪 + 相机） |
-| robot_bringup | 启动文件配置（controller + full_system launch 文件） |
+| robot_bringup | 启动文件配置（controller + vision + full_system launch 文件） |
 | robot_controller | 核心运动控制：IK/FK、S 曲线轨迹规划、Jog、100Hz 闭环 |
 | robot_vision | 视觉处理：HSV 检测 + 深度 3D 定位 + 抓取状态机 |
 | robot_hmi | Qt5 示教器 GUI（6 Panel 架构） |
-| robot_api_python | pybind11 Python API 绑定 |
+| robot_api_cpp | C++ Service 客户端库（RobotClient + ServiceRobotController） |
+| robot_api_python | pybind11 Python API 绑定（依赖 robot_api_cpp） |
+| robot_demos | 演示与集成测试（demo_grasp_tcp, demo_camera, demo_vision_grasp, test_robot_node） |
 
 ## 常用命令
 ```bash
@@ -60,13 +62,16 @@ robot_logger ──────────────────────�
     ▲                                             │              │               │
     │                                             │              │               │
 robot_description ──→ robot_controller ───────────┼─→ robot_vision ─→ robot_api_python
-    ▲                                             │
-    │                                             └─→ robot_hmi
-    │
-robot_bringup（launch 文件启动 controller + hmi）
+    ▲                                             │              │               │
+    │                                             ├─→ robot_hmi  │               │
+    │                                             │              │               │
+    │                                             └─→ robot_api_cpp ─→ robot_demos
+    │                                                                ▲
+    │                                                                │
+robot_bringup（launch 文件启动 controller + hmi）────────────────────┘
 ```
 
-**编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi（可并行）→ robot_api_python
+**编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi + robot_api_cpp（可并行）→ robot_api_python + robot_demos（可并行）→ robot_bringup
 
 ## 全局约定
 
@@ -104,14 +109,15 @@ robot_bringup（launch 文件启动 controller + hmi）
 
 ### 分层架构
 ```
-Layer 3: Python Binding (pybind11)           ← script/ 通过 C++ 后端控制
+Layer 4: Python Binding (pybind11)           ← script/ 通过 C++ 后端控制
+Layer 3: C++ Service Client (robot_api_cpp)  ← 轻量客户端，连接外部 robot_controller_node
 Layer 2: ROS 2 C++ Wrapper Nodes            ← rclcpp 节点（通信适配层）
 Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_motion / robot_vision_core
 ```
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦
 - **依赖方向约束**: robot_controller → robot_vision 单向依赖，不可反向
-- **RobotClient vs RobotControllerNode**: Python 脚本推荐使用 `RobotClient`（连接外部节点），`RobotControllerNode`（内嵌 C++ 库）已弃用
+- **RobotClient vs RobotControllerNode**: Python 脚本推荐使用 `RobotClient`（`robot_api::RobotClient`，连接外部节点），`RobotControllerNode`（内嵌 C++ 库）已弃用
 - **robot_hmi 架构**: 示教器通过 PendantNode 连接外部 `robot_controller_node` 进程（非嵌入）
 - Python 脚本使用 `rclcpp`（通过 pybind11），禁止同时使用 `rclpy`
 - pybind11 绑定中所有阻塞方法必须释放 GIL
@@ -133,4 +139,6 @@ Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_mot
 - [robot_controller](src/robot_controller/CLAUDE.md)
 - [robot_vision](src/robot_vision/CLAUDE.md)
 - [robot_hmi](src/robot_hmi/CLAUDE.md)
+- [robot_api_cpp](src/robot_api_cpp/CLAUDE.md)
 - [robot_api_python](src/robot_api_python/CLAUDE.md)
+- [robot_demos](src/robot_demos/CLAUDE.md)

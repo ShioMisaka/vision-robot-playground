@@ -76,13 +76,6 @@ install(TARGETS robot_vision_core robot_vision_nodes
 )
 
 # ===== 集成测试（需要 Isaac Sim 运行中）=====
-add_executable(test_robot_node
-  test/test_robot_node.cpp
-)
-target_link_libraries(test_robot_node robot_controller::robot_nodes robot_logger::robot_logger_lib)
-target_link_libraries(test_robot_node robot_vision_nodes)
-target_compile_definitions(test_robot_node PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
-
 add_executable(test_camera_tf
   test/test_camera_tf.cpp
 )
@@ -90,15 +83,7 @@ target_link_libraries(test_camera_tf robot_controller::robot_nodes robot_logger:
 target_link_libraries(test_camera_tf robot_vision_nodes)
 target_compile_definitions(test_camera_tf PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
-# ===== 演示 =====
-add_executable(demo_camera
-  demo/demo_camera.cpp
-)
-target_link_libraries(demo_camera robot_controller::robot_nodes robot_logger::robot_logger_lib)
-target_link_libraries(demo_camera robot_vision_nodes)
-target_compile_definitions(demo_camera PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
-
-install(TARGETS test_robot_node test_camera_tf demo_camera
+install(TARGETS test_camera_tf
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -14,20 +14,18 @@
 
 #include "robot_vision/vision/camera_interface.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_vision/vision/vision_topic_config.hpp"
 
 namespace robot_vision {
-
-using robot_control::TopicConfig;
 
 /// ROS 2 视觉处理节点
 /// 通过 message_filters 同步订阅 RGB + 深度图像
 class VisionProcessorNode : public rclcpp::Node, public IVisionProcessor {
-public:
+ public:
   /// @brief 工厂方法：创建视觉处理节点
   static std::shared_ptr<VisionProcessorNode> create(
       std::shared_ptr<CameraInterface> processor,
-      const TopicConfig& topics);
+      const VisionTopicConfig& config);
 
   // IVisionProcessor 接口
   std::optional<DetectionResult> get_latest_result() const override;
@@ -38,10 +36,10 @@ public:
       double sample_interval = 0.1,
       double timeout = 5.0) override;
 
-private:
+ private:
   VisionProcessorNode(std::shared_ptr<CameraInterface> processor,
-                      const TopicConfig& topics);
-  void init(const TopicConfig& topics);
+                      const VisionTopicConfig& config);
+  void init(const VisionTopicConfig& config);
 
   void on_synced_image(
       const sensor_msgs::msg::Image::ConstSharedPtr& left,

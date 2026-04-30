@@ -24,6 +24,15 @@
 ros2 launch robot_bringup controller.launch.py
 ```
 
+### vision.launch.py
+启动 `robot_controller_node`（视觉场景用，同 controller.launch.py）。
+- 节点: `robot_controller/robot_controller_node`
+- 前提: Isaac Sim 已运行并发布 `/joint_states` 和相机图像
+
+```bash
+ros2 launch robot_bringup vision.launch.py
+```
+
 ### full_system.launch.py
 启动控制器 + Qt5 示教器（完整系统）。
 - 节点: `robot_controller_node` + `robot_hmi`
@@ -38,6 +47,7 @@ ros2 launch robot_bringup full_system.launch.py
 # 方式一：使用 launch 文件（推荐）
 source install/setup.zsh
 ros2 launch robot_bringup controller.launch.py   # 仅控制器
+ros2 launch robot_bringup vision.launch.py       # 控制器（视觉场景）
 ros2 launch robot_bringup full_system.launch.py  # 控制器 + 示教器
 
 # 方式二：手动分别启动

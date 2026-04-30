@@ -19,9 +19,10 @@
 #include "robot_vision/nodes/grasp_task_manager.hpp"
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
+#include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
-#include "robot_api_python/service_robot_controller.hpp"
-#include "robot_api_python/robot_client_node.hpp"
+#include "robot_api/service_robot_controller.hpp"
+#include "robot_api/robot_client.hpp"
 
 #include <Eigen/Core>
 #include <array>
@@ -247,6 +248,14 @@ PYBIND11_MODULE(_core, m) {
       .value("MOVE_L", MotionMode::kMoveL)
       .export_values();
 
+  // VisionTopicConfig
+  py::class_<VisionTopicConfig>(m, "VisionTopicConfig")
+      .def(py::init<>())
+      .def_readwrite("camera_left", &VisionTopicConfig::camera_left)
+      .def_readwrite("camera_depth", &VisionTopicConfig::camera_depth)
+      .def_readwrite("sync_queue_size", &VisionTopicConfig::sync_queue_size)
+      .def_readwrite("sync_max_slop", &VisionTopicConfig::sync_max_slop);
+
   // ControlConstants — 导出为模块级常量
   m.attr("JOINT_TOLERANCE") = ControlConstants::kJointTolerance;
   m.attr("FINGER_TOLERANCE") = ControlConstants::kFingerTolerance;
@@ -431,55 +440,55 @@ PYBIND11_MODULE(_core, m) {
   // ===== Layer 2 ROS2 节点 =====
 
   // ServiceRobotController (IRobotController via ROS2 Service calls)
-  py::class_<robot_api_python::ServiceRobotController, IRobotController,
-             std::shared_ptr<robot_api_python::ServiceRobotController>>(
+  py::class_<robot_api::ServiceRobotController, IRobotController,
+             std::shared_ptr<robot_api::ServiceRobotController>>(
       m, "ServiceRobotController")
-      .def("set_arm", &robot_api_python::ServiceRobotController::set_arm,
+      .def("set_arm", &robot_api::ServiceRobotController::set_arm,
            py::arg("angles"), py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("set_gripper", &robot_api_python::ServiceRobotController::set_gripper,
+      .def("set_gripper", &robot_api::ServiceRobotController::set_gripper,
            py::arg("width"), py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("open_gripper", &robot_api_python::ServiceRobotController::open_gripper,
+      .def("open_gripper", &robot_api::ServiceRobotController::open_gripper,
            py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("close_gripper", &robot_api_python::ServiceRobotController::close_gripper,
+      .def("close_gripper", &robot_api::ServiceRobotController::close_gripper,
            py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("move_to_pose", &robot_api_python::ServiceRobotController::move_to_pose,
+      .def("move_to_pose", &robot_api::ServiceRobotController::move_to_pose,
            py::arg("xyz"), py::arg("rpy"), py::arg("finger") = -1.0,
            py::arg("steps") = 0, py::arg("step_time") = 0.08,
            py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("move_linear", &robot_api_python::ServiceRobotController::move_linear,
+      .def("move_linear", &robot_api::ServiceRobotController::move_linear,
            py::arg("delta"), py::arg("frame") = std::string("base"),
            py::arg("finger") = -1.0, py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("go_home", &robot_api_python::ServiceRobotController::go_home,
+      .def("go_home", &robot_api::ServiceRobotController::go_home,
            py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("get_joint_angles", &robot_api_python::ServiceRobotController::get_joint_angles,
+      .def("get_joint_angles", &robot_api::ServiceRobotController::get_joint_angles,
            py::call_guard<py::gil_scoped_release>())
       .def("get_end_effector_pose",
-           &robot_api_python::ServiceRobotController::get_end_effector_pose,
+           &robot_api::ServiceRobotController::get_end_effector_pose,
            py::call_guard<py::gil_scoped_release>())
-      .def("get_finger_width", &robot_api_python::ServiceRobotController::get_finger_width,
+      .def("get_finger_width", &robot_api::ServiceRobotController::get_finger_width,
            py::call_guard<py::gil_scoped_release>())
-      .def("set_tcp", &robot_api_python::ServiceRobotController::set_tcp,
+      .def("set_tcp", &robot_api::ServiceRobotController::set_tcp,
            py::arg("name"))
-      .def("get_current_tcp", &robot_api_python::ServiceRobotController::get_current_tcp,
+      .def("get_current_tcp", &robot_api::ServiceRobotController::get_current_tcp,
            py::call_guard<py::gil_scoped_release>())
       .def("lookup_transform",
-           &robot_api_python::ServiceRobotController::lookup_transform,
+           &robot_api::ServiceRobotController::lookup_transform,
            py::arg("target_frame"), py::arg("source_frame"),
            py::arg("timeout") = 1.0,
            py::call_guard<py::gil_scoped_release>())
-      .def("moveJ", static_cast<void (robot_api_python::ServiceRobotController::*)(
+      .def("moveJ", static_cast<void (robot_api::ServiceRobotController::*)(
                          const std::vector<double>&, bool)>(
-                         &robot_api_python::ServiceRobotController::moveJ),
+                         &robot_api::ServiceRobotController::moveJ),
            py::arg("target_angles"), py::arg("block") = true,
            py::call_guard<py::gil_scoped_release>())
-      .def("moveJ", [](robot_api_python::ServiceRobotController& self,
+      .def("moveJ", [](robot_api::ServiceRobotController& self,
                           const std::array<double, 3>& xyz,
                           const std::optional<std::array<double, 3>>& rpy,
                           double finger, bool block) {
@@ -488,7 +497,7 @@ PYBIND11_MODULE(_core, m) {
            },
            py::arg("xyz"), py::arg("rpy") = py::none(),
            py::arg("finger") = -1.0, py::arg("block") = true)
-      .def("moveL", [](robot_api_python::ServiceRobotController& self,
+      .def("moveL", [](robot_api::ServiceRobotController& self,
                           const std::array<double, 3>& xyz,
                           const std::optional<std::array<double, 3>>& rpy,
                           double finger, bool block) {
@@ -497,23 +506,23 @@ PYBIND11_MODULE(_core, m) {
            },
            py::arg("xyz"), py::arg("rpy") = py::none(),
            py::arg("finger") = -1.0, py::arg("block") = true)
-      .def("set_speed", &robot_api_python::ServiceRobotController::set_speed,
+      .def("set_speed", &robot_api::ServiceRobotController::set_speed,
            py::arg("mode"), py::arg("percent"))
-      .def("get_speed", &robot_api_python::ServiceRobotController::get_speed,
+      .def("get_speed", &robot_api::ServiceRobotController::get_speed,
            py::arg("mode"));
 
   // RobotClient (lightweight service client node)
-  py::class_<robot_api_python::RobotClientNode, rclcpp::Node,
-             std::shared_ptr<robot_api_python::RobotClientNode>>(
+  py::class_<robot_api::RobotClient, rclcpp::Node,
+             std::shared_ptr<robot_api::RobotClient>>(
       m, "RobotClient")
-      .def_static("create", &robot_api_python::RobotClientNode::create,
+      .def_static("create", &robot_api::RobotClient::create,
                   py::arg("service_prefix") = std::string("robot_controller_node"))
-      .def("wait_for_services", &robot_api_python::RobotClientNode::wait_for_services,
+      .def("wait_for_services", &robot_api::RobotClient::wait_for_services,
            py::arg("timeout") = 10.0,
            py::call_guard<py::gil_scoped_release>())
-      .def("get_controller", &robot_api_python::RobotClientNode::get_controller)
+      .def("get_controller", &robot_api::RobotClient::get_controller)
       .def("get_logger",
-           [](robot_api_python::RobotClientNode& self) -> rclcpp::Logger {
+           [](robot_api::RobotClient& self) -> rclcpp::Logger {
              return self.get_logger();
            });
 
@@ -537,7 +546,7 @@ PYBIND11_MODULE(_core, m) {
              std::shared_ptr<VisionProcessorNode>>(
       m, "VisionProcessorNode")
       .def_static("create", &VisionProcessorNode::create,
-                  py::arg("processor"), py::arg("topics"))
+                  py::arg("processor"), py::arg("config"))
       .def("get_latest_result", &VisionProcessorNode::get_latest_result)
       .def("wait_for_detection", &VisionProcessorNode::wait_for_detection,
            py::arg("timeout") = 10.0,

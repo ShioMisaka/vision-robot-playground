@@ -29,6 +29,7 @@
 #include "robot_vision/nodes/vision_processor_node.hpp"
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/nodes/grasp_task_manager.hpp"
+#include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/motion/topic_config.hpp"
@@ -167,7 +168,7 @@ int main(int argc, char* argv[]) {
     auto detector = std::make_shared<robot_vision::ColorDetector>(
         std::array<int, 3>{0, 0, 0}, std::array<int, 3>{0, 0, 0});
     auto vision = robot_vision::VisionProcessorNode::create(
-        detector, robot_control::TopicConfig());
+        detector, robot_vision::VisionTopicConfig());
     auto manager = std::make_shared<robot_vision::GraspTaskManager>(
         ctrl, vision, "panda_link0", "camera_color_optical_frame",
         0.15, 0.02,

@@ -1,30 +1,30 @@
-#include "robot_api_python/robot_client_node.hpp"
+#include "robot_api/robot_client.hpp"
 
 #include <chrono>
 #include <robot_logger/logger.hpp>
 
-namespace robot_api_python {
+namespace robot_api {
 
-std::shared_ptr<RobotClientNode> RobotClientNode::create(
+std::shared_ptr<RobotClient> RobotClient::create(
     const std::string& service_prefix) {
-  auto node = std::shared_ptr<RobotClientNode>(
-      new RobotClientNode(service_prefix));
+  auto node = std::shared_ptr<RobotClient>(
+      new RobotClient(service_prefix));
   node->init();
   return node;
 }
 
-RobotClientNode::RobotClientNode(const std::string& service_prefix)
+RobotClient::RobotClient(const std::string& service_prefix)
     : Node("robot_client_node"), service_prefix_(service_prefix) {
   // init() will be called by create() after shared_from_this() is safe
 }
 
-void RobotClientNode::init() {
+void RobotClient::init() {
   controller_ = std::make_shared<ServiceRobotController>(
       shared_from_this(), service_prefix_);
-  LOG_INFO("RobotClientNode created (prefix: {})", service_prefix_);
+  LOG_INFO("RobotClient created (prefix: {})", service_prefix_);
 }
 
-bool RobotClientNode::wait_for_services(double timeout) {
+bool RobotClient::wait_for_services(double timeout) {
   auto start = std::chrono::steady_clock::now();
   auto deadline = start + std::chrono::duration<double>(timeout);
 
@@ -49,4 +49,4 @@ bool RobotClientNode::wait_for_services(double timeout) {
   return false;
 }
 
-}  // namespace robot_api_python
+}  // namespace robot_api

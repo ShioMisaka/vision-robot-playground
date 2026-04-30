@@ -1,6 +1,4 @@
 #include "robot_vision/nodes/vision_processor_node.hpp"
-#include "robot_controller/motion/topic_config.hpp"
-#include "robot_controller/motion/control_constants.hpp"
 
 #include <robot_logger/logger.hpp>
 
@@ -9,40 +7,38 @@
 
 namespace robot_vision {
 
-using robot_control::ControlConstants;
-
 std::shared_ptr<VisionProcessorNode> VisionProcessorNode::create(
-    std::shared_ptr<CameraInterface> processor, const TopicConfig& topics) {
+    std::shared_ptr<CameraInterface> processor, const VisionTopicConfig& config) {
   auto node = std::shared_ptr<VisionProcessorNode>(
-      new VisionProcessorNode(std::move(processor), topics));
-  node->init(topics);
+      new VisionProcessorNode(std::move(processor), config));
+  node->init(config);
   return node;
 }
 
 VisionProcessorNode::VisionProcessorNode(
-    std::shared_ptr<CameraInterface> processor, const TopicConfig& /*topics*/)
+    std::shared_ptr<CameraInterface> processor, const VisionTopicConfig& /*config*/)
     : Node("vision_processor_node"), processor_(std::move(processor)) {
   // init() will be called by create() after shared_from_this() is safe
 }
 
-void VisionProcessorNode::init(const TopicConfig& topics) {
+void VisionProcessorNode::init(const VisionTopicConfig& config) {
   auto qos_profile = rclcpp::SensorDataQoS();
 
   left_sub_ =
       std::make_unique<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-          shared_from_this(), topics.camera_left,
+          shared_from_this(), config.camera_left,
           qos_profile.get_rmw_qos_profile());
 
   depth_sub_ =
       std::make_unique<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-          shared_from_this(), topics.camera_depth,
+          shared_from_this(), config.camera_depth,
           qos_profile.get_rmw_qos_profile());
 
   sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
-      SyncPolicy(ControlConstants::kImageSyncQueueSize), *left_sub_,
+      SyncPolicy(config.sync_queue_size), *left_sub_,
       *depth_sub_);
   sync_->setMaxIntervalDuration(rclcpp::Duration(
-      static_cast<int64_t>(ControlConstants::kImageSyncSlop * 1e9), 0));
+      static_cast<int64_t>(config.sync_max_slop * 1e9), 0));
   sync_->registerCallback(&VisionProcessorNode::on_synced_image, this);
 
   LOG_INFO("VisionProcessorNode started");

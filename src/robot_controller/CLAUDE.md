@@ -12,7 +12,7 @@ Jog 点动控制、100Hz 闭环控制循环，以及完整的 ROS2 Service 接�
 | robot_controller_node | `ros2 run robot_controller robot_controller_node` | 独立控制器节点（standalone_main.cpp） |
 
 此包同时编译为共享库（robot_kinematics / robot_motion / robot_nodes），
-可被 `robot_hmi`、`robot_api_python` 链接使用，也可作为独立节点运行。
+可被 `robot_hmi`、`robot_api_cpp`、`robot_api_python` 链接使用，也可作为独立节点运行。
 
 ## CMake Target 分层
 
@@ -121,12 +121,10 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | test/test_trajectory_planner.cpp | 零位移、完整 7 相位、负位移、无巡航、短距离、Jerk 连续性、多轴同步 |
 | test/test_motion_controller.cpp | 速度设置、moveJ/moveL 轨迹、抓取状态（使用 MockMotionBridge） |
 
-注：集成测试（test_robot_node.cpp、test_camera_tf.cpp）位于 `robot_vision/test/` 下。
+注：集成测试（test_robot_node.cpp）已迁移至 `robot_demos/test/`。test_camera_tf.cpp 仍位于 `robot_vision/test/`。
 
 ### 演示
-| 演示文件 | 功能 |
-|---------|------|
-| demo/demo_grasp_tcp.cpp | TCP 抓取：切换 grasptarget TCP → 接近 → 下降 → 抓取 → 抬起 |
+所有演示已迁移至 `robot_demos` 包（demo_grasp_tcp 等）。
 
 ## 启动方式
 ```bash

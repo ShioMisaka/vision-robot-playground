@@ -39,13 +39,14 @@ robot_vision_nodes (共享库)  ← ROS2 视觉节点 + 抓取任务管理器（
 | `include/.../vision/i_vision_processor.hpp` | IVisionProcessor | 视觉处理抽象接口（DetectionResult 结构体：detected, xyz, uv, confidence, label） |
 | `include/.../vision/camera_interface.hpp` | CameraInterface | 图像处理基类（`pixel_to_3d()` 针孔相机投影） |
 | `include/.../vision/color_detector.hpp` | ColorDetector | HSV 颜色检测器（继承 CameraInterface） |
+| `include/.../vision/vision_topic_config.hpp` | VisionTopicConfig | 视觉节点相机话题配置（独立于 robot_controller::TopicConfig） |
 | `src/vision/color_detector.cpp` | ColorDetector::detect(), process_image() | BGR→HSV + 轮廓面积筛选 + 深度 3D 投影 |
 
 ### nodes 层（robot_vision_nodes target）
 
 | 文件 | 类 | 职责 |
 |------|-----|------|
-| `include/.../nodes/vision_processor_node.hpp` | VisionProcessorNode | ROS2 视觉节点（ApproximateTime 同步 + 线程安全结果缓存） |
+| `include/.../nodes/vision_processor_node.hpp` | VisionProcessorNode | ROS2 视觉节点（ApproximateTime 同步 + 线程安全结果缓存，接受 VisionTopicConfig 参数） |
 | `src/nodes/vision_processor_node.cpp` | create(), on_synced_image() | 工厂创建 + cv_bridge 转换 + 检测结果通知 |
 | `include/.../nodes/grasp_task_manager.hpp` | GraspTaskManager | 抓取状态机（8 状态：IDLE→DETECTING→APPROACHING→...→DONE） |
 | `src/nodes/grasp_task_manager.cpp` | run(), step_*() | 阻塞式抓取流程 + TF 坐标变换 |
@@ -98,22 +99,17 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 
 | 测试文件 | 覆盖范围 |
 |---------|---------|
-| test/test_robot_node.cpp | 11 项测试：关节控制、夹爪、Home、IK、TCP、TF |
 | test/test_camera_tf.cpp | 相机 TF 链验证、坐标变换精度（< 1mm） |
 
 ### 演示
 
-| 演示文件 | 功能 |
-|---------|------|
-| demo/demo_camera.cpp | 显示同步 RGB + 深度图（JET colormap） |
-
-注：`demo_vision_grasp` 已迁移至 `robot_api_python/demo/`，使用 `RobotClientNode` 连接外部控制器，避免多实例竞争。
+所有演示（demo_camera、demo_vision_grasp、test_robot_node）已迁移至 `robot_demos` 包。
 
 ## 启动方式
 此包无可独立运行的节点。通过 `robot_api_python` 或 `robot_hmi` 内嵌启动。
 
 ## 包内依赖
-- **内部依赖**: robot_controller（使用 IRobotController, RobotControllerNode, TopicConfig, ControlConstants）, robot_logger
+- **内部依赖**: robot_controller（GraspTaskManager 使用 IRobotController, RobotControllerNode, ControlConstants）, robot_logger
 - **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, tf2_ros, eigen, OpenCV
 
 ## 修改指南
@@ -122,6 +118,7 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 - **修改抓取流程** → 编辑 `src/nodes/grasp_task_manager.cpp` 的 `step_*()` 方法
 - **修改抓取参数** → 修改 `GraspTaskManager` 构造参数（在 script/ 中）
 - **修改相机内参** → 调用 `ColorDetector::set_camera_intrinsics()`
+- **修改视觉话题配置** → 修改 `VisionTopicConfig` 参数（camera_left, camera_depth, sync_queue_size, sync_max_slop）
 - **新增视觉节点** → 参考 `VisionProcessorNode::create()` 工厂模式
 - **修改图像同步策略** → 编辑 `src/nodes/vision_processor_node.cpp` 的 `init()` 中 ApproximateTime 配置
 

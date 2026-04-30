@@ -1,7 +1,7 @@
 # robot_api_python
 
 ## 职责
-通过 pybind11 将 C++ 核心（robot_controller + robot_vision）暴露为 Python API。
+通过 pybind11 将 C++ 核心（robot_controller + robot_vision + robot_api_cpp）暴露为 Python API。
 使 Python 脚本能够使用 `rclcpp`（而非 `rclpy`）控制机器人，支持运动控制、视觉检测和抓取任务。
 提供两种使用模式：直接链接 C++ 库（RobotControllerNode）和通过 Service 调用外部节点（RobotClient）。
 
@@ -11,16 +11,13 @@
 ## CMake Target 分层
 
 ```
-robot_api_client_lib (共享库)  ← ServiceRobotController + RobotClientNode（C++ 客户端，连接外部控制器）
+robot_api_cpp::robot_api_client_lib  ← ServiceRobotController + RobotClient（来自 robot_api_cpp 包）
        ▲
-_core (pybind11 模块)          ← Python 绑定 + 依赖 robot_api_client_lib
+_core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp + robot_controller + robot_vision
 ```
 
-## 演示
-
-| 演示文件 | 运行命令 | 功能 |
-|---------|---------|------|
-| demo/demo_vision_grasp.cpp | `ros2 run robot_api_python demo_vision_grasp` | C++ 两阶段视觉引导抓取（客户端模式，连接外部 robot_controller_node） |
+注：`robot_api_client_lib`（ServiceRobotController + RobotClient）已提取至 `robot_api_cpp` 包，
+此包通过链接 `robot_api_cpp::robot_api_client_lib` 使用。
 
 ## 话题 / 服务 / Action 接口
 此包不直接定义接口，而是暴露底层 `robot_controller` 和 `robot_vision` 的完整接口。
@@ -43,7 +40,8 @@ _core (pybind11 模块)          ← Python 绑定 + 依赖 robot_api_client_lib
 | `RobotProfile` | 机器人参数（DOF、关节限位、Home 位、TCP、运动限值） |
 | `GripperProfile` | 夹爪参数（type, min/max_width, DOF） |
 | `TcpConfig` | TCP 偏移（offset_xyz, offset_rpy） |
-| `TopicConfig` | ROS2 话题名称 + 相机外参 |
+| `TopicConfig` | ROS2 话题名称 + 相机外参（来自 robot_controller） |
+| `VisionTopicConfig` | 视觉节点相机话题配置（camera_left, camera_depth, sync_queue_size, sync_max_slop） |
 | `CameraExtrinsics` | 相机安装位姿（xyz, rpy） |
 | `MotionLimits` | 运动限值（max_vel, max_acc, max_jerk） |
 | `DetectionResult` | 视觉检测结果（detected, xyz, uv, confidence, label） |
@@ -62,17 +60,17 @@ _core (pybind11 模块)          ← Python 绑定 + 依赖 robot_api_client_lib
 
 ### ROS2 节点（Layer 2）
 
-#### RobotClient（推荐，连接外部节点）
+#### RobotClient（推荐，连接外部节点，来自 robot_api_cpp）
 | 类 | 工厂方法 | 说明 |
 |----|---------|------|
-| `RobotClient` | `create(service_prefix="robot_controller_node")` | 轻量客户端：通过 ROS2 Service 调用外部 robot_controller_node |
-| `ServiceRobotController` | `robot.get_controller()` | Service 代理控制器，与 RobotMotionController 接口一致 |
+| `RobotClient` | `create(service_prefix="robot_controller_node")` | 轻量客户端（`robot_api::RobotClient`）：通过 ROS2 Service 调用外部 robot_controller_node |
+| `ServiceRobotController` | `robot.get_controller()` | Service 代理控制器（`robot_api::ServiceRobotController`），与 RobotMotionController 接口一致 |
 
 #### RobotControllerNode（deprecated，直接链接 C++ 库）
 | 类 | 工厂方法 | 说明 |
 |----|---------|------|
 | `RobotControllerNode` | `create(profile, gripper, topics)` | 内嵌 C++ 控制节点（已弃用，推荐使用 RobotClient） |
-| `VisionProcessorNode` | `create(processor, topics)` | 视觉节点：get_latest_result(), wait_for_detection(), get_logger() |
+| `VisionProcessorNode` | `create(processor, config)` | 视觉节点：接受 VisionTopicConfig 参数，get_latest_result(), wait_for_detection(), get_logger() |
 
 ### 预定义 Profile
 
@@ -176,7 +174,7 @@ python3 script/test_camera_tf.py        # 相机 TF 验证（RobotControllerNode
 ```
 
 ## 包内依赖
-- **内部依赖**: robot_controller, robot_vision, robot_msgs, robot_logger
+- **内部依赖**: robot_api_cpp, robot_controller, robot_vision, robot_msgs, robot_logger
 - **外部依赖**: rclcpp, tf2_ros, pybind11-dev
 
 ## 修改指南
@@ -195,3 +193,4 @@ python3 script/test_camera_tf.py        # 相机 TF 验证（RobotControllerNode
 - **RobotControllerNode 已弃用**: 推荐使用 `RobotClient` 连接外部节点，避免在 Python 进程中内嵌 C++ 控制器
 - **类型转换**: pybind11 绑定代码在 `src/bindings.cpp` 中集中管理（约 560 行）
 - **ServiceRobotController**: 与 RobotMotionController 拥有相同接口，但通过 ROS2 Service 调用实现，状态通过话题缓存
+- **robot_api 命名空间**: `ServiceRobotController` 和 `RobotClient` 使用 `robot_api::` 命名空间（来自 robot_api_cpp 包），Python 侧导出时不带命名空间前缀

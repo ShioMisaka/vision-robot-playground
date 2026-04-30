@@ -117,13 +117,6 @@ target_link_libraries(robot_controller_node robot_nodes robot_logger::robot_logg
 ament_target_dependencies(robot_controller_node rclcpp)
 target_compile_definitions(robot_controller_node PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
-# ===== 演示 =====
-add_executable(demo_grasp_tcp
-  demo/demo_grasp_tcp.cpp
-)
-target_link_libraries(demo_grasp_tcp robot_nodes robot_logger::robot_logger_lib)
-target_compile_definitions(demo_grasp_tcp PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
-
 # ===== 安装 =====
 install(DIRECTORY include/
   DESTINATION include
@@ -137,7 +130,7 @@ install(TARGETS robot_kinematics robot_motion robot_nodes
 )
 
 install(TARGETS test_trajectory_planner test_motion_controller test_ik_solver
-  demo_grasp_tcp robot_controller_node
+  robot_controller_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

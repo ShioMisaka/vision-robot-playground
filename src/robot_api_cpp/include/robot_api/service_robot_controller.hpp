@@ -26,7 +26,7 @@
 
 #include "robot_controller/motion/i_robot_controller.hpp"
 
-namespace robot_api_python {
+namespace robot_api {
 
 /// IRobotController 的 ROS2 Service 客户端实现
 /// 通过调用独立 robot_controller_node 的 Service 接口控制机器人
@@ -77,8 +77,8 @@ class ServiceRobotController : public robot_control::IRobotController {
   double get_speed(robot_control::MotionMode mode) const override;
 
  private:
-  // Allow RobotClientNode to check service readiness
-  friend class RobotClientNode;
+  // Allow RobotClient to check service readiness
+  friend class RobotClient;
   void refresh_state_cache();
   void call_move_joint(const std::vector<double>& angles, bool block);
   void call_move_pose(const std::array<double, 3>& xyz,
@@ -113,4 +113,4 @@ class ServiceRobotController : public robot_control::IRobotController {
   mutable double cached_speed_l_ = 50.0;
 };
 
-}  // namespace robot_api_python
+}  // namespace robot_api

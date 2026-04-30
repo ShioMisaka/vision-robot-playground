@@ -1,11 +1,11 @@
-#include "robot_api_python/service_robot_controller.hpp"
+#include "robot_api/service_robot_controller.hpp"
 
 #include <chrono>
 #include <stdexcept>
 
 using robot_control::MotionMode;
 
-namespace robot_api_python {
+namespace robot_api {
 
 ServiceRobotController::ServiceRobotController(
     rclcpp::Node::SharedPtr node, const std::string& service_prefix)
@@ -286,4 +286,4 @@ double ServiceRobotController::get_speed(MotionMode mode) const {
   return (mode == MotionMode::kMoveL) ? cached_speed_l_ : cached_speed_j_;
 }
 
-}  // namespace robot_api_python
+}  // namespace robot_api

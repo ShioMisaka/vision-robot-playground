@@ -1,24 +1,24 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_hmi</name>
+  <name>robot_demos</name>
   <version>0.1.0</version>
-  <description>Qt5-based teaching pendant for robot arm control and camera display</description>
-  <maintainer email="user@example.com">user</maintainer>
+  <description>Consolidated demo executables and integration tests for the robot system</description>
+  <maintainer email="user@example.com">ShioMisaka</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>robot_controller</depend>
+  <depend>robot_vision</depend>
+  <depend>robot_api_cpp</depend>
+  <depend>robot_logger</depend>
+  <depend>robot_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
-  <depend>robot_msgs</depend>
   <depend>OpenCV</depend>
-  <depend>robot_logger</depend>
-
-  <build_depend>qtbase5-dev</build_depend>
-  <exec_depend>qtbase5-dev</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

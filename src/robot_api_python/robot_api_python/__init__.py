@@ -20,6 +20,7 @@ from robot_api_python._core import (
     GraspState,
     MotionMode,
     MotionLimits,
+    VisionTopicConfig,
     # Layer 1: Core
     IKSolver,
     CameraInterface,
@@ -68,6 +69,7 @@ __all__ = [
     "GraspState",
     "MotionMode",
     "MotionLimits",
+    "VisionTopicConfig",
     "IKSolver",
     "CameraInterface",
     "ColorDetector",
