@@ -139,6 +139,10 @@ void PendantNode::init() {
         }
       });
 
+  // TF2 监听（相机→基坐标系变换，用于 HMI 浮框坐标显示）
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   LOG_INFO("TeachingPendantNode started (service prefix: {})",
               service_prefix_);
 }
@@ -666,6 +670,19 @@ void PendantNode::pause_joint_stream() {
 
 void PendantNode::resume_joint_stream() {
   joint_stream_paused_ = false;
+}
+
+// ===== TF 变换查询 =====
+
+std::optional<geometry_msgs::msg::TransformStamped>
+PendantNode::lookup_camera_to_base_transform() {
+  try {
+    return tf_buffer_->lookupTransform(
+        "panda_link0", "camera_color_optical_frame",
+        tf2::TimePointZero);  // 最新可用
+  } catch (const tf2::TransformException&) {
+    return std::nullopt;
+  }
 }
 
 }  // namespace robot_hmi

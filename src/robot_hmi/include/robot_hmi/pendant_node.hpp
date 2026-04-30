@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -12,10 +13,13 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <cv_bridge/cv_bridge.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <robot_msgs/srv/move_joint.hpp>
 #include <robot_msgs/srv/move_pose.hpp>
@@ -125,6 +129,13 @@ public:
   bool is_camera_connected() const { return camera_connected_.load(); }
   bool are_services_ready() const { return services_ready_.load(); }
 
+  // === TF 变换查询 ===
+
+  /// 查询相机光学坐标系到机器人基坐标系的变换（非阻塞，使用最新缓存）
+  /// @return TransformStamped 或 nullopt（TF 不可用）
+  std::optional<geometry_msgs::msg::TransformStamped>
+  lookup_camera_to_base_transform();
+
 private:
   PendantNode(const std::string& robot_service_prefix);
 
@@ -223,6 +234,10 @@ private:
   std::vector<std::function<void()>> task_queue_;
   std::thread task_thread_;
   std::atomic<bool> task_running_{true};
+
+  // TF2
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
 
 }  // namespace robot_hmi

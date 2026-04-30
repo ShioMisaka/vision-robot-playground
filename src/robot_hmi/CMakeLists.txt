@@ -17,6 +17,8 @@ find_package(message_filters REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(robot_logger REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
 
 # AUTOMOC must be set after Qt5 find_package and ament_cmake
@@ -73,6 +75,8 @@ ament_target_dependencies(robot_hmi
   message_filters
   robot_msgs
   OpenCV
+  tf2_ros
+  geometry_msgs
 )
 
 # ===== 安装 =====
