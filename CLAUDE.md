@@ -57,18 +57,18 @@ ros2 topic echo /robot_controller_node/status
 ```
 robot_msgs
     ▲
-    │
-robot_logger ─────────────────────────────────────┬──────────────┬───────────────┐
-    ▲                                             │              │               │
-    │                                             │              │               │
-robot_description ──→ robot_controller ───────────┼─→ robot_vision ─→ robot_api_python
-    ▲                                             │              │               │
-    │                                             ├─→ robot_hmi  │               │
-    │                                             │              │               │
-    │                                             └─→ robot_api_cpp ─→ robot_demos
-    │                                                                ▲
-    │                                                                │
-robot_bringup（launch 文件启动 controller + hmi）────────────────────┘
+robot_logger + robot_description
+    ▲
+robot_controller
+    ▲
+    ├── robot_vision
+    ├── robot_hmi
+    └── robot_api_cpp
+            │
+            ├── robot_api_python ──→ robot_vision, robot_controller
+            └── robot_demos ──────→ robot_vision, robot_controller
+                    ▲
+              robot_bringup（launch 文件）
 ```
 
 **编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi + robot_api_cpp（可并行）→ robot_api_python + robot_demos（可并行）→ robot_bringup

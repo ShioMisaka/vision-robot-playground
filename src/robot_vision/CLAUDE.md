@@ -9,7 +9,7 @@
 | 节点 | 源文件 | 功能 |
 |------|--------|------|
 | VisionProcessorNode | `src/nodes/vision_processor_node.cpp` | 同步 RGB+Depth 订阅，调用检测器，发布结果 |
-| _(无独立可执行节点)_ | | 通过 robot_api_python 内嵌启动 |
+| _(无独立可执行节点)_ | | 通过 robot_api_python 或 robot_demos 内嵌启动 |
 
 ## CMake Target 分层
 
@@ -106,11 +106,13 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 所有演示（demo_camera、demo_vision_grasp、test_robot_node）已迁移至 `robot_demos` 包。
 
 ## 启动方式
-此包无可独立运行的节点。通过 `robot_api_python` 或 `robot_hmi` 内嵌启动。
+此包无可独立运行的节点。通过 `robot_api_python` 或 `robot_demos` 内嵌启动。
 
 ## 包内依赖
-- **内部依赖**: robot_controller（GraspTaskManager 使用 IRobotController, RobotControllerNode, ControlConstants）, robot_logger
+- **内部依赖**: robot_controller（GraspTaskManager 使用 IRobotController 接口）, robot_logger
 - **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, tf2_ros, eigen, OpenCV
+
+注：VisionProcessorNode 已解耦，不再依赖 `robot_controller::TopicConfig` 和 `ControlConstants`，改用自有的 `VisionTopicConfig`。
 
 ## 修改指南
 - **替换检测算法** → 创建 `CameraInterface` 子类，实现 `process_image()`，参考 `ColorDetector` 写法

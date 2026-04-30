@@ -53,7 +53,6 @@ ros2 launch robot_bringup full_system.launch.py  # 控制器 + 示教器
 # 方式二：手动分别启动
 ros2 run robot_controller robot_controller_node  # 控制器
 ros2 run robot_hmi robot_hmi                     # 示教器
-ros2 run robot_vision vision_processor_node       # 视觉节点（可选）
 ```
 
 ## 包内依赖

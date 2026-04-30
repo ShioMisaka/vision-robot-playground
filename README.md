@@ -1,6 +1,6 @@
 # Robot Vision Playground
 
-基于 ROS2 + Isaac Sim 的机械臂视觉引导抓取系统。C++ 核心库 + pybind11 Python 绑定的多语言分层架构，支持多机器人扩展。
+基于 ROS2 + Isaac Sim 的机械臂视觉引导抓取系统。C++ 核心库 + C++ Service 客户端 + pybind11 Python 绑定的多语言分层架构，支持多机器人扩展。
 
 ## 功能
 
@@ -12,6 +12,7 @@
 - **TF2 集成**: 自动发布末端执行器 TF 变换链，支持坐标系变换查询
 - **多机器人扩展**: 通过 `RobotProfile` 配置驱动，核心库无需修改
 - **Python 绑定**: pybind11 将 C++ 核心库暴露给 Python，脚本可直接调用 C++ 后端
+- **C++ Service 客户端**: `robot_api_cpp` 提供轻量 C++ 客户端库，无需链接完整控制器即可连接外部节点
 - **示教器接口**: 标准化 ROS2 Actions（MoveJ/MoveL）带进度反馈，状态机保护，Jog 点动（S-curve 速度规划 + Jacobian 速度 IK），急停与看门狗
 
 ## 环境要求
@@ -67,6 +68,7 @@ isaac_ros_project/
 │   ├── robot_bringup/             # 启动项（Launch 文件、全局参数）
 │   │   └── launch/
 │   │       ├── controller.launch.py    # 控制器节点 launch
+│   │       ├── vision.launch.py        # 视觉场景 launch
 │   │       └── full_system.launch.py   # 完整系统 launch
 │   │
 │   ├── robot_controller/          # 核心控制层（C++）
@@ -92,30 +94,26 @@ isaac_ros_project/
 │   │   │   ├── kinematics/  ik_solver.cpp / trajectory_planner.cpp
 │   │   │   ├── motion/      robot_motion_controller.cpp / jog_controller.cpp
 │   │   │   └── nodes/       robot_controller_node.cpp / robot_state.cpp / setpoint_generator.cpp / standalone_main.cpp
-│   │   ├── test/                                 # 离线测试
-│   │   │   ├── test_ik_solver.cpp
-│   │   │   ├── test_trajectory_planner.cpp
-│   │   │   └── test_motion_controller.cpp
-│   │   └── demo/
-│   │       └── demo_grasp_tcp.cpp
+│   │   └── test/                                 # 离线测试
+│   │       ├── test_ik_solver.cpp
+│   │       ├── test_trajectory_planner.cpp
+│   │       └── test_motion_controller.cpp
 │   │
 │   ├── robot_vision/             # 感知层（视觉处理）
 │   │   ├── include/robot_vision/
 │   │   │   ├── vision/
 │   │   │   │   ├── i_vision_processor.hpp      # IVisionProcessor 抽象接口
 │   │   │   │   ├── camera_interface.hpp        # CameraInterface 基类
-│   │   │   │   └── color_detector.hpp          # ColorDetector（OpenCV HSV）
+│   │   │   │   ├── color_detector.hpp          # ColorDetector（OpenCV HSV）
+│   │   │   │   └── vision_topic_config.hpp     # VisionTopicConfig（独立于 robot_controller）
 │   │   │   └── nodes/
 │   │   │       ├── vision_processor_node.hpp   # ROS2 视觉处理节点
 │   │   │       └── grasp_task_manager.hpp      # 抓取状态机 GraspTaskManager
 │   │   ├── src/
 │   │   │   ├── vision/      color_detector.cpp
 │   │   │   └── nodes/       vision_processor_node.cpp / grasp_task_manager.cpp
-│   │   ├── test/                                 # 集成测试（需 Isaac Sim）
-│   │   │   ├── test_robot_node.cpp
-│   │   │   └── test_camera_tf.cpp
-│   │   └── demo/
-│   │       └── demo_camera.cpp
+│   │   └── test/                                 # 集成测试（需 Isaac Sim）
+│   │       └── test_camera_tf.cpp
 │   │
 │   ├── robot_hmi/                # 示教器界面（Qt5）
 │   │   ├── include/robot_hmi/
@@ -134,16 +132,25 @@ isaac_ros_project/
 │   │       ├── panels/                       # Panel 实现
 │   │       └── main.cpp                      # 入口
 │   │
-│   └── robot_api_python/          # Python API 封装 + C++ 客户端库
-│       ├── include/robot_api_python/
-│       │   ├── robot_client_node.hpp          # C++ 客户端节点（连接外部控制器）
-│       │   └── service_robot_controller.hpp   # C++ Service 代理控制器
+│   ├── robot_api_cpp/              # C++ Service 客户端库（轻量，零 pybind11 依赖）
+│   │   ├── include/robot_api/
+│   │   │   ├── robot_client.hpp               # RobotClient（连接外部控制器）
+│   │   │   └── service_robot_controller.hpp   # ServiceRobotController（Service 代理）
+│   │   └── src/
+│   │       ├── robot_client.cpp
+│   │       └── service_robot_controller.cpp
+│   │
+│   ├── robot_demos/               # 集中演示与集成测试
+│   │   ├── demo/
+│   │   │   ├── demo_grasp_tcp.cpp             # TCP 抓取演示（内嵌控制器）
+│   │   │   ├── demo_camera.cpp                # 相机检测演示
+│   │   │   └── demo_vision_grasp.cpp          # 视觉抓取演示（客户端模式）
+│   │   └── test/
+│   │       └── test_robot_node.cpp            # 控制器集成测试
+│   │
+│   └── robot_api_python/          # Python API 封装（pybind11）
 │       ├── src/
-│       │   ├── bindings.cpp                   # pybind11 绑定代码（~560 行）
-│       │   ├── robot_client_node.cpp
-│       │   └── service_robot_controller.cpp
-│       ├── demo/
-│       │   └── demo_vision_grasp.cpp          # C++ 视觉抓取演示（客户端模式）
+│       │   └── bindings.cpp                   # pybind11 绑定代码（~560 行）
 │       └── robot_api_python/
 │           └── __init__.py                    # Python 包入口
 │
@@ -202,7 +209,7 @@ isaac_ros_project/
 │                   │  │                    │  │                   │
 │  • Service 调用   │  │  • Service 调用    │  │  • Service 调用   │
 │  • 50Hz 关节流    │  │                    │  │                   │
-│  • 50Hz Jog 心跳  │  │  RobotClientNode   │  │  RobotClientNode  │
+│  • 50Hz Jog 心跳  │  │  RobotClient       │  │  RobotClient      │
 │  (PendantNode)    │  │                    │  │                   │
 └───────────────────┘  └────────────────────┘  └───────────────────┘
 ```
@@ -228,13 +235,16 @@ robot_description   ← 叶子包（URDF 模型）
      ▼
 robot_controller    ← robot_kinematics / robot_motion / robot_nodes
      │
-     ▼
-robot_vision        ← robot_vision_core / robot_vision_nodes
+     ├──▶ robot_vision        ← robot_vision_core / robot_vision_nodes
+     │        │
+     │        └──▶ robot_api_python  ← pybind11 Python API
      │
-     ├──▶ robot_hmi           ← Qt5 示教器（PendantNode 连接外部节点）
-     └──▶ robot_api_python    ← pybind11 Python API + C++ 客户端库 + demo
+     ├──▶ robot_api_cpp       ← C++ Service 客户端库（RobotClient + ServiceRobotController）
+     │
+     └──▶ robot_hmi           ← Qt5 示教器（PendantNode 连接外部节点）
 
-robot_bringup       ← launch 文件（controller + full_system）
+robot_demos         ← 集中演示 + 集成测试（依赖 robot_controller + robot_vision + robot_api_cpp）
+robot_bringup       ← launch 文件（controller + vision + full_system）
 ```
 
 注意：`robot_controller` → `robot_vision` 单向依赖，不可反向。
@@ -244,8 +254,14 @@ robot_bringup       ← launch 文件（controller + full_system）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Layer 3: Python Binding (pybind11)                      │
+│  Layer 4: Python Binding (pybind11)                      │
 │  script/ 代码通过 C++ 后端控制机器人                     │
+├──────────────────────────────────────────────────────────┤
+│  Layer 3: C++ Service Client (robot_api_cpp)             │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │ RobotClient + ServiceRobotController             │    │
+│  │ 轻量客户端，通过 ROS2 Service 连接外部控制器节点 │    │
+│  └──────────────────────────────────────────────────┘    │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 2: ROS2 Wrapper Nodes（唯一有 ROS 依赖的 target） │
 │  ┌──────────────────────┐ ┌───────────────────────────┐  │
@@ -286,7 +302,7 @@ colcon build --base-paths src --packages-select robot_controller
 colcon build --base-paths src --packages-up-to robot_hmi
 ```
 
-**编译顺序：** robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi（可并行）→ robot_api_python
+**编译顺序：** robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi + robot_api_cpp（可并行）→ robot_api_python + robot_demos
 
 **编译产物：**
 - `install/robot_msgs/` — ROS2 接口定义（Services + Actions + Messages）
@@ -297,9 +313,11 @@ colcon build --base-paths src --packages-up-to robot_hmi
 - `install/robot_controller/lib/robot_controller/robot_controller_node` — 独立控制器可执行文件
 - `install/robot_vision/lib/librobot_vision_core.so` — 视觉处理核心
 - `install/robot_vision/lib/librobot_vision_nodes.so` — 视觉 ROS2 节点
-- `install/robot_api_python/lib/librobot_api_client_lib.so` — C++ 客户端库（ServiceRobotController + RobotClientNode）
+- `install/robot_api_cpp/lib/librobot_api_client_lib.so` — C++ Service 客户端库（RobotClient + ServiceRobotController）
 - `install/robot_api_python/` — pybind11 Python 模块
-- `install/robot_api_python/lib/robot_api_python/demo_vision_grasp` — C++ 视觉抓取演示（客户端模式）
+- `install/robot_demos/lib/robot_demos/demo_grasp_tcp` — TCP 抓取演示
+- `install/robot_demos/lib/robot_demos/demo_camera` — 相机检测演示
+- `install/robot_demos/lib/robot_demos/demo_vision_grasp` — 视觉抓取演示（客户端模式）
 - `install/robot_hmi/lib/robot_hmi/robot_hmi` — Qt5 示教器可执行文件
 
 ### 导出编译数据库（IDE 代码补全）
@@ -380,29 +398,25 @@ python3 script/test_grasp_tcp_cpp.py    # TCP 抓取
 python3 script/test_vision_cpp.py       # 视觉伺服抓取
 ```
 
-Python 脚本使用 `RobotClient`（底层是 pybind11 包装的 C++ `RobotClientNode`），通过 ROS2 Service 调用控制机器人。
+Python 脚本使用 `RobotClient`（底层是 pybind11 包装的 C++ `robot_api::RobotClient`），通过 ROS2 Service 调用控制机器人。
 
-#### C++ 视觉抓取演示
-
-```bash
-source install/setup.zsh
-# 注意：demo 已迁移至 robot_api_python 包（不再在 robot_vision 中）
-ros2 run robot_api_python demo_vision_grasp
-```
-
-此 demo 使用 `RobotClientNode` 连接外部 `robot_controller_node`，不会创建自己的控制器实例。可以和示教器同时运行。
-
-### 4. C++ 抓取演示（独立模式，需单独运行）
+#### C++ 演示（robot_demos 包）
 
 ```bash
 source install/setup.zsh
-# 此 demo 内嵌 RobotControllerNode，会自己启动控制器循环
-# 不要和其他前端同时运行（会竞争 /joint_command）
-ros2 run robot_controller demo_grasp_tcp
+
+# 视觉抓取演示（客户端模式，可和示教器共存）
+ros2 run robot_demos demo_vision_grasp
+
+# 相机检测演示
+ros2 run robot_demos demo_camera
+
+# TCP 抓取演示（内嵌控制器，需单独运行）
+ros2 run robot_demos demo_grasp_tcp
 ```
 
-> **注意**：`demo_grasp_tcp`（在 `robot_controller` 包中）是旧式 demo，内嵌了控制器实例。
-> 如果需要和其他前端共存，请使用上面第 3 节中的客户端模式 demo。
+> **注意**：`demo_grasp_tcp` 是旧式 demo，内嵌了控制器实例，不要和其他前端同时运行。
+> `demo_vision_grasp` 使用 `RobotClient` 连接外部 `robot_controller_node`，可以安全地与示教器同时运行。
 
 ### 离线测试（无需 Isaac Sim）
 
