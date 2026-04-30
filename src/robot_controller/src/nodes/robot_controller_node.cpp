@@ -394,10 +394,27 @@ void RobotControllerNode::publish_status() {
 void RobotControllerNode::control_loop_tick() {
   if (shutdown_.load()) return;
 
+  // Wait for first joint state feedback before publishing any commands.
+  // current_arm_ is initialized to all zeros; publishing before feedback
+  // would command the arm to zero position.
+  {
+    std::lock_guard<std::mutex> lock(ready_mutex_);
+    if (!ready_) return;
+  }
+
   // === 1. READ ===
   auto actual = bridge_->get_current_arm();
   double actual_finger = bridge_->get_current_finger();
   state_model_.update_actual(actual, actual_finger);
+
+  // On first tick after receiving feedback, align target to actual position.
+  // Must happen AFTER update_actual() so state_model_ has real joint values
+  // instead of the all-zeros default from constructor.
+  if (!first_tick_done_) {
+    state_model_.align_target_to_actual();
+    first_tick_done_ = true;
+    LOG_INFO("First joint feedback received, holding current position");
+  }
 
   // === 2. PLAN ===
   auto state = state_machine_.state();
@@ -500,12 +517,10 @@ void RobotControllerNode::control_loop_tick() {
           if (motion_owner_.load() == MotionOwner::kPendant && elapsed >= 0.2) {
             motion_owner_.store(MotionOwner::kNone);
           }
-          // Script owns control — keep last trajectory target for convergence.
-          // This allows the robot to continue converging to the target after
-          // the trajectory completes, rather than immediately holding actual.
-          if (motion_owner_.load() != MotionOwner::kScript) {
-            target = actual;
-          }
+          // Hold the last fixed target instead of tracking actual.
+          // Setting target = actual every tick locks in any gravity drift,
+          // providing no restoring force. Keep target from state_model_ so
+          // Isaac Sim's position controller resists gravity.
         }
       }
       target_finger = controller_->is_grasping()

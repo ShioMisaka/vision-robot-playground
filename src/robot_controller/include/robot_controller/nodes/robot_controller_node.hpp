@@ -297,6 +297,7 @@ private:
   std::mutex ready_mutex_;
   std::condition_variable ready_cv_;
   bool ready_ = false;
+  bool first_tick_done_ = false;
 
   // === External joint target stream (from pendant) ===
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr external_joint_sub_;

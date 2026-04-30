@@ -150,25 +150,36 @@ void JointControlPanel::onJointFollowTick() {
   if (resync_after_jog_) {
     resync_after_jog_ = false;
     for (int i = 0; i < 7; ++i) {
-      if (!slider_is_controlled_[i]) {
-        command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
-      }
+      command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
     }
-    node_->update_joint_target(command_target_);
+    // Don't publish — just sync internal state.
+    // The controller holds position on its own after jog stops.
     return;
   }
 
   // For controlled joints: read target from slider (user input)
-  // For non-controlled joints: keep command_target_ unchanged (hold position)
+  // For non-controlled joints: sync to actual position via slider display
+  // so command_target_ is always up-to-date as a starting point for future
+  // interactions (e.g. after a script trajectory completes).
+  bool any_controlled = false;
   for (int i = 0; i < 7; ++i) {
     if (slider_is_controlled_[i]) {
+      any_controlled = true;
       double deg = sliderToDeg(slider_joint_[i]->value());
       command_target_[i] = degToRad(deg);
       edit_joint_[i]->setText(
           QString::number(deg, 'f', 1) + QString::fromUtf8("\u00B0"));
+    } else {
+      command_target_[i] = degToRad(sliderToDeg(slider_joint_[i]->value()));
     }
   }
-  node_->update_joint_target(command_target_);
+
+  // Only send to controller when user is actively controlling sliders.
+  // The controller holds position on its own — continuous streaming is
+  // unnecessary and would permanently claim motion_owner_ as kPendant.
+  if (any_controlled) {
+    node_->update_joint_target(command_target_);
+  }
 }
 
 void JointControlPanel::notifyJogStopped() {

@@ -528,15 +528,15 @@ void PendantNode::on_robot_status(
   }
 
   if (is_idle && was_not_idle) {
-    // Controller returned to IDLE — sync to actual position and resume
-    LOG_INFO("Controller back to IDLE, resuming joint stream");
+    // Controller returned to IDLE — sync internal target for future use.
+    // Don't publish (dirty=false): the controller holds position on its own.
+    LOG_INFO("Controller back to IDLE");
     {
       std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
       joint_stream_target_ = latest_joints_;
-      joint_stream_dirty_ = true;
+      joint_stream_dirty_ = false;
     }
-    resume_joint_stream();
   }
 
   // Jog completion detection (kTeaching → kIdle)
@@ -548,10 +548,8 @@ void PendantNode::on_robot_status(
       std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
       joint_stream_target_ = latest_joints_;
-      joint_stream_dirty_ = true;
+      joint_stream_dirty_ = false;  // Don't claim ownership
     }
-
-    resume_joint_stream();
 
     {
       std::lock_guard<std::mutex> lock(cb_mutex_);
@@ -570,7 +568,7 @@ void PendantNode::emergency_stop() {
     std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
     std::lock_guard<std::mutex> slock(joint_stream_mutex_);
     joint_stream_target_ = latest_joints_;
-    joint_stream_dirty_ = true;
+    joint_stream_dirty_ = false;
   }
 
   // 转发 E-STOP 到 RobotControllerNode
@@ -618,11 +616,19 @@ void PendantNode::start_joint_stream(const std::array<double, 7>& initial) {
       if (joint_stream_paused_.load()) continue;
 
       std::array<double, 7> target;
+      bool dirty;
       {
         std::lock_guard<std::mutex> lock(joint_stream_mutex_);
         target = joint_stream_target_;
+        dirty = joint_stream_dirty_;
         joint_stream_dirty_ = false;
       }
+
+      // Only publish when there's a new target from user interaction.
+      // Continuous publishing is unnecessary — the controller holds position
+      // in IDLE state on its own. Unconditional streaming would permanently
+      // claim motion_owner_ as kPendant, blocking scripts.
+      if (!dirty) continue;
 
       // Publish only 7 arm joints — gripper is decoupled and controlled
       // exclusively through ControlGripper service + controller 100Hz loop.

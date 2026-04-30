@@ -29,7 +29,9 @@ class RobotClientNode : public rclcpp::Node {
 
  private:
   explicit RobotClientNode(const std::string& service_prefix);
+  void init();
 
+  std::string service_prefix_;
   std::shared_ptr<ServiceRobotController> controller_;
 };
 

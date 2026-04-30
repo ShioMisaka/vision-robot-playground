@@ -9,14 +9,19 @@ std::shared_ptr<RobotClientNode> RobotClientNode::create(
     const std::string& service_prefix) {
   auto node = std::shared_ptr<RobotClientNode>(
       new RobotClientNode(service_prefix));
+  node->init();
   return node;
 }
 
 RobotClientNode::RobotClientNode(const std::string& service_prefix)
-    : Node("robot_client_node") {
+    : Node("robot_client_node"), service_prefix_(service_prefix) {
+  // init() will be called by create() after shared_from_this() is safe
+}
+
+void RobotClientNode::init() {
   controller_ = std::make_shared<ServiceRobotController>(
-      shared_from_this(), service_prefix);
-  LOG_INFO("RobotClientNode created (prefix: {})", service_prefix);
+      shared_from_this(), service_prefix_);
+  LOG_INFO("RobotClientNode created (prefix: {})", service_prefix_);
 }
 
 bool RobotClientNode::wait_for_services(double timeout) {
