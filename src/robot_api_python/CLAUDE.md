@@ -8,6 +8,20 @@
 ## 节点清单
 无可执行节点。编译为 Python 扩展模块 `_core.cpython-*.so`，通过 `import robot_api_python` 使用。
 
+## CMake Target 分层
+
+```
+robot_api_client_lib (共享库)  ← ServiceRobotController + RobotClientNode（C++ 客户端，连接外部控制器）
+       ▲
+_core (pybind11 模块)          ← Python 绑定 + 依赖 robot_api_client_lib
+```
+
+## 演示
+
+| 演示文件 | 运行命令 | 功能 |
+|---------|---------|------|
+| demo/demo_vision_grasp.cpp | `ros2 run robot_api_python demo_vision_grasp` | C++ 两阶段视觉引导抓取（客户端模式，连接外部 robot_controller_node） |
+
 ## 话题 / 服务 / Action 接口
 此包不直接定义接口，而是暴露底层 `robot_controller` 和 `robot_vision` 的完整接口。
 
