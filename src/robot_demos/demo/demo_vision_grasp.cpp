@@ -60,7 +60,7 @@ constexpr double kMoveLSpeed = 10.0;
 
 // ---- 抓取参数 ----
 constexpr double kApproachHeight = 0.15;      // 目标上方 15cm
-constexpr double kGraspHeightOffset = 0.08;   // 抓取高度偏移 8cm（panda_grasptarget 距 panda_hand 0.105m，对齐 5cm 物块中心）
+constexpr double kGraspHeightOffset = -0.025; // 抓取高度偏移：视觉检测到物块顶面，需下降到 5cm 物块中心
 constexpr int kRedetectSamples = 5;            // 重检测采样次数
 constexpr double kRedetectInterval = 0.1;      // 采样间隔 100ms
 
@@ -124,6 +124,10 @@ int main(int argc, char* argv[]) {
     ctrl->set_speed(robot_control::MotionMode::kMoveL, kMoveLSpeed);
     LOG_INFO("[DIAG] 速度: moveJ={:.0f}%, moveL={:.0f}%",
              kMoveJSpeed, kMoveLSpeed);
+
+    // ---- 切换到指尖坐标系 ----
+    ctrl->set_tcp("grasptarget");
+    LOG_INFO("[DIAG] TCP 切换为 grasptarget");
 
     // ---- 张开夹爪 ----
     LOG_INFO("张开夹爪");
