@@ -432,6 +432,7 @@ void RobotControllerNode::control_loop_tick() {
         if (sp.done) {
           LOG_WARN("[DIAG] trajectory DONE (progress={:.2f}), -> IDLE", sp.progress);
           state_machine_.transition_to(RobotState::kIdle);
+          motion_owner_.store(MotionOwner::kNone);
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
         } else {
@@ -479,6 +480,7 @@ void RobotControllerNode::control_loop_tick() {
           target_finger = actual_finger;
           jog_settling_ = false;
           state_machine_.transition_to(RobotState::kIdle);
+          motion_owner_.store(MotionOwner::kNone);
         }
       }
       break;
@@ -497,6 +499,7 @@ void RobotControllerNode::control_loop_tick() {
 
       if (settled || timed_out) {
         state_machine_.transition_to(RobotState::kIdle);
+        motion_owner_.store(MotionOwner::kNone);
         if (timed_out) {
           LOG_WARN("STOP timeout -> IDLE");
         } else {

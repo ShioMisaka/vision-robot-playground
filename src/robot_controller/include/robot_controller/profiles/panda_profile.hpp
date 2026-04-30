@@ -42,7 +42,7 @@ inline RobotProfile panda() {
   // TCP 配置
   p.tcp_frames = {
       {"hand", TcpConfig{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}}},
-      {"grasptarget", TcpConfig{{0.0, 0.0, 0.1}, {0.0, 0.0, 0.0}}},
+      {"grasptarget", TcpConfig{{0.0, 0.0, 0.105}, {0.0, 0.0, 0.0}}},
   };
   p.default_tcp = "hand";
 
