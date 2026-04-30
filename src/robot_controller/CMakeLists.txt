@@ -46,7 +46,7 @@ ament_target_dependencies(robot_kinematics
 )
 
 target_link_libraries(robot_kinematics robot_logger::robot_logger_lib)
-target_compile_definitions(robot_kinematics PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
+target_compile_definitions(robot_kinematics PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
 add_library(robot_motion SHARED
@@ -60,7 +60,7 @@ target_include_directories(robot_motion PUBLIC
 )
 
 target_link_libraries(robot_motion robot_kinematics robot_logger::robot_logger_lib)
-target_compile_definitions(robot_motion PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
+target_compile_definitions(robot_motion PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
@@ -77,7 +77,7 @@ target_include_directories(robot_nodes PUBLIC
 )
 
 target_link_libraries(robot_nodes robot_motion robot_logger::robot_logger_lib)
-target_compile_definitions(robot_nodes PUBLIC ROBOT_LOGGER_MODULE_NAME="controller")
+target_compile_definitions(robot_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 ament_target_dependencies(robot_nodes
   rclcpp

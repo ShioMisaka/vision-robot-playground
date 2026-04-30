@@ -262,7 +262,7 @@ void RobotControllerNode::handle_jog_command(
     return;
   }
 
-  LOG_WARN("[DIAG] Jog command received in state {} (vel=[{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f}])",
+  LOG_DEBUG("[DIAG] Jog command received in state {} (vel=[{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f}])",
               RobotStateMachine::state_name(state),
               msg->velocity[0], msg->velocity[1], msg->velocity[2],
               msg->velocity[3], msg->velocity[4], msg->velocity[5]);

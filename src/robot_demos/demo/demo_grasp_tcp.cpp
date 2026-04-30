@@ -15,20 +15,20 @@
 ///   6. 提起
 
 #include <array>
-#include <chrono>
+// #include <chrono>
 #include <cmath>
-#include <iostream>
+// #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
 
-#include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <rclcpp/rclcpp.hpp>
 
-#include "robot_controller/nodes/robot_controller_node.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_controller/profiles/panda_profile.hpp"
 
 #include <robot_logger/logger.hpp>
 
@@ -36,18 +36,17 @@
 constexpr double kTargetX = 0.52699;
 constexpr double kTargetY = 0.0;
 constexpr double kTargetZ = 0.04026;
-constexpr double kApproachHeight = 0.10;   // 目标上方 10cm
-constexpr double kLiftHeight = 0.25;       // 提起高度 15cm
+constexpr double kApproachHeight = 0.10; // 目标上方 10cm
+constexpr double kLiftHeight = 0.25;     // 提起高度 15cm
 
 // 夹爪朝下姿态
-const std::array<double, 3> kGripperDownRpy = {
-    0.0, -M_PI, -M_PI};
+const std::array<double, 3> kGripperDownRpy = {0.0, -M_PI, -M_PI};
 
 // ---- 运动参数 ----
-constexpr double kMoveJSpeed = 60.0;  // 关节运动速度百分比
-constexpr double kMoveLSpeed = 40.0;  // 笛卡尔运动速度百分比
+constexpr double kMoveJSpeed = 60.0; // 关节运动速度百分比
+constexpr double kMoveLSpeed = 40.0; // 笛卡尔运动速度百分比
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
 
   // 构造机器人控制节点
@@ -55,12 +54,11 @@ int main(int argc, char* argv[]) {
   auto gripper = robot_control::profiles::panda_gripper();
   robot_control::TopicConfig topics;
 
-  auto robot_node = robot_control::RobotControllerNode::create(
-      profile, gripper, topics);
+  auto robot_node =
+      robot_control::RobotControllerNode::create(profile, gripper, topics);
 
   // MultiThreadedExecutor 后台 spin
-  auto executor =
-      std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+  auto executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
   executor->add_node(robot_node);
   auto spin_thread = std::thread([executor]() { executor->spin(); });
 
@@ -91,8 +89,8 @@ int main(int argc, char* argv[]) {
 
   // moveJ：移动到目标上方（关节空间快速定位）
   LOG_INFO("--- moveJ 到目标上方 ---");
-  std::array<double, 3> approach_pos = {
-      kTargetX, kTargetY, kTargetZ + kApproachHeight};
+  std::array<double, 3> approach_pos = {kTargetX, kTargetY,
+                                        kTargetZ + kApproachHeight};
   ctrl->moveJ(approach_pos, kGripperDownRpy, gripper.max_width, true);
 
   // moveL：直线下降到目标位置
@@ -106,8 +104,7 @@ int main(int argc, char* argv[]) {
 
   // moveL：提起（保持夹爪闭合）
   LOG_INFO("--- moveL 提起 ---");
-  std::array<double, 3> lift_pos = {
-      kTargetX, kTargetY, kTargetZ + kLiftHeight};
+  std::array<double, 3> lift_pos = {kTargetX, kTargetY, kTargetZ + kLiftHeight};
   ctrl->moveL(lift_pos, kGripperDownRpy, gripper.min_width, true);
 
   LOG_INFO("--- 改变姿态 ---");
