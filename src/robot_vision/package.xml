@@ -19,6 +19,8 @@
   <depend>OpenCV</depend>
   <depend>eigen</depend>
   <depend>robot_controller</depend>
+  <depend>robot_logger</depend>
+  <depend>tf2_ros</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

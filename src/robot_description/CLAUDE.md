@@ -30,11 +30,19 @@
 ### 关节
 - **7 个旋转关节**（panda_joint1~7）: 含安全控制器 + 软/硬限位
 - **2 个棱柱关节**: panda_finger_joint1（主动）、panda_finger_joint2（ mimic 跟随）
-- **4 个固定关节**: panda_joint8, panda_hand_joint, 相机安装, 抓取目标
+- **5 个固定关节**: panda_joint8, panda_hand_joint, 相机安装(panda_hand_camera_joint), 光学帧(camera_color_optical_joint), 抓取目标(panda_grasptarget_hand)
 
 ### 相机安装参数
 - 安装位置（相对 panda_hand）: `xyz="0.015 0 0.03"`, `rpy="0 -1.5708 0"`
 - eye-in-hand 配置，朝下安装（camera_link X 轴 → hand Z 轴，即朝下方向）
+
+### 夹爪接触属性
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| stiffness | 30000.0 N/m | 接触刚度 |
+| damping | 1000.0 Ns/m | 接触阻尼 |
+| spinning_friction | 0.1 | 旋转摩擦 |
+| lateral_friction | 1.0 | 侧向摩擦 |
 
 ### 网格文件引用
 URDF 引用外部 mesh 文件（不在本包内）：

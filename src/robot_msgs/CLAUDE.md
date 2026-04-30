@@ -23,6 +23,7 @@
 | finger_width | float64 | 夹爪开口宽度（m） |
 | tcp_name | string | 当前 TCP 名称 |
 | is_connected | bool | 关节反馈是否在线 |
+| motion_owner | uint8 | 运动控制权归属：0=NONE, 1=PENDANT, 2=SCRIPT |
 
 ### JogCommand.msg
 Jog 点动速度命令，由 `PendantNode` 发布，`RobotControllerNode` 订阅。
@@ -44,7 +45,7 @@ Jog 点动速度命令，由 `PendantNode` 发布，`RobotControllerNode` 订阅
 | MovePose | xyz: float64[], rpy: float64[], mode: uint8, finger: float64 | success, message | 笛卡尔运动（0=moveJ, 1=moveL） |
 | MoveLinear | delta: float64[], frame: string, finger: float64 | success, message | 线性增量运动 |
 | ControlGripper | command: uint8, width: float64 | success, message | 夹爪控制（0=open, 1=close, 2=set_width） |
-| GoHome | name: string | success, message | 回安全位 |
+| GoHome | _(空请求)_ | success, message | 回安全位 |
 | SetSpeed | mode: uint8, percent: float64 | success, message | 设置速度（0=moveJ, 1=moveL） |
 | GetRobotState | _(空请求)_ | success, joint_angles, tcp_pose, finger_width, tcp_name, message | 查询完整状态 |
 
@@ -68,7 +69,6 @@ Jog 点动速度命令，由 `PendantNode` 发布，`RobotControllerNode` 订阅
 | joint_angles | float64[7] | 目标关节角（mode=0） |
 | position | geometry_msgs/Point | 目标位置（mode=1） |
 | orientation | geometry_msgs/Vector3 | 目标朝向（mode=1） |
-| frame | string | 坐标系名称（如 "panda_link0"） |
 | speed_ratio | float64 | 速度比 |
 | finger_width | float64 | 目标夹爪宽度 |
 

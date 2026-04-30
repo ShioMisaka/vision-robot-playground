@@ -53,16 +53,18 @@ robot_vision_nodes (共享库)  ← ROS2 视觉节点 + 抓取任务管理器（
 ### GraspTaskManager 状态机
 
 ```
-kIdle → kDetecting → kApproaching → kReDetecting → kDescending → kGrasping → kLifting → kDone
-                                        ↓ (任何阶段异常)
-                                      kError
+kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting → kDone
+                                         ↓ (任何阶段异常)
+                                       kError
 ```
+
+注：kReDetecting 状态在当前实现中被跳过（approach 后直接进入 kDescending）。原因是相机内参与 Isaac Sim 实际分辨率可能不匹配，近距离重检测的 3D 投影误差会被放大导致坐标漂移。初始检测精度已足够（approach 误差 < 1cm）。
 
 | 状态 | 动作 |
 |------|------|
 | kDetecting | 调用 vision->get_latest_result()，转换到 base 坐标系 |
-| kApproaching | 一次性 moveJ() 关节空间运动到目标正上方（保持朝向不变），不更新 target_xyz_；移动后验证到达精度（>5cm 视为失败） |
-| kReDetecting | 近距离多样本平均检测（average_detections()），更新 target_xyz_，失败重试 3 次 |
+| kApproaching | moveL() + 保持朝向（std::nullopt）运动到目标正上方，不更新 target_xyz_；移动后验证到达精度（>5cm 视为失败） |
+| kReDetecting | _（当前被跳过）_ 近距离多样本平均检测（average_detections()），更新 target_xyz_，失败重试 3 次 |
 | kDescending | moveL() 到精确抓取高度（grasp_height_offset 默认 0.02m，直线运动，保持当前朝向避免 IK 问题） |
 | kGrasping | close_gripper() |
 | kLifting | move_linear() 抬起 approach_height + 0.1m |
@@ -104,13 +106,14 @@ kIdle → kDetecting → kApproaching → kReDetecting → kDescending → kGras
 | 演示文件 | 功能 |
 |---------|------|
 | demo/demo_camera.cpp | 显示同步 RGB + 深度图（JET colormap） |
+| demo/demo_vision_grasp.cpp | C++ 版两阶段视觉引导抓取演示（含诊断日志 + Ctrl+C 处理） |
 
 ## 启动方式
 此包无可独立运行的节点。通过 `robot_api_python` 或 `robot_hmi` 内嵌启动。
 
 ## 包内依赖
-- **内部依赖**: robot_controller（使用 IRobotController, RobotControllerNode, TopicConfig, ControlConstants）
-- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, eigen, OpenCV
+- **内部依赖**: robot_controller（使用 IRobotController, RobotControllerNode, TopicConfig, ControlConstants）, robot_logger
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, robot_msgs, tf2_ros, eigen, OpenCV
 
 ## 修改指南
 - **替换检测算法** → 创建 `CameraInterface` 子类，实现 `process_image()`，参考 `ColorDetector` 写法
@@ -129,8 +132,8 @@ kIdle → kDetecting → kApproaching → kReDetecting → kDescending → kGras
 - 深度图支持两种格式：CV_16U（单位 mm）和 CV_32F（单位 m），`process_image()` 自动检测
 - `VisionProcessorNode` 使用 `message_filters::ApproximateTime` 同步 RGB 和深度图，队列大小 10，最大时间差 0.1s
 - **坐标变换不依赖 TF 发布的相机帧**：`transform_to_base()` 直接从 hand TF + 已知相机外参计算（camera_offset / camera_rpy 构造参数），避免 Isaac Sim 使用旧 URDF 发布错误相机 TF 的问题
-- **approach 阶段不更新 target_xyz_**：Isaac Sim 图像管线延迟导致 `get_latest_result()` 的 camera_xyz 与 `lookup_transform()` 的 hand TF 存在时序不同步，若在运动中用旧 camera_xyz + 新 hand TF 更新目标，会产生朝运动方向持续漂移的正反馈循环。approach 仅使用初始静止检测的坐标，精确重定位由 kReDetecting 负责
-- **approach 使用 moveJ（关节空间）**：不用 moveL 的原因是长距离笛卡尔轨迹在 Isaac Sim 中容易因物理延迟导致跟踪误差超过 0.1 rad 限制触发 EMERGENCY STOP。moveJ 只需单次 IK 求解，关节空间轨迹更平滑。精确定位由 kReDetecting + kDescending 保证
+- **approach 阶段不更新 target_xyz_**：Isaac Sim 图像管线延迟导致 `get_latest_result()` 的 camera_xyz 与 `lookup_transform()` 的 hand TF 存在时序不同步，若在运动中用旧 camera_xyz + 新 hand TF 更新目标，会产生朝运动方向持续漂移的正反馈循环。approach 仅使用初始静止检测的坐标
+- **approach 使用 moveL + 保持朝向（std::nullopt）**：使用 moveL 笛卡尔运动到目标正上方，保持当前相机朝向不变（避免物体脱离视野）。跟随误差限制已放宽到 0.50 rad 以适应 Isaac Sim 物理延迟。精确定位由 kDescending 保证
 - **descend 使用 moveL + 保持朝向**：下降阶段使用 moveL 保证直线运动（避免侧向碰撞），但保持当前朝向（std::nullopt）而非使用 grasp_rpy_，因为观察位朝向 RPY≈[-π,0,0] 与 grasp_rpy_=[π,0,π] 虽然都是朝下但相差 180° Z 旋转，SLERP 插值可能导致某些中间姿态 IK 无解
 - **移动后位置验证**：approach 完成后检查实际 TCP 位置与目标偏差，超过 5cm 视为失败（可能是 FAULT 状态或超时导致未到达）
 - **中止机制**：GraspTaskManager 支持 `request_abort()` 方法，主线程可设置中止标志，抓取循环在每个状态转换前检查

@@ -66,6 +66,8 @@ isaac_ros_project/
 │   │
 │   ├── robot_bringup/             # 启动项（Launch 文件、全局参数）
 │   │   └── launch/
+│   │       ├── controller.launch.py    # 控制器节点 launch
+│   │       └── full_system.launch.py   # 完整系统 launch
 │   │
 │   ├── robot_controller/          # 核心控制层（C++）
 │   │   ├── include/robot_controller/
@@ -89,7 +91,7 @@ isaac_ros_project/
 │   │   ├── src/
 │   │   │   ├── kinematics/  ik_solver.cpp / trajectory_planner.cpp
 │   │   │   ├── motion/      robot_motion_controller.cpp / jog_controller.cpp
-│   │   │   └── nodes/       robot_controller_node.cpp / robot_state.cpp / trajectory_executor.cpp
+│   │   │   └── nodes/       robot_controller_node.cpp / robot_state.cpp / setpoint_generator.cpp / standalone_main.cpp
 │   │   ├── test/                                 # 离线测试
 │   │   │   ├── test_ik_solver.cpp
 │   │   │   ├── test_trajectory_planner.cpp
@@ -113,7 +115,8 @@ isaac_ros_project/
 │   │   │   ├── test_robot_node.cpp
 │   │   │   └── test_camera_tf.cpp
 │   │   └── demo/
-│   │       └── demo_camera.cpp
+│   │       ├── demo_camera.cpp
+│   │       └── demo_vision_grasp.cpp
 │   │
 │   ├── robot_hmi/                # 示教器界面（Qt5）
 │   │   ├── include/robot_hmi/
@@ -133,7 +136,9 @@ isaac_ros_project/
 │   │       └── main.cpp                      # 入口
 │   │
 │   └── robot_api_python/          # Python API 封装
-│       ├── src/bindings.cpp                # pybind11 绑定代码
+│       ├── src/bindings.cpp                # pybind11 绑定代码（~560 行）
+│       ├── src/robot_client_node.cpp       # RobotClient 实现
+│       ├── src/service_robot_controller.cpp # ServiceRobotController 实现
 │       └── robot_api_python/
 │           └── __init__.py                 # Python 包入口
 │
@@ -186,6 +191,7 @@ isaac_ros_project/
 robot_msgs          ← 叶子包（无项目内依赖）
      │
      ▼
+robot_logger        ← 统一日志（被所有非叶子包依赖）
 robot_description   ← 叶子包（URDF 模型）
      │
      ▼
@@ -194,11 +200,14 @@ robot_controller    ← robot_kinematics / robot_motion / robot_nodes
      ▼
 robot_vision        ← robot_vision_core / robot_vision_nodes
      │
-     ├──▶ robot_hmi           ← Qt5 示教器
+     ├──▶ robot_hmi           ← Qt5 示教器（连接外部节点）
      └──▶ robot_api_python    ← pybind11 Python API
+
+robot_bringup       ← launch 文件（controller + full_system）
 ```
 
 注意：`robot_controller` → `robot_vision` 单向依赖，不可反向。依赖 `robot_vision` 的集成测试放在 `robot_vision/` 下。
+`robot_hmi` 不嵌入 `RobotControllerNode`，而是通过 `PendantNode` 连接外部独立运行的 `robot_controller_node`。
 
 ## 编译
 
@@ -224,9 +233,10 @@ colcon build --base-paths src --packages-up-to robot_hmi
 - `install/robot_controller/lib/librobot_kinematics.so` — IK + 轨迹规划
 - `install/robot_controller/lib/librobot_motion.so` — 运动控制器 + Jog 控制器
 - `install/robot_controller/lib/librobot_nodes.so` — ROS2 节点
+- `install/robot_controller/lib/robot_controller/robot_controller_node` — 独立控制器可执行文件
 - `install/robot_vision/lib/librobot_vision_core.so` — 视觉处理核心
 - `install/robot_vision/lib/librobot_vision_nodes.so` — 视觉 ROS2 节点
-- `install/robot_api_python/` — pybind11 Python 模块
+- `install/robot_api_python/` — pybind11 Python 模块（含 RobotClient + ServiceRobotController）
 - `install/robot_hmi/lib/robot_hmi/robot_hmi` — Qt5 示教器可执行文件
 
 ### 导出编译数据库（IDE 代码补全）
@@ -287,10 +297,39 @@ ros2 run robot_controller demo_grasp_tcp
 
 ```bash
 source install/setup.zsh
-ros2 run robot_hmi robot_hmi
+
+# 方式一：launch 文件一键启动（控制器 + 示教器）
+ros2 launch robot_bringup full_system.launch.py
+
+# 方式二：手动分别启动
+ros2 run robot_controller robot_controller_node  # 终端 1：控制器
+ros2 run robot_hmi robot_hmi                     # 终端 2：示教器
 ```
 
 ## Python 快速开始
+
+### 模式一：RobotClient（推荐，连接外部节点）
+
+```python
+import robot_api_python as rc
+
+rc.rclcpp_init()
+
+# 创建轻量客户端（连接独立运行的 robot_controller_node）
+robot = rc.RobotClient.create("robot_controller_node")
+robot.wait_for_services()
+
+# 运动控制（通过 Service 调用）
+ctrl = robot.get_controller()
+ctrl.open_gripper()
+ctrl.move_to_pose([0.5, 0, 0.3], [0, -3.14, -3.14])
+ctrl.close_gripper()
+ctrl.move_linear([0, 0, 0.2])
+
+rc.rclcpp_shutdown()
+```
+
+### 模式二：RobotControllerNode（内嵌 C++ 库）
 
 ```python
 import threading
@@ -299,7 +338,7 @@ import robot_api_python as rc
 # 初始化 rclcpp（替代 rclpy.init，二者不能共存）
 rc.rclcpp_init()
 
-# 创建机器人控制节点
+# 创建机器人控制节点（直接链接 C++ 库）
 robot = rc.RobotControllerNode.create(
     rc.profiles.panda(), rc.profiles.panda_gripper(), rc.TopicConfig())
 
@@ -330,7 +369,7 @@ rc.rclcpp_shutdown()
 | 抽象接口 | 实现类 | 用途 |
 |----------|--------|------|
 | `MotionIOBridge` | `RosMotionBridge` | 运动控制与通信解耦 |
-| `IRobotController` | `RobotMotionController` | 上层只依赖接口 |
+| `IRobotController` | `RobotMotionController` / `ServiceRobotController` | 上层只依赖接口 |
 | `IVisionProcessor` | `VisionProcessorNode` | 视觉结果查询抽象 |
 | `CameraInterface` | `ColorDetector` | 可替换为 YOLO/GraspNet |
 
@@ -343,7 +382,8 @@ rc.rclcpp_shutdown()
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 左目 RGB |
 | `/camera/image_raw/depth` | sensor_msgs/Image | Sub | 深度图 |
 | `/robot_controller_node/status` | robot_msgs/RobotStatus | Pub | 机器人状态（10Hz） |
-| `/jog_command` | robot_msgs/JogCommand | Sub | Jog 点动命令 |
+| `/robot_controller_node/jog_command` | robot_msgs/JogCommand | Sub | Jog 点动命令 |
+| `/robot_controller_node/joint_target` | sensor_msgs/JointState | Sub | 外部关节目标流（示教器 50Hz） |
 
 ## 示教器接口（robot_msgs）
 
@@ -414,6 +454,7 @@ ros2 service call /robot_controller_node/set_tcp robot_msgs/srv/SetTCP "{name: '
 - Jog 看门狗：200ms 无命令自动停止（50Hz tick 正常运行时自动刷新看门狗）
 - EMERGENCY_STOP：立即进入 kFault
 - Action 支持取消
+- **运动控制权（MotionOwner）**：NONE / PENDANT / SCRIPT，防止多客户端冲突
 
 ## 详细文档
 

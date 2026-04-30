@@ -9,10 +9,10 @@ Jog 点动控制、100Hz 闭环控制循环，以及完整的 ROS2 Service 接�
 ## 节点清单
 | 节点 | 可执行文件 | 功能 |
 |------|-----------|------|
-| robot_controller_node | 内嵌于 robot_hmi / robot_api_python | 主控制节点，100Hz 闭环 + Service/Jog |
+| robot_controller_node | `ros2 run robot_controller robot_controller_node` | 独立控制器节点（standalone_main.cpp） |
 
-注：此包编译为共享库（robot_kinematics / robot_motion / robot_nodes），
-无独立可执行节点。节点通过 `robot_hmi::main()` 或 `robot_api_python` 启动。
+此包同时编译为共享库（robot_kinematics / robot_motion / robot_nodes），
+可被 `robot_hmi`、`robot_api_python` 链接使用，也可作为独立节点运行。
 
 ## CMake Target 分层
 
@@ -66,8 +66,8 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | kMotionTimeout | 10.0 s | 运动超时 |
 | kTrajectoryTimeout | 15.0 s | 轨迹执行超时 |
 | kControlLoopHz | 100 Hz | 主控循环频率 |
-| kFollowingErrorLimit | 0.1 rad | 轨迹跟随误差上限 |
-| kTeachingFollowErrorLimit | 0.3 rad | Jog 跟随误差上限 |
+| kFollowingErrorLimit | 0.50 rad | 轨迹跟随误差上限（Isaac Sim 物理延迟需宽松阈值） |
+| kTeachingFollowErrorLimit | 0.50 rad | Jog 跟随误差上限 |
 | kArrivalTolerance | 0.01 rad | 到达判定容差 |
 | kArrivalSettleTime | 0.2 s | 到达稳定等待 |
 | kReadyTimeout | 5.0 s | 等待关节反馈超时 |
@@ -107,6 +107,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `src/nodes/ros_motion_bridge.cpp` | RosMotionBridge | ROS2 通信适配（发布/订阅/TF/轨迹） |
 | `include/.../nodes/robot_state.hpp` | RobotStateMachine | 状态机（IDLE/MOVING/TEACHING/STOPPING/FAULT） |
 | `src/nodes/robot_state.cpp` | transition_to(), force_state() | 状态转换验证 |
+| `include/.../nodes/motion_owner.hpp` | MotionOwner | 运动控制权枚举（NONE/PENDANT/SCRIPT） |
 | `include/.../nodes/robot_state_model.hpp` | RobotStateModel | 线程安全的目标/实际状态数据 |
 | `include/.../nodes/setpoint_generator.hpp` | SetpointGenerator | tick 式轨迹回放 |
 | `src/nodes/setpoint_generator.cpp` | tick(), start(), cancel() | 轨迹插值 + 进度计算 |
@@ -120,11 +121,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | test/test_trajectory_planner.cpp | 零位移、完整 7 相位、负位移、无巡航、短距离、Jerk 连续性、多轴同步 |
 | test/test_motion_controller.cpp | 速度设置、moveJ/moveL 轨迹、抓取状态（使用 MockMotionBridge） |
 
-### 集成测试（需 Isaac Sim）
-| 测试文件 | 覆盖范围 |
-|---------|---------|
-| test/test_robot_node.cpp | 11 项集成测试：关节控制、夹爪、Home、IK、TCP、TF 查询 |
-| test/test_camera_tf.cpp | 相机 TF 链验证、坐标变换精度（< 1mm） |
+注：集成测试（test_robot_node.cpp、test_camera_tf.cpp）位于 `robot_vision/test/` 下。
 
 ### 演示
 | 演示文件 | 功能 |
@@ -132,10 +129,16 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | demo/demo_grasp_tcp.cpp | TCP 抓取：切换 grasptarget TCP → 接近 → 下降 → 抓取 → 抬起 |
 
 ## 启动方式
-此包无可独立运行的节点。通过 `robot_hmi` 或 `robot_api_python` 内嵌启动。
+```bash
+# 独立运行控制器节点
+ros2 run robot_controller robot_controller_node
+
+# 或通过 launch 文件
+ros2 launch robot_bringup controller.launch.py
+```
 
 ## 包内依赖
-- **内部依赖**: robot_msgs, robot_description
+- **内部依赖**: robot_msgs, robot_description, robot_logger
 - **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, tf2_ros, tf2, tf2_geometry_msgs, ament_index_cpp, orocos_kdl, urdfdom, urdf, kdl_parser, eigen
 
 ## 修改指南

@@ -2,14 +2,13 @@
 
 ## 职责
 Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作、相机画面显示和急停功能。
-采用 Panel 架构，将 UI 拆分为 6 个自包含 widget。内嵌 `RobotControllerNode` 作为控制后端，
-通过 ROS2 Service 和 Topic 与机器人通信。
+采用 Panel 架构，将 UI 拆分为 6 个自包含 widget。通过 `PendantNode` 连接外部运行的
+`robot_controller_node`，使用 ROS2 Service 和 Topic 进行通信。
 
 ## 节点清单
 | 节点 | 源文件 | 功能 |
 |------|--------|------|
-| PendantNode | `src/pendant_node.cpp` | ROS2 通信后端（Service 客户端 + Topic 发布/订阅） |
-| RobotControllerNode（内嵌） | _(来自 robot_controller)_ | 100Hz 闭环控制，嵌入同一进程 |
+| PendantNode | `src/pendant_node.cpp` | ROS2 通信后端（Service 客户端 + Topic 发布/订阅），连接外部 robot_controller_node |
 | robot_hmi（可执行入口） | `src/main.cpp` | Qt + ROS2 线程整合 |
 
 ## 话题 / 服务 / Action 接口
@@ -44,7 +43,7 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 
 | 文件 | 类 | 职责 |
 |------|-----|------|
-| `src/main.cpp` | main() | ROS2 初始化 → 创建 RobotControllerNode + PendantNode → 后台 Executor → Qt 事件循环 |
+| `src/main.cpp` | main() | ROS2 初始化 → 创建 PendantNode → 后台 Executor → Qt 事件循环 |
 | `src/main_window.cpp` | MainWindow | 薄编排层：面板布局 + 回调中继 + 5Hz 状态轮询 |
 | `include/robot_hmi/main_window.hpp` | MainWindow | 窗口定义（1100x800） |
 
@@ -94,6 +93,7 @@ JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
 | ROS2 Executor 线程 | MultiThreadedExecutor 处理回调 |
 | PendantNode Task 线程 | 后台 Service 异步调用 |
 | PendantNode Joint Stream 线程 | 50Hz 关节指令发布（20ms 间隔） |
+| PendantNode Discovery 定时器 | 2Hz 服务发现（500ms） |
 | Jog Repeat 定时器 | 50Hz Jog 命令心跳 |
 
 ## 关键参数
@@ -106,6 +106,7 @@ JointControlPanel::jointStreamReady(array) → PendantNode::start_joint_stream()
 | Jog 线性速度 | 50 mm/s | PendantNode::build_jog_command() |
 | Jog 角速度 | 11°/s | PendantNode::build_jog_command() |
 | 故障轮询频率 | 5Hz (200ms) | FunctionPanel::fault_check_timer_ |
+| 服务发现频率 | 2Hz (500ms) | PendantNode::discovery_timer_ |
 | 图像帧率限制 | ~30fps | PendantNode::image_callback() |
 
 ## 关节流控机制
@@ -124,7 +125,7 @@ ros2 run robot_hmi robot_hmi
 ```
 
 ## 包内依赖
-- **内部依赖**: robot_controller（内嵌 RobotControllerNode）, robot_msgs
+- **内部依赖**: robot_msgs, robot_logger
 - **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV
 
 ## 修改指南

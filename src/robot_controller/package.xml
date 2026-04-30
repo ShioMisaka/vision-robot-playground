@@ -23,6 +23,7 @@
   <depend>kdl_parser</depend>
   <depend>urdf</depend>
   <depend>eigen</depend>
+  <depend>robot_logger</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

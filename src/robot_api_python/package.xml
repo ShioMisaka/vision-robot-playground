@@ -14,6 +14,8 @@
   <depend>robot_controller</depend>
   <depend>robot_vision</depend>
   <depend>robot_logger</depend>
+  <depend>robot_msgs</depend>
+  <depend>tf2_ros</depend>
 
   <build_depend>pybind11-dev</build_depend>
 

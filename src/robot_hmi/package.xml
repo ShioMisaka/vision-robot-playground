@@ -16,6 +16,7 @@
   <depend>robot_msgs</depend>
   <depend>OpenCV</depend>
   <depend>robot_controller</depend>
+  <depend>robot_logger</depend>
 
   <build_depend>qtbase5-dev</build_depend>
   <exec_depend>qtbase5-dev</exec_depend>

@@ -48,6 +48,9 @@ robot_logger::LoggerManager::instance().set_level("controller", spdlog::level::t
 
 // 强制刷盘
 robot_logger::LoggerManager::instance().flush();
+
+// 关闭日志系统
+robot_logger::LoggerManager::instance().shutdown();
 ```
 
 ### Python 接口
@@ -55,14 +58,14 @@ robot_logger::LoggerManager::instance().flush();
 ```python
 from robot_api_python._core import robot_logger
 
-# 基本用法
-robot_logger.info("Grasp plan generated: {} waypoints", count)
+# 基本用法（Python 不支持 fmt 格式参数，必须用 f-string 预格式化）
+robot_logger.info(f"Grasp plan generated: {count} waypoints")
 robot_logger.warn("Detection timeout")
-robot_logger.error("Service call failed: {}", msg)
+robot_logger.error(f"Service call failed: {msg}")
 robot_logger.critical("Cannot connect to robot")
 
 # 指定模块
-robot_logger.info("vision", "Detected {} objects", count)
+robot_logger.info("vision", f"Detected {count} objects")
 
 # 运行时级别控制
 robot_logger.set_level("debug")              # 全局
@@ -80,7 +83,7 @@ robot_logger.flush()                          # 强制刷盘
 | max_file_size | size_t | 10485760 (10MB) | 单文件最大尺寸 |
 | max_files | size_t | 5 | 轮转保留文件数 |
 | level | string | `"info"` | 全局默认级别 |
-| async_mode | bool | true | 异步写入（当前版本同步写入） |
+| async_mode | bool | true | 异步写入（当前未实现，始终同步写入） |
 | enable_console | bool | true | 终端彩色输出 |
 | enable_file | bool | true | 文件持久化 |
 

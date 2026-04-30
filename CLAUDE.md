@@ -19,7 +19,7 @@ Franka Panda 7-DOF + 二指夹爪，ZED_X_Mini 双目深度相机，Qt5 示教�
 | robot_msgs | ROS2 自定义接口（11 Service + 2 Action + 2 Message） |
 | robot_logger | 统一日志系统（spdlog，宏接口，文件轮转） |
 | robot_description | URDF 机器人模型（Panda + 夹爪 + 相机） |
-| robot_bringup | 启动文件配置（当前为空壳） |
+| robot_bringup | 启动文件配置（controller + full_system launch 文件） |
 | robot_controller | 核心运动控制：IK/FK、S 曲线轨迹规划、Jog、100Hz 闭环 |
 | robot_vision | 视觉处理：HSV 检测 + 深度 3D 定位 + 抓取状态机 |
 | robot_hmi | Qt5 示教器 GUI（6 Panel 架构） |
@@ -60,8 +60,10 @@ robot_logger ──────────────────────�
     ▲                                             │              │               │
     │                                             │              │               │
 robot_description ──→ robot_controller ───────────┼─→ robot_vision ─→ robot_api_python
-                                                    │
-                                                    └─→ robot_hmi
+    ▲                                             │
+    │                                             └─→ robot_hmi
+    │
+robot_bringup（launch 文件启动 controller + hmi）
 ```
 
 **编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller → robot_vision + robot_hmi（可并行）→ robot_api_python
@@ -109,6 +111,8 @@ Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_mot
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦
 - **依赖方向约束**: robot_controller → robot_vision 单向依赖，不可反向
+- **RobotClient vs RobotControllerNode**: Python 脚本推荐使用 `RobotClient`（连接外部节点），`RobotControllerNode`（内嵌 C++ 库）已弃用
+- **robot_hmi 架构**: 示教器通过 PendantNode 连接外部 `robot_controller_node` 进程（非嵌入）
 - Python 脚本使用 `rclcpp`（通过 pybind11），禁止同时使用 `rclpy`
 - pybind11 绑定中所有阻塞方法必须释放 GIL
 - Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy
