@@ -129,9 +129,11 @@ bool CameraPanel::mapToImageCoords(const QPoint& label_pos, int& img_x,
 }
 
 QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
-  // 相机内参 (ZED_X_Mini, 与 robot_vision 保持一致)
-  constexpr double fx = 614.0, fy = 614.0;
-  constexpr double cx = 320.0, cy = 240.0;
+  // 相机内参 (ZED_X_Mini, 1280x720, 从 Isaac Sim 相机属性计算)
+  // fx = focal_length(2.208) * width(1280) / h_aperture(5.75) = 491.52
+  // fy = focal_length(2.208) * height(720) / v_aperture(3.24) = 490.67
+  constexpr double fx = 491.52, fy = 490.67;
+  constexpr double cx = 640.0, cy = 360.0;
 
   // ---- 深度值 ----
   float depth = depth_raw_.at<float>(img_y, img_x);

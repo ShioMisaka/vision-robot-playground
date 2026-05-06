@@ -2,6 +2,9 @@
 
 #include <robot_logger/logger.hpp>
 
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Transform.h>
+
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -677,9 +680,55 @@ void PendantNode::resume_joint_stream() {
 std::optional<geometry_msgs::msg::TransformStamped>
 PendantNode::lookup_camera_to_base_transform() {
   try {
-    return tf_buffer_->lookupTransform(
-        "panda_link0", "camera_color_optical_frame",
-        tf2::TimePointZero);  // 最新可用
+    // 直接从 hand TF + 已知相机外参计算，不依赖 TF 发布的相机坐标变换。
+    // 避免 Isaac Sim 使用旧 URDF 发布错误相机 TF 的问题。
+    // 变换链: base ← hand ← camera_link ← camera_color_optical_frame
+
+    // 1. 查询 base ← hand（来自 TF 关节状态链，可靠）
+    auto tf_base_hand = tf_buffer_->lookupTransform(
+        "panda_link0", "panda_hand", tf2::TimePointZero);
+
+    // 2. 构建 hand ← ZED_X_Mini（从 Isaac Sim Property 读取的实际外参）
+    //    Isaac Sim intrinsic XYZ [180, 90, 0]° → setRPY(π, -π/2, 0)
+    tf2::Quaternion q_hc;
+    q_hc.setRPY(M_PI, -M_PI / 2.0, 0.0);
+    tf2::Transform t_hand_camera(q_hc, tf2::Vector3(0.015, 0.0, 0.03));
+
+    // 3. 构建 ZED_X_Mini ← CameraLeft（左相机传感器实际偏移）
+    //    Isaac Sim intrinsic XYZ [-90, 0, 180]° → setRPY(π/2, 0, π)
+    //    Translate [2.5, -1.5, 1.5] cm → [0.025, -0.015, 0.015] m
+    tf2::Quaternion q_co;
+    q_co.setRPY(M_PI / 2.0, 0.0, M_PI);
+    tf2::Transform t_camera_optical(q_co, tf2::Vector3(0.025, -0.015, 0.015));
+
+    // 4. 从 TF2 消息提取 base ← hand
+    tf2::Transform t_base_hand;
+    t_base_hand.setOrigin(tf2::Vector3(
+        tf_base_hand.transform.translation.x,
+        tf_base_hand.transform.translation.y,
+        tf_base_hand.transform.translation.z));
+    t_base_hand.setRotation(tf2::Quaternion(
+        tf_base_hand.transform.rotation.x,
+        tf_base_hand.transform.rotation.y,
+        tf_base_hand.transform.rotation.z,
+        tf_base_hand.transform.rotation.w));
+
+    // 5. 合成: base ← optical
+    tf2::Transform t_base_optical =
+        t_base_hand * t_hand_camera * t_camera_optical;
+
+    // 6. 转换为 TransformStamped 返回
+    geometry_msgs::msg::TransformStamped result;
+    result.header.frame_id = "panda_link0";
+    result.child_frame_id = "camera_color_optical_frame";
+    result.transform.translation.x = t_base_optical.getOrigin().x();
+    result.transform.translation.y = t_base_optical.getOrigin().y();
+    result.transform.translation.z = t_base_optical.getOrigin().z();
+    result.transform.rotation.x = t_base_optical.getRotation().x();
+    result.transform.rotation.y = t_base_optical.getRotation().y();
+    result.transform.rotation.z = t_base_optical.getRotation().z();
+    result.transform.rotation.w = t_base_optical.getRotation().w();
+    return result;
   } catch (const tf2::TransformException&) {
     return std::nullopt;
   }
