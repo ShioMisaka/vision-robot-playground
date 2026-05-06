@@ -47,6 +47,18 @@ target_link_libraries(demo_vision_grasp
 )
 target_compile_definitions(demo_vision_grasp PRIVATE ROBOT_LOGGER_MODULE_NAME="demos")
 
+# ===== demo_vision_diagnostic: 视觉坐标变换诊断（不运动机器人）=====
+add_executable(demo_vision_diagnostic
+  demo/demo_vision_diagnostic.cpp
+)
+target_link_libraries(demo_vision_diagnostic
+  robot_api_cpp::robot_api_client_lib
+  robot_vision::robot_vision_core
+  robot_vision::robot_vision_nodes
+  robot_logger::robot_logger_lib
+)
+target_compile_definitions(demo_vision_diagnostic PRIVATE ROBOT_LOGGER_MODULE_NAME="demos")
+
 # ===== test_robot_node: 集成测试（来自 robot_vision）=====
 add_executable(test_robot_node
   test/test_robot_node.cpp
@@ -55,7 +67,7 @@ target_link_libraries(test_robot_node robot_controller::robot_nodes robot_vision
 target_compile_definitions(test_robot_node PRIVATE ROBOT_LOGGER_MODULE_NAME="demos")
 
 # ===== 安装 =====
-install(TARGETS demo_grasp_tcp demo_camera demo_vision_grasp test_robot_node
+install(TARGETS demo_grasp_tcp demo_camera demo_vision_grasp demo_vision_diagnostic test_robot_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
