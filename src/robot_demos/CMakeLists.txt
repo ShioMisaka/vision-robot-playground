@@ -20,6 +20,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(robot_description REQUIRED)
 
 # ===== demo_grasp_tcp: TCP 抓取演示（来自 robot_controller）=====
 add_executable(demo_grasp_tcp
@@ -45,6 +46,7 @@ target_link_libraries(demo_vision_grasp
   robot_vision::robot_vision_nodes
   robot_logger::robot_logger_lib
 )
+ament_target_dependencies(demo_vision_grasp robot_description)
 target_compile_definitions(demo_vision_grasp PRIVATE ROBOT_LOGGER_MODULE_NAME="demos")
 
 # ===== demo_vision_diagnostic: 视觉坐标变换诊断（不运动机器人）=====
@@ -57,6 +59,7 @@ target_link_libraries(demo_vision_diagnostic
   robot_vision::robot_vision_nodes
   robot_logger::robot_logger_lib
 )
+ament_target_dependencies(demo_vision_diagnostic robot_description)
 target_compile_definitions(demo_vision_diagnostic PRIVATE ROBOT_LOGGER_MODULE_NAME="demos")
 
 # ===== test_robot_node: 集成测试（来自 robot_vision）=====

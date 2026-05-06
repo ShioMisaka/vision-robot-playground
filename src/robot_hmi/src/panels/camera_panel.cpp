@@ -1,5 +1,7 @@
 #include "robot_hmi/panels/camera_panel.hpp"
 
+#include "robot_description/camera_config.hpp"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -129,11 +131,11 @@ bool CameraPanel::mapToImageCoords(const QPoint& label_pos, int& img_x,
 }
 
 QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
-  // 相机内参 (ZED_X_Mini, 1280x720, 从 Isaac Sim 相机属性计算)
-  // fx = focal_length(2.208) * width(1280) / h_aperture(5.75) = 491.52
-  // fy = focal_length(2.208) * height(720) / v_aperture(3.24) = 490.67
-  constexpr double fx = 491.52, fy = 490.67;
-  constexpr double cx = 640.0, cy = 360.0;
+  // 相机内参（统一配置，来自 robot_description::CameraIntrinsics）
+  constexpr double fx = robot_description::CameraIntrinsics::kFx;
+  constexpr double fy = robot_description::CameraIntrinsics::kFy;
+  constexpr double cx = robot_description::CameraIntrinsics::kCx;
+  constexpr double cy = robot_description::CameraIntrinsics::kCy;
 
   // ---- 深度值 ----
   float depth = depth_raw_.at<float>(img_y, img_x);

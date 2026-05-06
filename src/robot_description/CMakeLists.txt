@@ -7,4 +7,10 @@ install(DIRECTORY urdf/
   DESTINATION share/${PROJECT_NAME}/urdf
 )
 
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+ament_export_include_directories(include)
+
 ament_package()

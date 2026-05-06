@@ -137,6 +137,7 @@ install(TARGETS test_trajectory_planner test_motion_controller test_ik_solver
 # ===== 导出（供下游包 find_package 使用）=====
 ament_export_targets(robot_controller_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
+  robot_description
   rclcpp
   sensor_msgs
   geometry_msgs

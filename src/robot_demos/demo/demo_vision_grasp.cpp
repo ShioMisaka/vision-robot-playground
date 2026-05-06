@@ -32,6 +32,8 @@
 
 #include "robot_api/robot_client.hpp"
 
+#include "robot_description/camera_config.hpp"
+
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
@@ -47,12 +49,8 @@ static std::atomic<bool> g_abort{false};
 const std::array<int, 3> kLowerHsv = {0, 100, 100};
 const std::array<int, 3> kUpperHsv = {10, 255, 255};
 
-// ---- 相机内参（需匹配 Isaac Sim 中 ZED 相机配置）----
-// 实际图像为 1280x720，使用对应内参
-const double kCameraFx = 700.0;
-const double kCameraFy = 700.0;
-const double kCameraCx = 640.0;
-const double kCameraCy = 360.0;
+// ---- 相机内参（统一配置，来自 robot_description::CameraIntrinsics）----
+// 在下方构造 ColorDetector 时直接使用 CameraIntrinsics 常量
 
 // ---- 运动参数 ----
 constexpr double kMoveJSpeed = 40.0;
@@ -89,7 +87,11 @@ int main(int argc, char* argv[]) {
   // ---- 创建客户端节点（连接外部 robot_controller_node）----
   auto robot_client = RobotClient::create("robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
-      kLowerHsv, kUpperHsv, kCameraFx, kCameraFy, kCameraCx, kCameraCy);
+      kLowerHsv, kUpperHsv,
+      robot_description::CameraIntrinsics::kFx,
+      robot_description::CameraIntrinsics::kFy,
+      robot_description::CameraIntrinsics::kCx,
+      robot_description::CameraIntrinsics::kCy);
   robot_vision::VisionTopicConfig config;
   auto vision_node = VisionProcessorNode::create(detector, config);
 
@@ -145,10 +147,10 @@ int main(int argc, char* argv[]) {
              first_result->xyz.x(), first_result->xyz.y(),
              first_result->xyz.z());
     // 诊断：验证 uv 到 camera_xyz 的投影是否一致
-    double verify_x = (first_result->uv.x() - kCameraCx) *
-                      first_result->xyz.z() / kCameraFx;
-    double verify_y = (first_result->uv.y() - kCameraCy) *
-                      first_result->xyz.z() / kCameraFy;
+    double verify_x = (first_result->uv.x() - robot_description::CameraIntrinsics::kCx) *
+                      first_result->xyz.z() / robot_description::CameraIntrinsics::kFx;
+    double verify_y = (first_result->uv.y() - robot_description::CameraIntrinsics::kCy) *
+                      first_result->xyz.z() / robot_description::CameraIntrinsics::kFy;
     LOG_INFO("[DIAG] 投影验证: 由uv反算 x={:.4f} (实际{:.4f}) y={:.4f} (实际{:.4f}) "
              "depth={:.4f}",
              verify_x, first_result->xyz.x(),

@@ -20,6 +20,7 @@ find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(robot_controller REQUIRED)
+find_package(robot_description REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
 add_library(robot_vision_core SHARED
@@ -34,6 +35,7 @@ target_include_directories(robot_vision_core PUBLIC
 ament_target_dependencies(robot_vision_core
   OpenCV
   Eigen3
+  robot_description
 )
 
 target_link_libraries(robot_vision_core robot_logger::robot_logger_lib)

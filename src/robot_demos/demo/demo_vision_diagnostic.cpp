@@ -26,6 +26,7 @@
 #include <robot_logger/logger.hpp>
 
 #include "robot_api/robot_client.hpp"
+#include "robot_description/camera_config.hpp"
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
@@ -42,11 +43,8 @@ using robot_control::rpy_to_rotation;
 const std::array<int, 3> kLowerHsv = {0, 100, 100};
 const std::array<int, 3> kUpperHsv = {10, 255, 255};
 
-// ---- 相机内参（与 demo_vision_grasp 保持一致）----
-const double kCameraFx = 700.0;
-const double kCameraFy = 700.0;
-const double kCameraCx = 640.0;
-const double kCameraCy = 360.0;
+// ---- 相机内参（统一配置，来自 robot_description::CameraIntrinsics）----
+// 在下方构造 ColorDetector 时直接使用 CameraIntrinsics 常量
 
 // ---- 相机外参（与 URDF 一致）----
 // panda_hand → camera_link: xyz=(0.015, 0, 0.03), rpy=(0, -π/2, 0)
@@ -84,7 +82,11 @@ int main(int argc, char* argv[]) {
   // ---- 创建节点 ----
   auto robot_client = RobotClient::create("robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
-      kLowerHsv, kUpperHsv, kCameraFx, kCameraFy, kCameraCx, kCameraCy);
+      kLowerHsv, kUpperHsv,
+      robot_description::CameraIntrinsics::kFx,
+      robot_description::CameraIntrinsics::kFy,
+      robot_description::CameraIntrinsics::kCx,
+      robot_description::CameraIntrinsics::kCy);
   robot_vision::VisionTopicConfig config;
   auto vision_node = VisionProcessorNode::create(detector, config);
 
@@ -129,8 +131,8 @@ int main(int argc, char* argv[]) {
              result->xyz.x(), result->xyz.y(), result->xyz.z());
 
     // 验证 pixel_to_3d 反投影一致性
-    double verify_x = (result->uv.x() - kCameraCx) * result->xyz.z() / kCameraFx;
-    double verify_y = (result->uv.y() - kCameraCy) * result->xyz.z() / kCameraFy;
+    double verify_x = (result->uv.x() - robot_description::CameraIntrinsics::kCx) * result->xyz.z() / robot_description::CameraIntrinsics::kFx;
+    double verify_y = (result->uv.y() - robot_description::CameraIntrinsics::kCy) * result->xyz.z() / robot_description::CameraIntrinsics::kFy;
     LOG_INFO("  反投影验证: x={:.5f} (实际{:.5f} 误差{:.5f}) y={:.5f} (实际{:.5f} 误差{:.5f})",
              verify_x, result->xyz.x(), std::abs(verify_x - result->xyz.x()),
              verify_y, result->xyz.y(), std::abs(verify_y - result->xyz.y()));

@@ -19,6 +19,7 @@
   <depend>OpenCV</depend>
   <depend>eigen</depend>
   <depend>robot_controller</depend>
+  <depend>robot_description</depend>
   <depend>robot_logger</depend>
   <depend>tf2_ros</depend>
 

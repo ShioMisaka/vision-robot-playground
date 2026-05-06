@@ -14,6 +14,7 @@
   <depend>robot_vision</depend>
   <depend>robot_api_cpp</depend>
   <depend>robot_logger</depend>
+  <depend>robot_description</depend>
   <depend>robot_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
