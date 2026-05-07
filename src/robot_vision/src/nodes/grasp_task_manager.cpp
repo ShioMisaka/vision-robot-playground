@@ -324,7 +324,7 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
   //
   // 变换链: base ← hand ← camera_link ← camera_color_optical_frame
   //   hand ← camera_link: 使用构造时传入的 camera_offset_ / camera_rpy_
-  //   camera_link ← optical: 标准光学坐标系旋转 rpy=(-π/2, 0, -π/2)
+  //   camera_link ← optical: USD 相机 → ROS 光学坐标系 Ry(π)
 
   // 1. 查询 base → hand（来自 TF 关节状态链，不涉及相机 URDF）
   auto tf_hand = robot_->lookup_transform(
@@ -357,7 +357,7 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
       camera_offset_[0], camera_offset_[1], camera_offset_[2]);
 
   // 4. camera_link ← optical（USD 相机 → ROS 光学坐标系: Ry(π)）
-  Eigen::Matrix3d R_co = rpy_to_rotation(0.0, 3.14159265359, 0.0);
+  Eigen::Matrix3d R_co = rpy_to_rotation(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
 
   // 5. 合成: base ← optical
   Eigen::Matrix3d R = R_bh * R_hc * R_co;

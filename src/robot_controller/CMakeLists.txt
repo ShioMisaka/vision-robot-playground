@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(robot_description REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -81,6 +82,7 @@ target_compile_definitions(robot_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="control
 
 ament_target_dependencies(robot_nodes
   rclcpp
+  robot_description
   sensor_msgs
   geometry_msgs
   tf2_ros

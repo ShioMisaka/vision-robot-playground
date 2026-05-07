@@ -8,6 +8,7 @@
 #include <string>
 
 #include "robot_controller/motion/i_robot_controller.hpp"
+#include "robot_description/camera_config.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
 
 namespace robot_vision {
@@ -66,9 +67,13 @@ public:
                    int max_consecutive_failures = 3,
                    const std::string& hand_frame = "panda_hand",
                    const std::array<double, 3>& camera_offset = {
-                       0.025, -0.015, 0.015},
+                       robot_description::CameraExtrinsics::kOffsetX,
+                       robot_description::CameraExtrinsics::kOffsetY,
+                       robot_description::CameraExtrinsics::kOffsetZ},
                    const std::array<double, 3>& camera_rpy = {
-                       3.14159265359, 0.0, -1.57079632679});
+                       robot_description::CameraExtrinsics::kRoll,
+                       robot_description::CameraExtrinsics::kPitch,
+                       robot_description::CameraExtrinsics::kYaw});
 
   /// @brief 运行完整抓取流程（阻塞）
   /// @param timeout 整体超时（秒）

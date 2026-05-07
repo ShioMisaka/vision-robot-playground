@@ -46,11 +46,15 @@ const std::array<int, 3> kUpperHsv = {10, 255, 255};
 // ---- 相机内参（统一配置，来自 robot_description::CameraIntrinsics）----
 // 在下方构造 ColorDetector 时直接使用 CameraIntrinsics 常量
 
-// ---- 相机外参（与 URDF 一致）----
-// panda_hand → camera_link: xyz=(0.025, -0.015, 0.015), rpy=(π, 0, -π/2)
-// 左目光心，与 Isaac Sim 中查询到的 local transform 一致
-const std::array<double, 3> kCameraOffset = {0.025, -0.015, 0.015};
-const std::array<double, 3> kCameraRpy = {3.14159265359, 0.0, -1.57079632679};
+// ---- 相机外参（来自 robot_description::CameraExtrinsics，与 URDF 一致）----
+const std::array<double, 3> kCameraOffset = {
+    robot_description::CameraExtrinsics::kOffsetX,
+    robot_description::CameraExtrinsics::kOffsetY,
+    robot_description::CameraExtrinsics::kOffsetZ};
+const std::array<double, 3> kCameraRpy = {
+    robot_description::CameraExtrinsics::kRoll,
+    robot_description::CameraExtrinsics::kPitch,
+    robot_description::CameraExtrinsics::kYaw};
 
 // ---- 抓取参数（与 demo_vision_grasp 保持一致）----
 constexpr double kGraspHeightOffset = -0.025;  // 从顶面到物块中心
@@ -196,7 +200,7 @@ int main(int argc, char* argv[]) {
     Eigen::Vector3d t_hc(kCameraOffset[0], kCameraOffset[1], kCameraOffset[2]);
 
     // camera_link ← optical (USD 相机 → ROS 光学坐标系: Ry(π))
-    Eigen::Matrix3d R_co = rpy_to_rotation(0.0, 3.14159265359, 0.0);
+    Eigen::Matrix3d R_co = rpy_to_rotation(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
 
     // 合成: base ← optical
     Eigen::Matrix3d R = R_bh * R_hc * R_co;

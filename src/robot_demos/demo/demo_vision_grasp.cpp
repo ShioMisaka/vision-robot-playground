@@ -178,8 +178,12 @@ int main(int argc, char* argv[]) {
         50,       // max_approach_steps
         3,        // max_consecutive_failures
         "panda_hand",
-        {0.025, -0.015, 0.015},
-        {3.14159265359, 0.0, -1.57079632679});
+        {robot_description::CameraExtrinsics::kOffsetX,
+         robot_description::CameraExtrinsics::kOffsetY,
+         robot_description::CameraExtrinsics::kOffsetZ},
+        {robot_description::CameraExtrinsics::kRoll,
+         robot_description::CameraExtrinsics::kPitch,
+         robot_description::CameraExtrinsics::kYaw});
 
     // 在后台线程执行抓取，主线程监控 Ctrl+C
     bool success = false;

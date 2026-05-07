@@ -3,6 +3,7 @@
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include "robot_description/camera_config.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <robot_logger/logger.hpp>
@@ -424,7 +425,10 @@ PYBIND11_MODULE(_core, m) {
            py::arg("camera_offset") =
                std::array<double, 3>{0.0, 0.0, 0.0},
            py::arg("camera_rpy") =
-               std::array<double, 3>{3.14159265359, 0.0, -1.57079632679})
+               std::array<double, 3>{
+                   robot_description::CameraExtrinsics::kRoll,
+                   robot_description::CameraExtrinsics::kPitch,
+                   robot_description::CameraExtrinsics::kYaw})
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())

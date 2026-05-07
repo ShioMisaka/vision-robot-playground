@@ -3,11 +3,20 @@
 #include <array>
 #include <string>
 
+#include "robot_description/camera_config.hpp"
+
 namespace robot_control {
 
+/// 相机外参配置，值来自 robot_description::CameraExtrinsics（单一事实来源）
 struct CameraExtrinsics {
-  std::array<double, 3> xyz = {0.025, -0.015, 0.015};
-  std::array<double, 3> rpy = {3.14159265359, 0.0, -1.57079632679};
+  std::array<double, 3> xyz = {
+      robot_description::CameraExtrinsics::kOffsetX,
+      robot_description::CameraExtrinsics::kOffsetY,
+      robot_description::CameraExtrinsics::kOffsetZ};
+  std::array<double, 3> rpy = {
+      robot_description::CameraExtrinsics::kRoll,
+      robot_description::CameraExtrinsics::kPitch,
+      robot_description::CameraExtrinsics::kYaw};
 };
 
 struct TopicConfig {

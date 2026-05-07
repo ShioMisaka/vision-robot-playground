@@ -73,10 +73,7 @@ int main(int argc, char* argv[]) {
   auto profile = robot_control::profiles::panda();
   auto gripper = robot_control::profiles::panda_gripper();
   robot_control::TopicConfig topics;
-
-  // 相机外参（与 URDF 一致）
-  topics.camera_extrinsics.xyz = {0.025, -0.015, 0.015};
-  topics.camera_extrinsics.rpy = {M_PI, 0.0, -M_PI / 2.0};
+  // 相机外参已由 TopicConfig 默认值提供（来自 robot_description::CameraExtrinsics）
 
   auto robot_node = robot_control::RobotControllerNode::create(
       profile, gripper, topics);

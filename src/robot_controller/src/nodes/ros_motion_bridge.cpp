@@ -397,7 +397,7 @@ void RosMotionBridge::publish_camera_tf() {
   t_opt.child_frame_id = topics_.camera_frame;
 
   tf2::Quaternion q_opt;
-  q_opt.setRPY(0.0, 3.14159265359, 0.0);
+  q_opt.setRPY(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
   t_opt.transform.rotation.x = q_opt.x();
   t_opt.transform.rotation.y = q_opt.y();
   t_opt.transform.rotation.z = q_opt.z();

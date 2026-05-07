@@ -158,13 +158,6 @@ void CameraPanel::printClickDiag(int img_x, int img_y) const {
   double y3d = (img_y - cy) * depth / fy;
   double z3d = depth;
 
-  // 读取缓存的变换
-  std::optional<geometry_msgs::msg::TransformStamped> tf;
-  {
-    std::lock_guard<std::mutex> lock(tf_mutex_);
-    tf = camera_to_base_;
-  }
-
   LOG_INFO("======== [CLICK DIAG] ========");
   LOG_INFO("  图像分辨率: {}x{}", depth_raw_.cols, depth_raw_.rows);
   LOG_INFO("  像素: ({}, {})", img_x, img_y);
@@ -172,30 +165,13 @@ void CameraPanel::printClickDiag(int img_x, int img_y) const {
   LOG_INFO("  3D(Cam): ({:.5f}, {:.5f}, {:.5f})", x3d, y3d, z3d);
   LOG_INFO("  内参: fx={:.2f} fy={:.2f} cx={:.1f} cy={:.1f}", fx, fy, cx, cy);
 
-  if (!tf.has_value()) {
+  auto base = transformToBase(x3d, y3d, z3d);
+  if (base.has_value()) {
+    LOG_INFO("  3D(Base): ({:.5f}, {:.5f}, {:.5f})",
+             (*base)[0], (*base)[1], (*base)[2]);
+  } else {
     LOG_WARN("  变换: N/A (camera_to_base 未就绪)");
-    return;
   }
-
-  double qx = tf->transform.rotation.x;
-  double qy = tf->transform.rotation.y;
-  double qz = tf->transform.rotation.z;
-  double qw = tf->transform.rotation.w;
-  double r00 = 1-2*(qy*qy+qz*qz), r01 = 2*(qx*qy-qz*qw), r02 = 2*(qx*qz+qy*qw);
-  double r10 = 2*(qx*qy+qz*qw),   r11 = 1-2*(qx*qx+qz*qz), r12 = 2*(qy*qz-qx*qw);
-  double r20 = 2*(qx*qz-qy*qw),    r21 = 2*(qy*qz+qx*qw),   r22 = 1-2*(qx*qx+qy*qy);
-  double tx = tf->transform.translation.x;
-  double ty = tf->transform.translation.y;
-  double tz = tf->transform.translation.z;
-
-  double bx = r00*x3d + r01*y3d + r02*z3d + tx;
-  double by = r10*x3d + r11*y3d + r12*z3d + ty;
-  double bz = r20*x3d + r21*y3d + r22*z3d + tz;
-
-  LOG_INFO("  t(cam原点→base): ({:.5f}, {:.5f}, {:.5f})", tx, ty, tz);
-  LOG_INFO("  R列: X→[{:.3f},{:.3f},{:.3f}] Y→[{:.3f},{:.3f},{:.3f}] Z→[{:.3f},{:.3f},{:.3f}]",
-           r00, r10, r20, r01, r11, r21, r02, r12, r22);
-  LOG_INFO("  3D(Base): ({:.5f}, {:.5f}, {:.5f})", bx, by, bz);
   LOG_INFO("================================");
 }
 
@@ -244,7 +220,6 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
   // ---- 相机坐标系 3D 坐标 ----
   QString xyz_str;
   QString base_str;
-  QString diag_str;
   if (depth > 0) {
     double x3d = (img_x - cx) * depth / fx;
     double y3d = (img_y - cy) * depth / fy;
@@ -254,46 +229,18 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
                   .arg(y3d, 0, 'f', 3)
                   .arg(z3d, 0, 'f', 3);
 
-    // ---- 基坐标系 3D 坐标 ----
-    std::optional<geometry_msgs::msg::TransformStamped> tf;
-    {
-      std::lock_guard<std::mutex> lock(tf_mutex_);
-      tf = camera_to_base_;
-    }
-    if (tf.has_value()) {
-      // 四元数 → 旋转矩阵，变换相机系 3D 点到 base 系
-      double qx = tf->transform.rotation.x;
-      double qy = tf->transform.rotation.y;
-      double qz = tf->transform.rotation.z;
-      double qw = tf->transform.rotation.w;
-      // 旋转矩阵 R 的列（每列 = 一个相机轴在 base 系中的方向）
-      double r00 = 1-2*(qy*qy+qz*qz), r01 = 2*(qx*qy-qz*qw), r02 = 2*(qx*qz+qy*qw);
-      double r10 = 2*(qx*qy+qz*qw),   r11 = 1-2*(qx*qx+qz*qz), r12 = 2*(qy*qz-qx*qw);
-      double r20 = 2*(qx*qz-qy*qw),    r21 = 2*(qy*qz+qx*qw),   r22 = 1-2*(qx*qx+qy*qy);
-      // R * p + t
-      double tx = tf->transform.translation.x;
-      double ty = tf->transform.translation.y;
-      double tz = tf->transform.translation.z;
-      double bx = r00*x3d + r01*y3d + r02*z3d + tx;
-      double by = r10*x3d + r11*y3d + r12*z3d + ty;
-      double bz = r20*x3d + r21*y3d + r22*z3d + tz;
+    auto base = transformToBase(x3d, y3d, z3d);
+    if (base.has_value()) {
       base_str = QString("(%1, %2, %3) m")
-                     .arg(bx, 0, 'f', 3)
-                     .arg(by, 0, 'f', 3)
-                     .arg(bz, 0, 'f', 3);
-      // 诊断：t(cam原点在base中) + R 各轴方向
-      diag_str = QString("t=[%1,%2,%3] X→[%4,%5,%6] Z→[%7,%8,%9]")
-                     .arg(tx, 0, 'f', 3).arg(ty, 0, 'f', 3).arg(tz, 0, 'f', 3)
-                     .arg(r00, 0, 'f', 2).arg(r10, 0, 'f', 2).arg(r20, 0, 'f', 2)
-                     .arg(r02, 0, 'f', 2).arg(r12, 0, 'f', 2).arg(r22, 0, 'f', 2);
+                     .arg((*base)[0], 0, 'f', 3)
+                     .arg((*base)[1], 0, 'f', 3)
+                     .arg((*base)[2], 0, 'f', 3);
     } else {
       base_str = QStringLiteral("N/A");
-      diag_str = QStringLiteral("N/A");
     }
   } else {
     xyz_str = QStringLiteral("无效");
     base_str = QStringLiteral("N/A");
-    diag_str = QStringLiteral("N/A");
   }
 
   return QString("<p style='white-space:pre;margin:2px;"
@@ -301,10 +248,36 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
                   "<b>像素:</b> %1<br>"
                   "<b>深度:</b> %2<br>"
                   "<b>3D(Cam):</b> %3<br>"
-                  "<b>3D(Base):</b> %4<br>"
-                  "<b>诊断:</b> %5"
+                  "<b>3D(Base):</b> %4"
                   "</p>")
-      .arg(size_str, depth_str, xyz_str, base_str, diag_str);
+      .arg(size_str, depth_str, xyz_str, base_str);
+}
+
+std::optional<std::array<double, 3>> CameraPanel::transformToBase(
+    double x3d, double y3d, double z3d) const {
+  std::optional<geometry_msgs::msg::TransformStamped> tf;
+  {
+    std::lock_guard<std::mutex> lock(tf_mutex_);
+    tf = camera_to_base_;
+  }
+  if (!tf.has_value()) return std::nullopt;
+
+  // 四元数 → 旋转矩阵，变换相机系 3D 点到 base 系
+  double qx = tf->transform.rotation.x;
+  double qy = tf->transform.rotation.y;
+  double qz = tf->transform.rotation.z;
+  double qw = tf->transform.rotation.w;
+  double r00 = 1 - 2*(qy*qy + qz*qz), r01 = 2*(qx*qy - qz*qw), r02 = 2*(qx*qz + qy*qw);
+  double r10 = 2*(qx*qy + qz*qw),     r11 = 1 - 2*(qx*qx + qz*qz), r12 = 2*(qy*qz - qx*qw);
+  double r20 = 2*(qx*qz - qy*qw),     r21 = 2*(qy*qz + qx*qw),     r22 = 1 - 2*(qx*qx + qy*qy);
+  double tx = tf->transform.translation.x;
+  double ty = tf->transform.translation.y;
+  double tz = tf->transform.translation.z;
+
+  return std::array<double, 3>{
+      r00*x3d + r01*y3d + r02*z3d + tx,
+      r10*x3d + r11*y3d + r12*z3d + ty,
+      r20*x3d + r21*y3d + r22*z3d + tz};
 }
 
 }  // namespace robot_hmi

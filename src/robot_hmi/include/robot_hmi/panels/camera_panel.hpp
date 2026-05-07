@@ -40,6 +40,10 @@ private:
   /// 构建悬浮提示文本（可扩展：后续加入三维坐标等）
   QString buildTooltipText(int img_x, int img_y) const;
 
+  /// 将相机系 3D 点变换到基座系（从缓存的 camera_to_base_ 读取变换）
+  std::optional<std::array<double, 3>> transformToBase(
+      double x3d, double y3d, double z3d) const;
+
   /// 鼠标位置 → 原始图像像素坐标，返回 false 表示不在画面内
   bool mapToImageCoords(const QPoint& label_pos, int& img_x, int& img_y) const;
 

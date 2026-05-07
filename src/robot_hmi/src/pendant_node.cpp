@@ -1,6 +1,7 @@
 #include "robot_hmi/pendant_node.hpp"
 
 #include <robot_logger/logger.hpp>
+#include "robot_description/camera_config.hpp"
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -692,15 +693,19 @@ PendantNode::lookup_camera_to_base_transform() {
     tf2::Transform T_base_hand;
     tf2::fromMsg(tf_base_hand.transform, T_base_hand);
 
-    // 2. hand ← camera_link（硬编码外参）
-    //    Isaac Sim Rotation [X,Y,Z] = [-90,0,180] 对应 RPY = (π, 0, -π/2)
+    // 2. hand ← camera_link（外参来自 robot_description::CameraExtrinsics）
     tf2::Quaternion q_hc;
-    q_hc.setRPY(3.14159265359, 0.0, -1.57079632679);
-    tf2::Transform T_hand_cam(q_hc, tf2::Vector3(0.025, -0.015, 0.015));
+    q_hc.setRPY(robot_description::CameraExtrinsics::kRoll,
+                 robot_description::CameraExtrinsics::kPitch,
+                 robot_description::CameraExtrinsics::kYaw);
+    tf2::Transform T_hand_cam(q_hc, tf2::Vector3(
+        robot_description::CameraExtrinsics::kOffsetX,
+        robot_description::CameraExtrinsics::kOffsetY,
+        robot_description::CameraExtrinsics::kOffsetZ));
 
     // 3. camera_link ← optical（USD 相机 → ROS 光学: Ry(π)）
     tf2::Quaternion q_co;
-    q_co.setRPY(0.0, 3.14159265359, 0.0);
+    q_co.setRPY(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
     tf2::Transform T_cam_opt(q_co, tf2::Vector3(0.0, 0.0, 0.0));
 
     // 4. 合成: base ← optical
