@@ -195,8 +195,8 @@ int main(int argc, char* argv[]) {
     Eigen::Matrix3d R_hc = rpy_to_rotation(kCameraRpy[0], kCameraRpy[1], kCameraRpy[2]);
     Eigen::Vector3d t_hc(kCameraOffset[0], kCameraOffset[1], kCameraOffset[2]);
 
-    // camera_link ← optical (USD 相机 → ROS 光学坐标系: Rx(π))
-    Eigen::Matrix3d R_co = rpy_to_rotation(3.14159265359, 0.0, 0.0);
+    // camera_link ← optical (USD 相机 → ROS 光学坐标系: Ry(π))
+    Eigen::Matrix3d R_co = rpy_to_rotation(0.0, 3.14159265359, 0.0);
 
     // 合成: base ← optical
     Eigen::Matrix3d R = R_bh * R_hc * R_co;

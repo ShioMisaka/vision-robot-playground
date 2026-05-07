@@ -390,14 +390,14 @@ void RosMotionBridge::publish_camera_tf() {
   t_cam.transform.rotation.w = q_cam.w();
 
   // camera_link → camera_color_optical_frame（USD 相机 → ROS 光学坐标系）
-  // USD: X右, Y上, Z后; 光学: X右, Y下, Z前 → Rx(π)
+  // USD: X右, Y上, Z后; 光学: X右, Y下, Z前 → Ry(π)
   geometry_msgs::msg::TransformStamped t_opt;
   t_opt.header.stamp = rclcpp::Time(0);
   t_opt.header.frame_id = "camera_link";
   t_opt.child_frame_id = topics_.camera_frame;
 
   tf2::Quaternion q_opt;
-  q_opt.setRPY(3.14159265359, 0.0, 0.0);
+  q_opt.setRPY(0.0, 3.14159265359, 0.0);
   t_opt.transform.rotation.x = q_opt.x();
   t_opt.transform.rotation.y = q_opt.y();
   t_opt.transform.rotation.z = q_opt.z();

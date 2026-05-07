@@ -684,7 +684,7 @@ PendantNode::lookup_camera_to_base_transform() {
     // 导致 TF2 返回错误的 camera_color_optical_frame 变换。
     //
     // 变换链: base ← hand (TF2 FK) * hand ← camera_link (硬编码外参)
-    //        * camera_link ← optical (Rx(π))
+    //        * camera_link ← optical (Ry(π))
 
     // 1. base ← hand（FK，来自 TF2，不涉及相机帧）
     auto tf_base_hand = tf_buffer_->lookupTransform(
@@ -698,9 +698,9 @@ PendantNode::lookup_camera_to_base_transform() {
     q_hc.setRPY(3.14159265359, 0.0, -1.57079632679);
     tf2::Transform T_hand_cam(q_hc, tf2::Vector3(0.025, -0.015, 0.015));
 
-    // 3. camera_link ← optical（USD 相机 → ROS 光学: Rx(π)）
+    // 3. camera_link ← optical（USD 相机 → ROS 光学: Ry(π)）
     tf2::Quaternion q_co;
-    q_co.setRPY(3.14159265359, 0.0, 0.0);
+    q_co.setRPY(0.0, 3.14159265359, 0.0);
     tf2::Transform T_cam_opt(q_co, tf2::Vector3(0.0, 0.0, 0.0));
 
     // 4. 合成: base ← optical

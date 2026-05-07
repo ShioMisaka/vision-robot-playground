@@ -1,5 +1,6 @@
 #include "robot_hmi/panels/camera_panel.hpp"
 
+#include <robot_logger/logger.hpp>
 #include "robot_description/camera_config.hpp"
 
 #include <QVBoxLayout>
@@ -101,6 +102,15 @@ bool CameraPanel::eventFilter(QObject* watched, QEvent* event) {
     return true;
   }
 
+  if (event->type() == QEvent::MouseButtonPress) {
+    auto* me = static_cast<QMouseEvent*>(event);
+    int img_x = 0, img_y = 0;
+    if (mapToImageCoords(me->pos(), img_x, img_y)) {
+      printClickDiag(img_x, img_y);
+    }
+    return true;
+  }
+
   if (event->type() == QEvent::Leave) {
     QToolTip::hideText();
     return true;
@@ -128,6 +138,65 @@ bool CameraPanel::mapToImageCoords(const QPoint& label_pos, int& img_x,
   img_x = std::min(static_cast<int>(px * sx + 0.5f), depth_raw_.cols - 1);
   img_y = std::min(static_cast<int>(py * sy + 0.5f), depth_raw_.rows - 1);
   return true;
+}
+
+void CameraPanel::printClickDiag(int img_x, int img_y) const {
+  if (depth_raw_.empty()) return;
+
+  constexpr double fx = robot_description::CameraIntrinsics::kFx;
+  constexpr double fy = robot_description::CameraIntrinsics::kFy;
+  constexpr double cx = robot_description::CameraIntrinsics::kCx;
+  constexpr double cy = robot_description::CameraIntrinsics::kCy;
+
+  float depth = getMedianDepth(img_x, img_y);
+  if (depth <= 0) {
+    LOG_WARN("[CLICK] 深度无效");
+    return;
+  }
+
+  double x3d = (img_x - cx) * depth / fx;
+  double y3d = (img_y - cy) * depth / fy;
+  double z3d = depth;
+
+  // 读取缓存的变换
+  std::optional<geometry_msgs::msg::TransformStamped> tf;
+  {
+    std::lock_guard<std::mutex> lock(tf_mutex_);
+    tf = camera_to_base_;
+  }
+
+  LOG_INFO("======== [CLICK DIAG] ========");
+  LOG_INFO("  图像分辨率: {}x{}", depth_raw_.cols, depth_raw_.rows);
+  LOG_INFO("  像素: ({}, {})", img_x, img_y);
+  LOG_INFO("  深度: {:.4f} m", depth);
+  LOG_INFO("  3D(Cam): ({:.5f}, {:.5f}, {:.5f})", x3d, y3d, z3d);
+  LOG_INFO("  内参: fx={:.2f} fy={:.2f} cx={:.1f} cy={:.1f}", fx, fy, cx, cy);
+
+  if (!tf.has_value()) {
+    LOG_WARN("  变换: N/A (camera_to_base 未就绪)");
+    return;
+  }
+
+  double qx = tf->transform.rotation.x;
+  double qy = tf->transform.rotation.y;
+  double qz = tf->transform.rotation.z;
+  double qw = tf->transform.rotation.w;
+  double r00 = 1-2*(qy*qy+qz*qz), r01 = 2*(qx*qy-qz*qw), r02 = 2*(qx*qz+qy*qw);
+  double r10 = 2*(qx*qy+qz*qw),   r11 = 1-2*(qx*qx+qz*qz), r12 = 2*(qy*qz-qx*qw);
+  double r20 = 2*(qx*qz-qy*qw),    r21 = 2*(qy*qz+qx*qw),   r22 = 1-2*(qx*qx+qy*qy);
+  double tx = tf->transform.translation.x;
+  double ty = tf->transform.translation.y;
+  double tz = tf->transform.translation.z;
+
+  double bx = r00*x3d + r01*y3d + r02*z3d + tx;
+  double by = r10*x3d + r11*y3d + r12*z3d + ty;
+  double bz = r20*x3d + r21*y3d + r22*z3d + tz;
+
+  LOG_INFO("  t(cam原点→base): ({:.5f}, {:.5f}, {:.5f})", tx, ty, tz);
+  LOG_INFO("  R列: X→[{:.3f},{:.3f},{:.3f}] Y→[{:.3f},{:.3f},{:.3f}] Z→[{:.3f},{:.3f},{:.3f}]",
+           r00, r10, r20, r01, r11, r21, r02, r12, r22);
+  LOG_INFO("  3D(Base): ({:.5f}, {:.5f}, {:.5f})", bx, by, bz);
+  LOG_INFO("================================");
 }
 
 float CameraPanel::getMedianDepth(int img_x, int img_y) const {
@@ -162,13 +231,20 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
   QString depth_str =
       (depth > 0) ? QString("%1 m").arg(depth, 0, 'f', 3) : QStringLiteral("无效");
 
-  // ---- 像素坐标 ----
-  QString pos_str = QString("(%1, %2)").arg(img_x).arg(img_y);
+  // ---- 像素坐标 + 图像尺寸诊断 ----
+  QString size_str;
+  if (!depth_raw_.empty()) {
+    size_str = QString("(%1,%2) [%3x%4]")
+                   .arg(img_x).arg(img_y)
+                   .arg(depth_raw_.cols).arg(depth_raw_.rows);
+  } else {
+    size_str = QString("(%1, %2)").arg(img_x).arg(img_y);
+  }
 
   // ---- 相机坐标系 3D 坐标 ----
   QString xyz_str;
   QString base_str;
-  QString rot_str;
+  QString diag_str;
   if (depth > 0) {
     double x3d = (img_x - cx) * depth / fx;
     double y3d = (img_y - cy) * depth / fy;
@@ -195,37 +271,40 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
       double r10 = 2*(qx*qy+qz*qw),   r11 = 1-2*(qx*qx+qz*qz), r12 = 2*(qy*qz-qx*qw);
       double r20 = 2*(qx*qz-qy*qw),    r21 = 2*(qy*qz+qx*qw),   r22 = 1-2*(qx*qx+qy*qy);
       // R * p + t
-      double bx = r00*x3d + r01*y3d + r02*z3d + tf->transform.translation.x;
-      double by = r10*x3d + r11*y3d + r12*z3d + tf->transform.translation.y;
-      double bz = r20*x3d + r21*y3d + r22*z3d + tf->transform.translation.z;
+      double tx = tf->transform.translation.x;
+      double ty = tf->transform.translation.y;
+      double tz = tf->transform.translation.z;
+      double bx = r00*x3d + r01*y3d + r02*z3d + tx;
+      double by = r10*x3d + r11*y3d + r12*z3d + ty;
+      double bz = r20*x3d + r21*y3d + r22*z3d + tz;
       base_str = QString("(%1, %2, %3) m")
                      .arg(bx, 0, 'f', 3)
                      .arg(by, 0, 'f', 3)
                      .arg(bz, 0, 'f', 3);
-      // 诊断：显示相机各轴在 base 系中的方向
-      rot_str = QString("X→[%1,%2,%3] Y→[%4,%5,%6] Z→[%7,%8,%9]")
-                    .arg(r00, 0, 'f', 2).arg(r10, 0, 'f', 2).arg(r20, 0, 'f', 2)
-                    .arg(r01, 0, 'f', 2).arg(r11, 0, 'f', 2).arg(r21, 0, 'f', 2)
-                    .arg(r02, 0, 'f', 2).arg(r12, 0, 'f', 2).arg(r22, 0, 'f', 2);
+      // 诊断：t(cam原点在base中) + R 各轴方向
+      diag_str = QString("t=[%1,%2,%3] X→[%4,%5,%6] Z→[%7,%8,%9]")
+                     .arg(tx, 0, 'f', 3).arg(ty, 0, 'f', 3).arg(tz, 0, 'f', 3)
+                     .arg(r00, 0, 'f', 2).arg(r10, 0, 'f', 2).arg(r20, 0, 'f', 2)
+                     .arg(r02, 0, 'f', 2).arg(r12, 0, 'f', 2).arg(r22, 0, 'f', 2);
     } else {
       base_str = QStringLiteral("N/A");
-      rot_str = QStringLiteral("N/A");
+      diag_str = QStringLiteral("N/A");
     }
   } else {
     xyz_str = QStringLiteral("无效");
     base_str = QStringLiteral("N/A");
-    rot_str = QStringLiteral("N/A");
+    diag_str = QStringLiteral("N/A");
   }
 
   return QString("<p style='white-space:pre;margin:2px;"
                   "background:#ffffcc;padding:3px;border-radius:2px'>"
                   "<b>像素:</b> %1<br>"
                   "<b>深度:</b> %2<br>"
-                  "<b>3D(相机):</b> %3<br>"
+                  "<b>3D(Cam):</b> %3<br>"
                   "<b>3D(Base):</b> %4<br>"
-                  "<b>R(cam→base):</b> %5"
+                  "<b>诊断:</b> %5"
                   "</p>")
-      .arg(pos_str, depth_str, xyz_str, base_str, rot_str);
+      .arg(size_str, depth_str, xyz_str, base_str, diag_str);
 }
 
 }  // namespace robot_hmi

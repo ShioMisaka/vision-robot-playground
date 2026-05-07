@@ -34,6 +34,9 @@ private:
   /// 获取像素点邻域的深度中值（5x5），减少单像素噪声
   float getMedianDepth(int img_x, int img_y) const;
 
+  /// 点击画面时在控制台输出完整诊断信息
+  void printClickDiag(int img_x, int img_y) const;
+
   /// 构建悬浮提示文本（可扩展：后续加入三维坐标等）
   QString buildTooltipText(int img_x, int img_y) const;
 

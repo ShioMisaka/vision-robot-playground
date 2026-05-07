@@ -356,8 +356,8 @@ std::optional<std::array<double, 3>> GraspTaskManager::transform_to_base(
   Eigen::Vector3d t_hc(
       camera_offset_[0], camera_offset_[1], camera_offset_[2]);
 
-  // 4. camera_link ← optical（USD 相机 → ROS 光学坐标系: Rx(π)）
-  Eigen::Matrix3d R_co = rpy_to_rotation(3.14159265359, 0.0, 0.0);
+  // 4. camera_link ← optical（USD 相机 → ROS 光学坐标系: Ry(π)）
+  Eigen::Matrix3d R_co = rpy_to_rotation(0.0, 3.14159265359, 0.0);
 
   // 5. 合成: base ← optical
   Eigen::Matrix3d R = R_bh * R_hc * R_co;
