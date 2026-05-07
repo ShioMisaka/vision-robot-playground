@@ -19,6 +19,7 @@ find_package(OpenCV REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(robot_description REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
 
@@ -77,6 +78,7 @@ ament_target_dependencies(robot_hmi
   robot_msgs
   OpenCV
   tf2_ros
+  tf2_geometry_msgs
   geometry_msgs
   robot_description
 )

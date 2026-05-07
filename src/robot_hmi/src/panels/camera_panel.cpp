@@ -122,12 +122,32 @@ bool CameraPanel::mapToImageCoords(const QPoint& label_pos, int& img_x,
   int py = label_pos.y() - oy;
   if (px < 0 || px >= pm.width() || py < 0 || py >= pm.height()) return false;
 
-  // pixmap → 原始图像坐标
+  // pixmap → 原始图像坐标（四舍五入避免截断导致的 ±1 像素抖动）
   float sx = static_cast<float>(depth_raw_.cols) / pm.width();
   float sy = static_cast<float>(depth_raw_.rows) / pm.height();
-  img_x = std::min(static_cast<int>(px * sx), depth_raw_.cols - 1);
-  img_y = std::min(static_cast<int>(py * sy), depth_raw_.rows - 1);
+  img_x = std::min(static_cast<int>(px * sx + 0.5f), depth_raw_.cols - 1);
+  img_y = std::min(static_cast<int>(py * sy + 0.5f), depth_raw_.rows - 1);
   return true;
+}
+
+float CameraPanel::getMedianDepth(int img_x, int img_y) const {
+  std::vector<float> values;
+  values.reserve(25);
+  // 5x5 邻域中值滤波，减少单像素深度噪声
+  for (int dy = -2; dy <= 2; ++dy) {
+    for (int dx = -2; dx <= 2; ++dx) {
+      int ny = img_y + dy;
+      int nx = img_x + dx;
+      if (ny >= 0 && ny < depth_raw_.rows && nx >= 0 && nx < depth_raw_.cols) {
+        float d = depth_raw_.at<float>(ny, nx);
+        if (d > 0) values.push_back(d);
+      }
+    }
+  }
+  if (values.empty()) return 0;
+  std::nth_element(values.begin(), values.begin() + values.size() / 2,
+                   values.end());
+  return values[values.size() / 2];
 }
 
 QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
@@ -137,8 +157,8 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
   constexpr double cx = robot_description::CameraIntrinsics::kCx;
   constexpr double cy = robot_description::CameraIntrinsics::kCy;
 
-  // ---- 深度值 ----
-  float depth = depth_raw_.at<float>(img_y, img_x);
+  // ---- 深度值（5x5 中值滤波减少噪声） ----
+  float depth = getMedianDepth(img_x, img_y);
   QString depth_str =
       (depth > 0) ? QString("%1 m").arg(depth, 0, 'f', 3) : QStringLiteral("无效");
 
@@ -148,6 +168,7 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
   // ---- 相机坐标系 3D 坐标 ----
   QString xyz_str;
   QString base_str;
+  QString rot_str;
   if (depth > 0) {
     double x3d = (img_x - cx) * depth / fx;
     double y3d = (img_y - cy) * depth / fy;
@@ -169,23 +190,31 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
       double qy = tf->transform.rotation.y;
       double qz = tf->transform.rotation.z;
       double qw = tf->transform.rotation.w;
+      // 旋转矩阵 R 的列（每列 = 一个相机轴在 base 系中的方向）
+      double r00 = 1-2*(qy*qy+qz*qz), r01 = 2*(qx*qy-qz*qw), r02 = 2*(qx*qz+qy*qw);
+      double r10 = 2*(qx*qy+qz*qw),   r11 = 1-2*(qx*qx+qz*qz), r12 = 2*(qy*qz-qx*qw);
+      double r20 = 2*(qx*qz-qy*qw),    r21 = 2*(qy*qz+qx*qw),   r22 = 1-2*(qx*qx+qy*qy);
       // R * p + t
-      double bx = (1 - 2*(qy*qy + qz*qz))*x3d + 2*(qx*qy - qz*qw)*y3d + 2*(qx*qz + qy*qw)*z3d
-                  + tf->transform.translation.x;
-      double by = 2*(qx*qy + qz*qw)*x3d + (1 - 2*(qx*qx + qz*qz))*y3d + 2*(qy*qz - qx*qw)*z3d
-                  + tf->transform.translation.y;
-      double bz = 2*(qx*qz - qy*qw)*x3d + 2*(qy*qz + qx*qw)*y3d + (1 - 2*(qx*qx + qy*qy))*z3d
-                  + tf->transform.translation.z;
+      double bx = r00*x3d + r01*y3d + r02*z3d + tf->transform.translation.x;
+      double by = r10*x3d + r11*y3d + r12*z3d + tf->transform.translation.y;
+      double bz = r20*x3d + r21*y3d + r22*z3d + tf->transform.translation.z;
       base_str = QString("(%1, %2, %3) m")
                      .arg(bx, 0, 'f', 3)
                      .arg(by, 0, 'f', 3)
                      .arg(bz, 0, 'f', 3);
+      // 诊断：显示相机各轴在 base 系中的方向
+      rot_str = QString("X→[%1,%2,%3] Y→[%4,%5,%6] Z→[%7,%8,%9]")
+                    .arg(r00, 0, 'f', 2).arg(r10, 0, 'f', 2).arg(r20, 0, 'f', 2)
+                    .arg(r01, 0, 'f', 2).arg(r11, 0, 'f', 2).arg(r21, 0, 'f', 2)
+                    .arg(r02, 0, 'f', 2).arg(r12, 0, 'f', 2).arg(r22, 0, 'f', 2);
     } else {
       base_str = QStringLiteral("N/A");
+      rot_str = QStringLiteral("N/A");
     }
   } else {
     xyz_str = QStringLiteral("无效");
     base_str = QStringLiteral("N/A");
+    rot_str = QStringLiteral("N/A");
   }
 
   return QString("<p style='white-space:pre;margin:2px;"
@@ -193,9 +222,10 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
                   "<b>像素:</b> %1<br>"
                   "<b>深度:</b> %2<br>"
                   "<b>3D(相机):</b> %3<br>"
-                  "<b>3D(Base):</b> %4"
+                  "<b>3D(Base):</b> %4<br>"
+                  "<b>R(cam→base):</b> %5"
                   "</p>")
-      .arg(pos_str, depth_str, xyz_str, base_str);
+      .arg(pos_str, depth_str, xyz_str, base_str, rot_str);
 }
 
 }  // namespace robot_hmi

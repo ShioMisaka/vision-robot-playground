@@ -2,8 +2,7 @@
 
 #include <robot_logger/logger.hpp>
 
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Transform.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -680,54 +679,48 @@ void PendantNode::resume_joint_stream() {
 std::optional<geometry_msgs::msg::TransformStamped>
 PendantNode::lookup_camera_to_base_transform() {
   try {
-    // 直接从 hand TF + 已知相机外参计算，不依赖 TF 发布的相机坐标变换。
-    // 避免 Isaac Sim 使用旧 URDF 发布错误相机 TF 的问题。
-    // 变换链: base ← hand ← camera_link ← camera_color_optical_frame
+    // 手动计算 base ← optical 变换，不依赖 TF 树中的相机帧。
+    // 原因：Isaac Sim 可能也发布相机 TF，与 RosMotionBridge 的静态 TF 冲突，
+    // 导致 TF2 返回错误的 camera_color_optical_frame 变换。
+    //
+    // 变换链: base ← hand (TF2 FK) * hand ← camera_link (硬编码外参)
+    //        * camera_link ← optical (Rx(π))
 
-    // 1. 查询 base ← hand（来自 TF 关节状态链，可靠）
+    // 1. base ← hand（FK，来自 TF2，不涉及相机帧）
     auto tf_base_hand = tf_buffer_->lookupTransform(
         "panda_link0", "panda_hand", tf2::TimePointZero);
+    tf2::Transform T_base_hand;
+    tf2::fromMsg(tf_base_hand.transform, T_base_hand);
 
-    // 2. 构建 hand ← ZED_X_Mini（从 Isaac Sim Property 读取的实际外参）
-    //    Isaac Sim intrinsic XYZ [180, 90, 0]° → setRPY(π, -π/2, 0)
+    // 2. hand ← camera_link（硬编码外参）
+    //    Isaac Sim Rotation [X,Y,Z] = [-90,0,180] 对应 RPY = (π, 0, -π/2)
     tf2::Quaternion q_hc;
-    q_hc.setRPY(M_PI, -M_PI / 2.0, 0.0);
-    tf2::Transform t_hand_camera(q_hc, tf2::Vector3(0.015, 0.0, 0.03));
+    q_hc.setRPY(3.14159265359, 0.0, -1.57079632679);
+    tf2::Transform T_hand_cam(q_hc, tf2::Vector3(0.025, -0.015, 0.015));
 
-    // 3. 构建 ZED_X_Mini ← CameraLeft（左相机传感器实际偏移）
-    //    Isaac Sim intrinsic XYZ [-90, 0, 180]° → setRPY(π/2, 0, π)
-    //    Translate [2.5, -1.5, 1.5] cm → [0.025, -0.015, 0.015] m
+    // 3. camera_link ← optical（USD 相机 → ROS 光学: Rx(π)）
     tf2::Quaternion q_co;
-    q_co.setRPY(M_PI / 2.0, 0.0, M_PI);
-    tf2::Transform t_camera_optical(q_co, tf2::Vector3(0.025, -0.015, 0.015));
+    q_co.setRPY(3.14159265359, 0.0, 0.0);
+    tf2::Transform T_cam_opt(q_co, tf2::Vector3(0.0, 0.0, 0.0));
 
-    // 4. 从 TF2 消息提取 base ← hand
-    tf2::Transform t_base_hand;
-    t_base_hand.setOrigin(tf2::Vector3(
-        tf_base_hand.transform.translation.x,
-        tf_base_hand.transform.translation.y,
-        tf_base_hand.transform.translation.z));
-    t_base_hand.setRotation(tf2::Quaternion(
-        tf_base_hand.transform.rotation.x,
-        tf_base_hand.transform.rotation.y,
-        tf_base_hand.transform.rotation.z,
-        tf_base_hand.transform.rotation.w));
+    // 4. 合成: base ← optical
+    tf2::Transform T_base_opt = T_base_hand * T_hand_cam * T_cam_opt;
 
-    // 5. 合成: base ← optical
-    tf2::Transform t_base_optical =
-        t_base_hand * t_hand_camera * t_camera_optical;
-
-    // 6. 转换为 TransformStamped 返回
+    // 5. 转回 TransformStamped
     geometry_msgs::msg::TransformStamped result;
+    result.header = tf_base_hand.header;
     result.header.frame_id = "panda_link0";
     result.child_frame_id = "camera_color_optical_frame";
-    result.transform.translation.x = t_base_optical.getOrigin().x();
-    result.transform.translation.y = t_base_optical.getOrigin().y();
-    result.transform.translation.z = t_base_optical.getOrigin().z();
-    result.transform.rotation.x = t_base_optical.getRotation().x();
-    result.transform.rotation.y = t_base_optical.getRotation().y();
-    result.transform.rotation.z = t_base_optical.getRotation().z();
-    result.transform.rotation.w = t_base_optical.getRotation().w();
+    auto& t = result.transform.translation;
+    t.x = T_base_opt.getOrigin().x();
+    t.y = T_base_opt.getOrigin().y();
+    t.z = T_base_opt.getOrigin().z();
+    auto& r = result.transform.rotation;
+    r.x = T_base_opt.getRotation().x();
+    r.y = T_base_opt.getRotation().y();
+    r.z = T_base_opt.getRotation().z();
+    r.w = T_base_opt.getRotation().w();
+
     return result;
   } catch (const tf2::TransformException&) {
     return std::nullopt;
