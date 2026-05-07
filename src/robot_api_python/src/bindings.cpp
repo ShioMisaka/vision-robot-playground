@@ -424,7 +424,7 @@ PYBIND11_MODULE(_core, m) {
            py::arg("camera_offset") =
                std::array<double, 3>{0.0, 0.0, 0.0},
            py::arg("camera_rpy") =
-               std::array<double, 3>{-1.57079632679, 0.0, -1.57079632679})
+               std::array<double, 3>{3.14159265359, 0.0, -1.57079632679})
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())

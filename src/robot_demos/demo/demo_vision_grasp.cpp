@@ -178,8 +178,8 @@ int main(int argc, char* argv[]) {
         50,       // max_approach_steps
         3,        // max_consecutive_failures
         "panda_hand",
-        {0.015, 0.0, 0.03},
-        {0.0, -1.57079632679, 0.0});
+        {0.025, -0.015, 0.015},
+        {3.14159265359, 0.0, -1.57079632679});
 
     // 在后台线程执行抓取，主线程监控 Ctrl+C
     bool success = false;

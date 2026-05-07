@@ -66,9 +66,9 @@ public:
                    int max_consecutive_failures = 3,
                    const std::string& hand_frame = "panda_hand",
                    const std::array<double, 3>& camera_offset = {
-                       0.015, 0.0, 0.03},
+                       0.025, -0.015, 0.015},
                    const std::array<double, 3>& camera_rpy = {
-                       0.0, -1.57079632679, 0.0});
+                       3.14159265359, 0.0, -1.57079632679});
 
   /// @brief 运行完整抓取流程（阻塞）
   /// @param timeout 整体超时（秒）

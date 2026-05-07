@@ -330,18 +330,18 @@
     <origin rpy="0 0 0" xyz="0 0 0.105"/>
   </joint>
 
-  <!-- ZED_X_Mini 相机（eye-in-hand, 朝下） -->
+  <!-- ZED_X_Mini 相机（eye-in-hand, 左目光心，与 Isaac Sim 一致） -->
   <link name="camera_link"/>
   <joint name="panda_hand_camera_joint" type="fixed">
     <parent link="panda_hand"/>
     <child link="camera_link"/>
-    <origin rpy="0 -1.57079632679 0" xyz="0.015 0 0.03"/>
+    <origin rpy="3.14159265359 0 -1.57079632679" xyz="0.025 -0.015 0.015"/>
   </joint>
   <link name="camera_color_optical_frame"/>
   <joint name="camera_color_optical_joint" type="fixed">
     <parent link="camera_link"/>
     <child link="camera_color_optical_frame"/>
-    <origin rpy="-1.57079632679 0 -1.57079632679" xyz="0 0 0"/>
+    <origin rpy="3.14159265359 0 0" xyz="0 0 0"/>
   </joint>
 
 </robot>
