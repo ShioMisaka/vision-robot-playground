@@ -1,6 +1,6 @@
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/control_constants.hpp"

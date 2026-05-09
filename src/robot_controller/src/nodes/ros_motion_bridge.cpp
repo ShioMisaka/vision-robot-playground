@@ -1,6 +1,6 @@
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/nodes/setpoint_generator.hpp"
 
@@ -16,6 +16,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <robot_logger/logger.hpp>
+#include <robot_description/camera_config.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -371,19 +372,19 @@ void RosMotionBridge::publish_ee_tf(
 }
 
 void RosMotionBridge::publish_camera_tf() {
-  const auto& ext = topics_.camera_extrinsics;
-
   // hand → camera_link
   geometry_msgs::msg::TransformStamped t_cam;
   t_cam.header.stamp = rclcpp::Time(0);
   t_cam.header.frame_id = profile_.hand_frame;
   t_cam.child_frame_id = "camera_link";
-  t_cam.transform.translation.x = ext.xyz[0];
-  t_cam.transform.translation.y = ext.xyz[1];
-  t_cam.transform.translation.z = ext.xyz[2];
+  t_cam.transform.translation.x = robot_description::CameraExtrinsics::kOffsetX;
+  t_cam.transform.translation.y = robot_description::CameraExtrinsics::kOffsetY;
+  t_cam.transform.translation.z = robot_description::CameraExtrinsics::kOffsetZ;
 
   tf2::Quaternion q_cam;
-  q_cam.setRPY(ext.rpy[0], ext.rpy[1], ext.rpy[2]);
+  q_cam.setRPY(robot_description::CameraExtrinsics::kRoll,
+               robot_description::CameraExtrinsics::kPitch,
+               robot_description::CameraExtrinsics::kYaw);
   t_cam.transform.rotation.x = q_cam.x();
   t_cam.transform.rotation.y = q_cam.y();
   t_cam.transform.rotation.z = q_cam.z();
@@ -394,7 +395,7 @@ void RosMotionBridge::publish_camera_tf() {
   geometry_msgs::msg::TransformStamped t_opt;
   t_opt.header.stamp = rclcpp::Time(0);
   t_opt.header.frame_id = "camera_link";
-  t_opt.child_frame_id = topics_.camera_frame;
+  t_opt.child_frame_id = "camera_color_optical_frame";
 
   tf2::Quaternion q_opt;
   q_opt.setRPY(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);

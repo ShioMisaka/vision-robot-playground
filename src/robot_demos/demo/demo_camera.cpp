@@ -27,18 +27,17 @@
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 
-#include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_vision/vision/vision_topic_config.hpp"
 
 using namespace std::chrono_literals;
 
 /// 相机图像显示节点
 class CameraDisplayNode : public rclcpp::Node {
 public:
-  static std::shared_ptr<CameraDisplayNode> create(const robot_control::TopicConfig& topics) {
+  static std::shared_ptr<CameraDisplayNode> create(const robot_vision::VisionTopicConfig& config) {
     auto node = std::shared_ptr<CameraDisplayNode>(
-        new CameraDisplayNode(topics));
-    node->init(topics);
+        new CameraDisplayNode(config));
+    node->init(config);
     return node;
   }
 
@@ -52,28 +51,28 @@ public:
   }
 
 private:
-  CameraDisplayNode(const robot_control::TopicConfig& topics)
+  CameraDisplayNode(const robot_vision::VisionTopicConfig& config)
       : Node("camera_display_node") {
-    (void)topics;
+    (void)config;
   }
 
-  void init(const robot_control::TopicConfig& topics) {
+  void init(const robot_vision::VisionTopicConfig& config) {
     auto qos = rclcpp::SensorDataQoS();
 
     left_sub_ = std::make_unique<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-        shared_from_this(), topics.camera_left, qos.get_rmw_qos_profile());
+        shared_from_this(), config.camera_left, qos.get_rmw_qos_profile());
     depth_sub_ = std::make_unique<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-        shared_from_this(), topics.camera_depth, qos.get_rmw_qos_profile());
+        shared_from_this(), config.camera_depth, qos.get_rmw_qos_profile());
 
     sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
-        SyncPolicy(robot_control::ControlConstants::kImageSyncQueueSize),
+        SyncPolicy(config.sync_queue_size),
         *left_sub_, *depth_sub_);
     sync_->setMaxIntervalDuration(rclcpp::Duration(
-        static_cast<int64_t>(robot_control::ControlConstants::kImageSyncSlop * 1e9), 0));
+        static_cast<int64_t>(config.sync_max_slop * 1e9), 0));
     sync_->registerCallback(&CameraDisplayNode::on_images, this);
 
     LOG_INFO("CameraDisplayNode 已启动，订阅：[{}, {}]",
-             topics.camera_left, topics.camera_depth);
+             config.camera_left, config.camera_depth);
   }
 
   void on_images(const sensor_msgs::msg::Image::ConstSharedPtr& left_msg,
@@ -126,8 +125,8 @@ private:
 int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
 
-  robot_control::TopicConfig topics;
-  auto display_node = CameraDisplayNode::create(topics);
+  robot_vision::VisionTopicConfig config;
+  auto display_node = CameraDisplayNode::create(config);
 
   auto executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
   executor->add_node(display_node);

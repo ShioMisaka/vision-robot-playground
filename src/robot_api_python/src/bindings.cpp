@@ -10,7 +10,7 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
 #include "robot_vision/vision/color_detector.hpp"
@@ -165,21 +165,11 @@ PYBIND11_MODULE(_core, m) {
       .def_readwrite("offset_xyz", &TcpConfig::offset_xyz)
       .def_readwrite("offset_rpy", &TcpConfig::offset_rpy);
 
-  // CameraExtrinsics
-  py::class_<CameraExtrinsics>(m, "CameraExtrinsics")
-      .def(py::init<>())
-      .def_readwrite("xyz", &CameraExtrinsics::xyz)
-      .def_readwrite("rpy", &CameraExtrinsics::rpy);
-
   // TopicConfig
   py::class_<TopicConfig>(m, "TopicConfig")
       .def(py::init<>())
       .def_readwrite("joint_command", &TopicConfig::joint_command)
-      .def_readwrite("joint_state", &TopicConfig::joint_state)
-      .def_readwrite("camera_left", &TopicConfig::camera_left)
-      .def_readwrite("camera_depth", &TopicConfig::camera_depth)
-      .def_readwrite("camera_frame", &TopicConfig::camera_frame)
-      .def_readwrite("camera_extrinsics", &TopicConfig::camera_extrinsics);
+      .def_readwrite("joint_state", &TopicConfig::joint_state);
 
   // RobotProfile
   py::class_<RobotProfile>(m, "RobotProfile")
@@ -265,8 +255,6 @@ PYBIND11_MODULE(_core, m) {
   m.attr("SETTLE_TIME") = ControlConstants::kSettleTime;
   m.attr("DEFAULT_STEPS") = ControlConstants::kDefaultSteps;
   m.attr("DEFAULT_STEP_TIME") = ControlConstants::kDefaultStepTime;
-  m.attr("IMAGE_SYNC_QUEUE_SIZE") = ControlConstants::kImageSyncQueueSize;
-  m.attr("IMAGE_SYNC_SLOP") = ControlConstants::kImageSyncSlop;
   m.attr("FINGER_STABLE_COUNT") = ControlConstants::kFingerStableCount;
   m.attr("FINGER_STABLE_TOL") = ControlConstants::kFingerStableTol;
   m.attr("READY_TIMEOUT") = ControlConstants::kReadyTimeout;

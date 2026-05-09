@@ -26,7 +26,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
 

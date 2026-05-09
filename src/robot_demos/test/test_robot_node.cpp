@@ -30,7 +30,7 @@
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_controller/profiles/panda_profile.hpp"
 #include "robot_controller/motion/control_constants.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 
 namespace {
 

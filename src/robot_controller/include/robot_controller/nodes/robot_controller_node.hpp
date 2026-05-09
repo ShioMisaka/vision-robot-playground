@@ -32,7 +32,7 @@
 
 #include "robot_controller/motion/robot_motion_controller.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/motion/topic_config.hpp"
+#include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
