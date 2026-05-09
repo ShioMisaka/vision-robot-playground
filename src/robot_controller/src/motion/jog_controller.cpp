@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <Eigen/Geometry>
+
 #include "robot_controller/kinematics/ik_solver.hpp"
 
 namespace robot_control {
@@ -25,6 +27,7 @@ void JogController::start(int axis, uint8_t frame) {
   jog_v_ = 0.0;
   jog_a_ = 0.0;
   frame_ = frame;
+  jog_pose_initialized_ = false;
 
   // 构建速度向量: axis → velocity[0..5]
   // axis 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z,6=+R,7=-R,8=+P,9=-P,10=+Yw,11=-Yw
@@ -48,6 +51,7 @@ void JogController::start_raw(const std::array<double, 6>& velocity,
   jog_a_ = 0.0;
   frame_ = frame;
   target_velocity_ = velocity;
+  jog_pose_initialized_ = false;
 }
 
 void JogController::stop() {
@@ -64,6 +68,7 @@ void JogController::emergency_stop(
   jog_a_ = 0.0;
   jog_q_current_ = feedback_joints;
   target_velocity_ = {};
+  jog_pose_initialized_ = false;
 }
 
 void JogController::reset() {
@@ -72,6 +77,7 @@ void JogController::reset() {
   jog_v_ = 0.0;
   jog_a_ = 0.0;
   target_velocity_ = {};
+  jog_pose_initialized_ = false;
 }
 
 bool JogController::tick(
@@ -136,32 +142,61 @@ bool JogController::tick(
     vel[i] = target_velocity_[i] * jog_v_;
   }
 
-  // === 3. 坐标变换（TCP → Base）===
-  if (frame_ == kTcpFrame) {
-    std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
-    Eigen::Matrix4d T = ik_->forward_matrix(q_vec);
-    Eigen::Matrix3d R = T.block<3, 3>(0, 0);
+  // === 3. 计算当前 FK（用于坐标变换和姿态约束）===
+  std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
+  Eigen::Matrix4d T_current = ik_->forward_matrix(q_vec);
+  Eigen::Vector3d current_p = T_current.block<3, 1>(0, 3);
+  Eigen::Matrix3d current_R = T_current.block<3, 3>(0, 0);
 
+  // === 4. 记录初始位姿（仅首次 tick）===
+  if (!jog_pose_initialized_) {
+    initial_position_ = current_p;
+    initial_rotation_ = current_R;
+    jog_pose_initialized_ = true;
+  }
+
+  // === 5. 坐标变换（TCP → Base）===
+  if (frame_ == kTcpFrame) {
     Eigen::Vector3d v_tcp(vel[0], vel[1], vel[2]);
-    Eigen::Vector3d v_base = R * v_tcp;
+    Eigen::Vector3d v_base = current_R * v_tcp;
     vel[0] = v_base.x(); vel[1] = v_base.y(); vel[2] = v_base.z();
 
     Eigen::Vector3d w_tcp(vel[3], vel[4], vel[5]);
-    Eigen::Vector3d w_base = R * w_tcp;
+    Eigen::Vector3d w_base = current_R * w_tcp;
     vel[3] = w_base.x(); vel[4] = w_base.y(); vel[5] = w_base.z();
   }
 
-  // === 4. 笛卡尔增量 = velocity * dt ===
+  // === 6. 笛卡尔增量 = velocity * dt ===
   std::array<double, 6> delta{};
   for (int i = 0; i < 6; ++i) {
     delta[i] = vel[i] * dt;
   }
 
-  // === 5. 速度 IK: dq = J⁺ * delta ===
-  std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
+  // === 7. 姿态/位置修正：保持零速度轴回到初始值 ===
+  {
+    // 位置修正：零速度线性轴回到初始位置
+    Eigen::Vector3d p_err = initial_position_ - current_p;
+    for (int i = 0; i < 3; ++i) {
+      if (std::abs(target_velocity_[i]) < 1e-10) {
+        delta[i] += p_err(i);
+      }
+    }
+
+    // 姿态修正：零速度旋转轴回到初始姿态
+    Eigen::Matrix3d R_err = initial_rotation_ * current_R.transpose();
+    Eigen::AngleAxisd aa(R_err);
+    Eigen::Vector3d w_err = aa.angle() * aa.axis();
+    for (int i = 0; i < 3; ++i) {
+      if (std::abs(target_velocity_[3 + i]) < 1e-10) {
+        delta[3 + i] += w_err(i);
+      }
+    }
+  }
+
+  // === 8. 速度 IK: dq = J⁺ * delta ===
   auto result = ik_->velocity_ik(q_vec, delta);
 
-  // === 6. 关节速度限制与同步缩放 ===
+  // === 9. 关节速度限制与同步缩放 ===
   if (result) {
     double max_ratio = 0.0;
     for (int i = 0; i < config_.dof; ++i) {

@@ -119,6 +119,11 @@ private:
   // 内部位置追踪（避免反馈延迟）
   std::array<double, 7> jog_q_current_{};
 
+  // 姿态/位置约束追踪：记录 Jog 开始时的初始位姿
+  Eigen::Vector3d initial_position_{Eigen::Vector3d::Zero()};
+  Eigen::Matrix3d initial_rotation_{Eigen::Matrix3d::Identity()};
+  bool jog_pose_initialized_ = false;
+
   // 夹爪宽度（初始值 0.04 仅在首次 set_finger_width 前使用，
   // 正常流程中 control_loop_tick 会在每个 tick 设置实际值）
   double finger_width_ = 0.04;

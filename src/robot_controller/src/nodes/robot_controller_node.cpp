@@ -279,6 +279,24 @@ void RobotControllerNode::handle_jog_command(
   if (all_zero) {
     // 按钮释放: 进入减速
     if (jog_controller_->is_active()) {
+      // === JOG DIAG: Jog 停止（按钮释放）===
+      {
+        auto actual_j = state_model_.get_actual_joints();
+        auto fk = ik_->forward(actual_j);
+        auto cmd_joints = jog_controller_->get_commanded_joints();
+        auto cmd_fk = ik_->forward(
+            std::vector<double>(cmd_joints.begin(), cmd_joints.end()));
+        LOG_WARN(
+            "[JOG DIAG] STOP (button release) | "
+            "actual_xyz=[{:.5f},{:.5f},{:.5f}] rpy=[{:.5f},{:.5f},{:.5f}] | "
+            "cmd_xyz=[{:.5f},{:.5f},{:.5f}] cmd_rpy=[{:.5f},{:.5f},{:.5f}] | "
+            "cmd_joints=[{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}]",
+            fk[0], fk[1], fk[2], fk[3], fk[4], fk[5],
+            cmd_fk[0], cmd_fk[1], cmd_fk[2],
+            cmd_fk[3], cmd_fk[4], cmd_fk[5],
+            cmd_joints[0], cmd_joints[1], cmd_joints[2],
+            cmd_joints[3], cmd_joints[4], cmd_joints[5], cmd_joints[6]);
+      }
       jog_controller_->stop();
     }
   } else {
@@ -303,6 +321,22 @@ void RobotControllerNode::handle_jog_command(
       if (jog_controller_->is_stopping()) {
         jog_controller_->reset();
         jog_settling_ = false;
+      }
+      // === JOG DIAG: Jog 启动时打印初始状态 ===
+      {
+        auto actual_j = state_model_.get_actual_joints();
+        auto fk = ik_->forward(actual_j);
+        auto pre_cmd = jog_controller_->get_commanded_joints();
+        LOG_WARN(
+            "[JOG DIAG] START vel=[{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}] "
+            "frame={} | "
+            "actual_xyz=[{:.5f},{:.5f},{:.5f}] rpy=[{:.5f},{:.5f},{:.5f}] | "
+            "cmd_joints=[{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}]",
+            vel[0], vel[1], vel[2], vel[3], vel[4], vel[5],
+            static_cast<int>(msg->frame),
+            fk[0], fk[1], fk[2], fk[3], fk[4], fk[5],
+            pre_cmd[0], pre_cmd[1], pre_cmd[2],
+            pre_cmd[3], pre_cmd[4], pre_cmd[5], pre_cmd[6]);
       }
       jog_controller_->start_raw(vel, msg->frame);
     }
@@ -455,10 +489,42 @@ void RobotControllerNode::control_loop_tick() {
                                 ? gripper_.min_width
                                 : bridge_->get_current_finger();
         jog_controller_->set_finger_width(jog_finger);
+
+        // === JOG DIAG: tick 前 FK ===
+        auto pre_cmd = jog_controller_->get_commanded_joints();
+        auto pre_fk = ik_->forward(
+            std::vector<double>(pre_cmd.begin(), pre_cmd.end()));
+        auto target_vel = jog_controller_->get_target_velocity();
+        double jog_scale = jog_controller_->get_velocity_scale();
+
         jog_controller_->tick(fb, [](const std::vector<double>&, double) {});
         auto jog_target = jog_controller_->get_commanded_joints();
         target = std::vector<double>(jog_target.begin(), jog_target.end());
         target_finger = jog_finger;
+
+        // === JOG DIAG: tick 后 FK ===
+        auto post_fk = ik_->forward(target);
+
+        LOG_WARN_THROTTLE(500,
+            "[JOG DIAG] vel=[{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}] "
+            "scale={:.2f} | "
+            "PRE xyz=[{:.5f},{:.5f},{:.5f}] rpy=[{:.5f},{:.5f},{:.5f}] | "
+            "POST xyz=[{:.5f},{:.5f},{:.5f}] rpy=[{:.5f},{:.5f},{:.5f}] | "
+            "dRPY=[{:.6f},{:.6f},{:.6f}] | "
+            "joints=[{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}]",
+            target_vel[0], target_vel[1], target_vel[2],
+            target_vel[3], target_vel[4], target_vel[5],
+            jog_scale,
+            pre_fk[0], pre_fk[1], pre_fk[2],
+            pre_fk[3], pre_fk[4], pre_fk[5],
+            post_fk[0], post_fk[1], post_fk[2],
+            post_fk[3], post_fk[4], post_fk[5],
+            post_fk[3] - pre_fk[3],
+            post_fk[4] - pre_fk[4],
+            post_fk[5] - pre_fk[5],
+            jog_target[0], jog_target[1], jog_target[2],
+            jog_target[3], jog_target[4], jog_target[5],
+            jog_target[6]);
 
         if (!jog_controller_->is_active()) {
           jog_settling_ = true;
