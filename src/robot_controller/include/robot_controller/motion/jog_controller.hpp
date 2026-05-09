@@ -119,7 +119,10 @@ private:
   // 内部位置追踪（避免反馈延迟）
   std::array<double, 7> jog_q_current_{};
 
-  // 姿态/位置约束追踪：记录 Jog 开始时的初始位姿
+  // 笛卡尔偏移累积（位置式 IK：精确累积，无积分误差）
+  std::array<double, 6> cartesian_offset_{};  ///< [dx, dy, dz, dRx, dRy, dRz] base frame
+
+  // 初始位姿参考（用于计算目标笛卡尔位姿）
   Eigen::Vector3d initial_position_{Eigen::Vector3d::Zero()};
   Eigen::Matrix3d initial_rotation_{Eigen::Matrix3d::Identity()};
   bool jog_pose_initialized_ = false;

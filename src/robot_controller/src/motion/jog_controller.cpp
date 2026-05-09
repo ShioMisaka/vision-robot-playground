@@ -28,6 +28,7 @@ void JogController::start(int axis, uint8_t frame) {
   jog_a_ = 0.0;
   frame_ = frame;
   jog_pose_initialized_ = false;
+  cartesian_offset_ = {};
 
   // 构建速度向量: axis → velocity[0..5]
   // axis 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z,6=+R,7=-R,8=+P,9=-P,10=+Yw,11=-Yw
@@ -52,6 +53,7 @@ void JogController::start_raw(const std::array<double, 6>& velocity,
   frame_ = frame;
   target_velocity_ = velocity;
   jog_pose_initialized_ = false;
+  cartesian_offset_ = {};
 }
 
 void JogController::stop() {
@@ -69,6 +71,7 @@ void JogController::emergency_stop(
   jog_q_current_ = feedback_joints;
   target_velocity_ = {};
   jog_pose_initialized_ = false;
+  cartesian_offset_ = {};
 }
 
 void JogController::reset() {
@@ -78,6 +81,7 @@ void JogController::reset() {
   jog_a_ = 0.0;
   target_velocity_ = {};
   jog_pose_initialized_ = false;
+  cartesian_offset_ = {};
 }
 
 bool JogController::tick(
@@ -142,15 +146,14 @@ bool JogController::tick(
     vel[i] = target_velocity_[i] * jog_v_;
   }
 
-  // === 3. 计算当前 FK（用于坐标变换和姿态约束）===
+  // === 3. 计算当前 FK（用于 TCP→Base 坐标变换）===
   std::vector<double> q_vec(jog_q_current_.begin(), jog_q_current_.end());
   Eigen::Matrix4d T_current = ik_->forward_matrix(q_vec);
-  Eigen::Vector3d current_p = T_current.block<3, 1>(0, 3);
   Eigen::Matrix3d current_R = T_current.block<3, 3>(0, 0);
 
   // === 4. 记录初始位姿（仅首次 tick）===
   if (!jog_pose_initialized_) {
-    initial_position_ = current_p;
+    initial_position_ = T_current.block<3, 1>(0, 3);
     initial_rotation_ = current_R;
     jog_pose_initialized_ = true;
   }
@@ -166,54 +169,59 @@ bool JogController::tick(
     vel[3] = w_base.x(); vel[4] = w_base.y(); vel[5] = w_base.z();
   }
 
-  // === 6. 笛卡尔增量 = velocity * dt ===
+  // === 6. 笛卡尔增量累积（精确，无 Jacobian 近似）===
   std::array<double, 6> delta{};
   for (int i = 0; i < 6; ++i) {
     delta[i] = vel[i] * dt;
+    cartesian_offset_[i] += delta[i];
   }
 
-  // === 7. 姿态/位置修正：保持零速度轴回到初始值 ===
-  {
-    // 位置修正：零速度线性轴回到初始位置
-    Eigen::Vector3d p_err = initial_position_ - current_p;
-    for (int i = 0; i < 3; ++i) {
-      if (std::abs(target_velocity_[i]) < 1e-10) {
-        delta[i] += p_err(i);
-      }
-    }
+  // === 7. 构造目标笛卡尔位姿 ===
+  Eigen::Vector3d target_pos = initial_position_ +
+      Eigen::Vector3d(cartesian_offset_[0], cartesian_offset_[1], cartesian_offset_[2]);
 
-    // 姿态修正：零速度旋转轴回到初始姿态
-    Eigen::Matrix3d R_err = initial_rotation_ * current_R.transpose();
-    Eigen::AngleAxisd aa(R_err);
-    Eigen::Vector3d w_err = aa.angle() * aa.axis();
-    for (int i = 0; i < 3; ++i) {
-      if (std::abs(target_velocity_[3 + i]) < 1e-10) {
-        delta[3 + i] += w_err(i);
-      }
-    }
+  // 旋转：initial_rotation * exp(w_offset)
+  Eigen::Vector3d w_offset(cartesian_offset_[3], cartesian_offset_[4], cartesian_offset_[5]);
+  Eigen::Matrix3d target_R = initial_rotation_;
+  if (w_offset.norm() > 1e-10) {
+    target_R = initial_rotation_ *
+        Eigen::AngleAxisd(w_offset.norm(), w_offset.normalized()).toRotationMatrix();
   }
 
-  // === 8. 速度 IK: dq = J⁺ * delta ===
-  auto result = ik_->velocity_ik(q_vec, delta);
+  // 提取 RPY
+  Eigen::Vector3d target_rpy = target_R.eulerAngles(0, 1, 2);
 
-  // === 9. 关节速度限制与同步缩放 ===
-  if (result) {
+  // === 8. 解析 IK（每步独立，无积分误差）===
+  std::array<double, 3> tgt_xyz = {target_pos.x(), target_pos.y(), target_pos.z()};
+  std::array<double, 3> tgt_rpy = {target_rpy.x(), target_rpy.y(), target_rpy.z()};
+
+  auto ik_result = ik_->solve_from(tgt_xyz, tgt_rpy, q_vec);
+
+  if (ik_result) {
+    // === 9. 关节速度限制与同步缩放 ===
     double max_ratio = 0.0;
     for (int i = 0; i < config_.dof; ++i) {
-      double dq = std::abs((*result)[i] - jog_q_current_[i]);
+      double dq = std::abs((*ik_result)[i] - jog_q_current_[i]);
       double limit = (i < 7) ? config_.joint_vel_limits[i] : 2.175;
       double ratio = dq / (limit * dt);
       if (ratio > max_ratio) max_ratio = ratio;
     }
+
     if (max_ratio > 1.0) {
+      // 缩放关节增量以满足速度限制，同时回退笛卡尔偏移
       double scale = 1.0 / max_ratio;
       for (int i = 0; i < config_.dof; ++i) {
-        (*result)[i] = jog_q_current_[i] + ((*result)[i] - jog_q_current_[i]) * scale;
+        (*ik_result)[i] = jog_q_current_[i] +
+            ((*ik_result)[i] - jog_q_current_[i]) * scale;
+      }
+      // 回退笛卡尔偏移到与实际关节运动一致
+      for (int i = 0; i < 6; ++i) {
+        cartesian_offset_[i] -= delta[i] * (1.0 - scale);
       }
     }
 
     for (int i = 0; i < config_.dof; ++i) {
-      jog_q_current_[i] = (*result)[i];
+      jog_q_current_[i] = (*ik_result)[i];
     }
 
     // 发布关节指令
