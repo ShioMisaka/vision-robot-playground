@@ -110,11 +110,9 @@ void FunctionPanel::onGoHome() {
 
 void FunctionPanel::onEmergencyStop() {
   if (node_->is_robot_fault()) {
-    // 故障状态：清除故障
+    // 故障状态：请求清除故障，但不立即释放 UI 锁定。
+    // onCheckFaultState 定时器会在故障实际清除后自动解锁。
     node_->clear_fault();
-    estop_active_ = false;
-    update_estop_button(false);
-    emit estopChanged(false);
   } else {
     // 正常状态：急停
     estop_active_ = true;

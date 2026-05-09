@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <csignal>
 #include <thread>
 
 #include <rclcpp/rclcpp.hpp>
@@ -22,6 +23,10 @@ int main(int argc, char* argv[]) {
   // 初始化 Qt（在 ROS2 init 之后）
   QApplication app(argc, argv);
 
+  // SIGINT/SIGTERM 处理：协调 Qt + ROS2 有序关闭
+  std::signal(SIGINT, [](int) { QApplication::quit(); });
+  std::signal(SIGTERM, [](int) { QApplication::quit(); });
+
   // 创建主窗口
   robot_hmi::MainWindow window(pendant);
   window.show();
@@ -29,9 +34,10 @@ int main(int argc, char* argv[]) {
   // Qt 事件循环
   int ret = app.exec();
 
-  // 清理
+  // 清理：先销毁节点（内部停止后台线程并 join），再关闭 ROS2
   executor.cancel();
   ros_thread.join();
+  pendant.reset();
   rclcpp::shutdown();
 
   return ret;

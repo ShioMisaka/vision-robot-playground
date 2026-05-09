@@ -1,31 +1,31 @@
 #pragma once
 
-#include <QWidget>
+#include <QImage>
 #include <QLabel>
 #include <QPushButton>
-#include <QImage>
+#include <QWidget>
 
-#include <opencv2/core.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <opencv2/core.hpp>
 
-#include <optional>
 #include <mutex>
-#include <vector>
-#include <algorithm>
+#include <optional>
+// #include <vector>
+// #include <algorithm>
 
 namespace robot_hmi {
 
 class CameraPanel : public QWidget {
   Q_OBJECT
 public:
-  explicit CameraPanel(QWidget* parent = nullptr);
+  explicit CameraPanel(QWidget *parent = nullptr);
 
 public slots:
-  void onImageReceived(const QImage& rgb, const QImage& depth,
-                       const cv::Mat& depth_raw);
+  void onImageReceived(const QImage &rgb, const QImage &depth,
+                       const cv::Mat &depth_raw);
   void onEstopChanged(bool active);
   void onTransformUpdated(
-      const std::optional<geometry_msgs::msg::TransformStamped>& tf);
+      const std::optional<geometry_msgs::msg::TransformStamped> &tf);
 
 private slots:
   void onToggleRgbDepth();
@@ -41,19 +41,20 @@ private:
   QString buildTooltipText(int img_x, int img_y) const;
 
   /// 将相机系 3D 点变换到基座系（从缓存的 camera_to_base_ 读取变换）
-  std::optional<std::array<double, 3>> transformToBase(
-      double x3d, double y3d, double z3d) const;
+  std::optional<std::array<double, 3>> transformToBase(double x3d, double y3d,
+                                                       double z3d) const;
 
   /// 鼠标位置 → 原始图像像素坐标，返回 false 表示不在画面内
-  bool mapToImageCoords(const QPoint& label_pos, int& img_x, int& img_y) const;
+  bool mapToImageCoords(const QPoint &label_pos, int &img_x, int &img_y) const;
 
-  bool eventFilter(QObject* watched, QEvent* event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
   void displayCurrentImage();
 
-  QLabel* image_label_;
-  QPushButton* btn_toggle_;
+  QLabel *image_label_;
+  QPushButton *btn_toggle_;
   bool show_depth_ = false;
+  bool estop_active_ = false;
   QImage rgb_image_;
   QImage depth_image_;
   cv::Mat depth_raw_;
@@ -63,4 +64,4 @@ private:
   std::optional<geometry_msgs::msg::TransformStamped> camera_to_base_;
 };
 
-}  // namespace robot_hmi
+} // namespace robot_hmi

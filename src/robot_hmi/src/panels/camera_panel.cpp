@@ -48,7 +48,9 @@ void CameraPanel::onImageReceived(const QImage& rgb, const QImage& depth,
   rgb_image_ = rgb;
   depth_image_ = depth;
   depth_raw_ = depth_raw;
-  displayCurrentImage();
+  if (!estop_active_) {
+    displayCurrentImage();
+  }
 }
 
 void CameraPanel::displayCurrentImage() {
@@ -58,7 +60,9 @@ void CameraPanel::displayCurrentImage() {
 }
 
 void CameraPanel::onEstopChanged(bool active) {
+  estop_active_ = active;
   if (active) {
+    image_label_->setPixmap(QPixmap());
     image_label_->setText("E-STOP ACTIVATED");
     image_label_->setStyleSheet(
         "background-color: #cc0000; color: white; font-size: 24px; "
@@ -67,6 +71,7 @@ void CameraPanel::onEstopChanged(bool active) {
     image_label_->setText("No camera feed");
     image_label_->setStyleSheet(
         "background-color: #2b2b2b; border: 1px solid #555;");
+    displayCurrentImage();
   }
 }
 

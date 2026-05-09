@@ -425,12 +425,22 @@ void PendantNode::async_go_home(VoidCallback callback) {
 
 void PendantNode::async_set_speed(uint8_t mode, double percent) {
   post_task([this, mode, percent]() {
-    if (!cli_speed_->service_is_ready()) return;
+    if (!cli_speed_->service_is_ready()) {
+      LOG_WARN("SetSpeed service not available");
+      return;
+    }
     auto req = std::make_shared<robot_msgs::srv::SetSpeed::Request>();
     req->mode = mode;
     req->percent = percent;
     auto future = cli_speed_->async_send_request(req);
-    future.wait_for(std::chrono::seconds(2));
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+      LOG_WARN("SetSpeed service call timed out");
+      return;
+    }
+    auto res = future.get();
+    if (!res->success) {
+      LOG_WARN("SetSpeed failed: {}", res->message);
+    }
   });
 }
 
@@ -543,6 +553,11 @@ void PendantNode::on_robot_status(
       joint_stream_target_ = latest_joints_;
       joint_stream_dirty_ = false;
     }
+    // Resume joint stream unless jog is still active (jog completion
+    // handler below will resume it in that case).
+    if (!jog_active_.load() && joint_stream_running_.load()) {
+      resume_joint_stream();
+    }
   }
 
   // Jog completion detection (kTeaching → kIdle)
@@ -555,6 +570,10 @@ void PendantNode::on_robot_status(
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
       joint_stream_target_ = latest_joints_;
       joint_stream_dirty_ = false;  // Don't claim ownership
+    }
+
+    if (joint_stream_running_.load()) {
+      resume_joint_stream();
     }
 
     {
@@ -579,22 +598,40 @@ void PendantNode::emergency_stop() {
 
   // 转发 E-STOP 到 RobotControllerNode
   post_task([this]() {
-    if (cli_robot_cmd_->service_is_ready()) {
-      auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
-      req->command = robot_msgs::srv::RobotCmd::Request::EMERGENCY_STOP;
-      auto future = cli_robot_cmd_->async_send_request(req);
-      future.wait_for(std::chrono::seconds(2));
+    if (!cli_robot_cmd_->service_is_ready()) {
+      LOG_ERROR("E-STOP: robot_cmd service not available!");
+      return;
+    }
+    auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
+    req->command = robot_msgs::srv::RobotCmd::Request::EMERGENCY_STOP;
+    auto future = cli_robot_cmd_->async_send_request(req);
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+      LOG_ERROR("E-STOP service call timed out!");
+      return;
+    }
+    auto res = future.get();
+    if (!res->success) {
+      LOG_ERROR("E-STOP failed: {}", res->message);
     }
   });
 }
 
 void PendantNode::clear_fault() {
   post_task([this]() {
-    if (cli_robot_cmd_->service_is_ready()) {
-      auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
-      req->command = robot_msgs::srv::RobotCmd::Request::CLEAR_FAULT;
-      auto future = cli_robot_cmd_->async_send_request(req);
-      future.wait_for(std::chrono::seconds(2));
+    if (!cli_robot_cmd_->service_is_ready()) {
+      LOG_WARN("ClearFault: robot_cmd service not available");
+      return;
+    }
+    auto req = std::make_shared<robot_msgs::srv::RobotCmd::Request>();
+    req->command = robot_msgs::srv::RobotCmd::Request::CLEAR_FAULT;
+    auto future = cli_robot_cmd_->async_send_request(req);
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+      LOG_WARN("ClearFault service call timed out");
+      return;
+    }
+    auto res = future.get();
+    if (!res->success) {
+      LOG_WARN("ClearFault failed: {}", res->message);
     }
   });
 }

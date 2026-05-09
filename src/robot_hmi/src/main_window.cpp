@@ -10,6 +10,7 @@
 
 #include <QVBoxLayout>
 #include <QImage>
+#include <QPointer>
 #include <QPixmap>
 #include <opencv2/core.hpp>
 
@@ -117,16 +118,18 @@ void MainWindow::onRefreshState() {
 
   if (!services) return;
 
+  QPointer<MainWindow> self(this);
   node_->async_get_state(
-      [this](bool success,
+      [self](bool success,
              const std::vector<double>& joints,
              const std::array<double, 6>& pose,
              double finger,
              const std::string& tcp) {
-        if (!success) return;
-        QMetaObject::invokeMethod(this, [this, joints, pose, finger, tcp]() {
-          state_bar_->onStateUpdated(pose, finger, tcp);
-          joint_panel_->onStateUpdated(joints);
+        if (!success || !self) return;
+        QMetaObject::invokeMethod(self, [self, joints, pose, finger, tcp]() {
+          if (!self) return;
+          self->state_bar_->onStateUpdated(pose, finger, tcp);
+          self->joint_panel_->onStateUpdated(joints);
         });
       });
 }
