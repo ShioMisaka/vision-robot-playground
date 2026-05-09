@@ -60,9 +60,6 @@ void RobotControllerNode::init() {
 
   bridge_->set_on_trajectory_started([this](MotionSource source) {
     auto s = state_machine_.state();
-    LOG_WARN("[DIAG] on_trajectory_started: current state={}, source={}",
-                RobotStateMachine::state_name(s),
-                static_cast<int>(source));
     // Set ownership based on source
     motion_owner_.store(source == MotionSource::kApi
                             ? MotionOwner::kScript
@@ -82,10 +79,7 @@ void RobotControllerNode::init() {
     }
     if (s == RobotState::kIdle) {
       state_machine_.transition_to(RobotState::kMoving);
-      LOG_WARN("[DIAG] state transitioned to MOVING");
     } else {
-      LOG_WARN("[DIAG] state NOT transitioned (stays {})",
-                  RobotStateMachine::state_name(s));
     }
   });
 
@@ -464,19 +458,11 @@ void RobotControllerNode::control_loop_tick() {
         target_finger = sp.finger_width;
 
         if (sp.done) {
-          LOG_WARN("[DIAG] trajectory DONE (progress={:.2f}), -> IDLE", sp.progress);
           state_machine_.transition_to(RobotState::kIdle);
           motion_owner_.store(MotionOwner::kNone);
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
-        } else {
-          LOG_WARN_THROTTLE(1000,
-              "[DIAG] kMoving tick: progress={:.2f}, remaining={:.2f}s, target_sz={}",
-              sp.progress, sp.time_remaining, target.size());
         }
-      } else {
-        LOG_WARN_THROTTLE(1000,
-            "[DIAG] kMoving but gen NOT active!");
       }
       break;
     }
@@ -606,14 +592,6 @@ void RobotControllerNode::control_loop_tick() {
 
   // === 3. MONITOR ===
   double error = state_model_.max_following_error();
-
-  if (state == RobotState::kMoving) {
-    LOG_WARN_THROTTLE(1000,
-        "[DIAG] kMoving MONITOR: following_error={:.4f} rad, target[0]={:.4f} actual[0]={:.4f}",
-        error,
-        target.empty() ? 0.0 : target[0],
-        actual.empty() ? 0.0 : actual[0]);
-  }
 
   if (state == RobotState::kMoving &&
       error > ControlConstants::kFollowingErrorLimit) {

@@ -537,7 +537,6 @@ void PendantNode::on_robot_status(
   if (is_idle && was_not_idle) {
     // Controller returned to IDLE — sync internal target for future use.
     // Don't publish (dirty=false): the controller holds position on its own.
-    LOG_INFO("Controller back to IDLE");
     {
       std::lock_guard<std::mutex> jlock(latest_joints_mutex_);
       std::lock_guard<std::mutex> slock(joint_stream_mutex_);
