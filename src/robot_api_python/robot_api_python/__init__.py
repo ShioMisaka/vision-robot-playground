@@ -11,7 +11,6 @@ from robot_api_python._core import (
     Logger,
     MultiThreadedExecutor,
     # Data types
-    CameraExtrinsics,
     TopicConfig,
     RobotProfile,
     GripperProfile,
@@ -60,7 +59,6 @@ __all__ = [
     "rclcpp_shutdown",
     "Logger",
     "MultiThreadedExecutor",
-    "CameraExtrinsics",
     "TopicConfig",
     "RobotProfile",
     "GripperProfile",

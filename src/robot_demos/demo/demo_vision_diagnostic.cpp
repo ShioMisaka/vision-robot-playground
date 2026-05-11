@@ -26,35 +26,32 @@
 #include <robot_logger/logger.hpp>
 
 #include "robot_api/robot_client.hpp"
-#include "robot_description/camera_config.hpp"
+#include "robot_tasks/grasp_task_manager.hpp"
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
-#include "robot_vision/nodes/grasp_task_manager.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
 
 #include <Eigen/Geometry>
 
 using namespace robot_api;
 using namespace robot_vision;
+using namespace robot_tasks;
 using robot_control::rpy_to_rotation;
 
 // ---- HSV 检测参数（红色物块）----
 const std::array<int, 3> kLowerHsv = {0, 100, 100};
 const std::array<int, 3> kUpperHsv = {10, 255, 255};
 
-// ---- 相机内参（统一配置，来自 robot_description::CameraIntrinsics）----
-// 在下方构造 ColorDetector 时直接使用 CameraIntrinsics 常量
+// ---- 相机内参 ----
+constexpr double kFx = 490.6666666666667;
+constexpr double kFy = 490.6666666666667;
+constexpr double kCx = 640.0;
+constexpr double kCy = 360.0;
 
-// ---- 相机外参（来自 robot_description::CameraExtrinsics，与 URDF 一致）----
-const std::array<double, 3> kCameraOffset = {
-    robot_description::CameraExtrinsics::kOffsetX,
-    robot_description::CameraExtrinsics::kOffsetY,
-    robot_description::CameraExtrinsics::kOffsetZ};
-const std::array<double, 3> kCameraRpy = {
-    robot_description::CameraExtrinsics::kRoll,
-    robot_description::CameraExtrinsics::kPitch,
-    robot_description::CameraExtrinsics::kYaw};
+// ---- 相机外参（与 URDF 一致）----
+const std::array<double, 3> kCameraOffset = {0.025, -0.015, 0.015};
+const std::array<double, 3> kCameraRpy = {3.14159265359, 0.0, -1.57079632679};
 
 // ---- 抓取参数（与 demo_vision_grasp 保持一致）----
 constexpr double kGraspHeightOffset = -0.025;  // 从顶面到物块中心
@@ -88,10 +85,7 @@ int main(int argc, char* argv[]) {
   auto robot_client = RobotClient::create("robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
       kLowerHsv, kUpperHsv,
-      robot_description::CameraIntrinsics::kFx,
-      robot_description::CameraIntrinsics::kFy,
-      robot_description::CameraIntrinsics::kCx,
-      robot_description::CameraIntrinsics::kCy);
+      kFx, kFy, kCx, kCy);
   robot_vision::VisionTopicConfig config;
   auto vision_node = VisionProcessorNode::create(detector, config);
 
@@ -136,8 +130,8 @@ int main(int argc, char* argv[]) {
              result->xyz.x(), result->xyz.y(), result->xyz.z());
 
     // 验证 pixel_to_3d 反投影一致性
-    double verify_x = (result->uv.x() - robot_description::CameraIntrinsics::kCx) * result->xyz.z() / robot_description::CameraIntrinsics::kFx;
-    double verify_y = (result->uv.y() - robot_description::CameraIntrinsics::kCy) * result->xyz.z() / robot_description::CameraIntrinsics::kFy;
+    double verify_x = (result->uv.x() - kCx) * result->xyz.z() / kFx;
+    double verify_y = (result->uv.y() - kCy) * result->xyz.z() / kFy;
     LOG_INFO("  反投影验证: x={:.5f} (实际{:.5f} 误差{:.5f}) y={:.5f} (实际{:.5f} 误差{:.5f})",
              verify_x, result->xyz.x(), std::abs(verify_x - result->xyz.x()),
              verify_y, result->xyz.y(), std::abs(verify_y - result->xyz.y()));
@@ -200,7 +194,7 @@ int main(int argc, char* argv[]) {
     Eigen::Vector3d t_hc(kCameraOffset[0], kCameraOffset[1], kCameraOffset[2]);
 
     // camera_link ← optical (USD 相机 → ROS 光学坐标系: Ry(π))
-    Eigen::Matrix3d R_co = rpy_to_rotation(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
+    Eigen::Matrix3d R_co = rpy_to_rotation(0.0, 3.14159265359, 0.0);
 
     // 合成: base ← optical
     Eigen::Matrix3d R = R_bh * R_hc * R_co;
@@ -235,7 +229,8 @@ int main(int argc, char* argv[]) {
         0.025, 0.01, 50, 3,  // approach params
         "panda_hand",
         kCameraOffset,
-        kCameraRpy);
+        kCameraRpy,
+        3.14159265359);  // optical_frame_pitch
 
     // 通过 step_detect 使用相同的 transform_to_base
     auto mgr_base = task.transform_to_base(result->xyz, true);

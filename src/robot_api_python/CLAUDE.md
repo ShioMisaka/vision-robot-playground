@@ -1,7 +1,7 @@
 # robot_api_python
 
 ## 职责
-通过 pybind11 将 C++ 核心（robot_controller + robot_vision + robot_api_cpp）暴露为 Python API。
+通过 pybind11 将 C++ 核心（robot_controller + robot_vision + robot_api_cpp + robot_tasks）暴露为 Python API。
 使 Python 脚本能够使用 `rclcpp`（而非 `rclpy`）控制机器人，支持运动控制、视觉检测和抓取任务。
 提供两种使用模式：直接链接 C++ 库（RobotControllerNode）和通过 Service 调用外部节点（RobotClient）。
 
@@ -42,7 +42,8 @@ _core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp 
 | `TcpConfig` | TCP 偏移（offset_xyz, offset_rpy） |
 | `TopicConfig` | ROS2 话题名称 + 相机外参（来自 robot_controller） |
 | `VisionTopicConfig` | 视觉节点相机话题配置（camera_left, camera_depth, sync_queue_size, sync_max_slop） |
-| `CameraExtrinsics` | 相机安装位姿（xyz, rpy） |
+| `CameraExtrinsics` | 相机安装位姿（xyz, rpy）— 注意: 此类已移除，请使用 CameraConfig |
+| `CameraConfig` | 相机完整配置（intrinsics + extrinsics + optical frame + frame names） |
 | `MotionLimits` | 运动限值（max_vel, max_acc, max_jerk） |
 | `DetectionResult` | 视觉检测结果（detected, xyz, uv, confidence, label） |
 | `MotionMode` | 枚举：MOVE_J, MOVE_L |
@@ -175,7 +176,7 @@ python3 script/test_camera_tf.py        # 相机 TF 验证（RobotControllerNode
 ```
 
 ## 包内依赖
-- **内部依赖**: robot_api_cpp, robot_controller, robot_vision, robot_msgs, robot_logger
+- **内部依赖**: robot_api_cpp, robot_controller, robot_vision, robot_tasks, robot_msgs, robot_logger
 - **外部依赖**: rclcpp, tf2_ros, pybind11-dev
 
 ## 修改指南

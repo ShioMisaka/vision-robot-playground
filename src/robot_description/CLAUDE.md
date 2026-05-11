@@ -11,9 +11,8 @@
 无
 
 ## 关键参数
-无 YAML 配置。
 
-## Profile 配置
+### Profile 配置
 
 YAML profile 文件定义机器人的运动学参数（关节限位、运动极限、TCP 配置等），
 供 `robot_controller` 的 `ProfileLoader` 在运行时加载。
@@ -21,6 +20,15 @@ YAML profile 文件定义机器人的运动学参数（关节限位、运动极�
 | 文件 | 说明 |
 |------|------|
 | `config/panda_profile.yaml` | Franka Panda 7-DOF 参数 |
+
+### 相机配置
+
+YAML 相机参数文件定义 ZED_X_Mini 相机的内外参和坐标系关系，
+供 `robot_vision` 的 `CameraConfigLoader` 在运行时加载。
+
+| 文件 | 说明 |
+|------|------|
+| `config/zed_x_mini_camera.yaml` | ZED_X_Mini 相机内外参 + TF 配置 |
 
 ### Profile 字段说明
 - `robot`: 机器人参数（name, urdf_path, dof, joint_names, limits, tcp_frames 等）
@@ -50,7 +58,7 @@ YAML profile 文件定义机器人的运动学参数（关节限位、运动极�
 ### 相机安装参数
 - 安装位置（相对 panda_hand）: `xyz="0.025 -0.015 0.015"`, `rpy="3.14159265359 0 -1.57079632679"`
 - 左目光心，eye-in-hand 配置，与 Isaac Sim 中查询到的 local transform 一致
-- 外参统一配置于 `include/robot_description/camera_config.hpp` 中的 `CameraExtrinsics`
+- 内外参统一配置于 `config/zed_x_mini_camera.yaml`，由 `robot_vision` 的 `CameraConfigLoader` 加载
 
 ### 夹爪接触属性
 | 参数 | 值 | 说明 |

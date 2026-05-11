@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
   const auto& profile = config.robot;
   const auto& gripper = config.gripper;
   robot_control::TopicConfig topics;
-  // 相机外参已由 TopicConfig 默认值提供（来自 robot_description::CameraExtrinsics）
+  // 相机外参由 robot_vision 的 VisionProcessorNode 通过 CameraConfig 发布 TF
 
   auto robot_node = robot_control::RobotControllerNode::create(
       profile, gripper, topics);

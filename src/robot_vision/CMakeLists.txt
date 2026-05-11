@@ -16,14 +16,12 @@ find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(image_transport REQUIRED)
-find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(robot_controller REQUIRED)
-find_package(robot_description REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
+
 add_library(robot_vision_core SHARED
   src/vision/color_detector.cpp
   src/vision/camera_config_loader.cpp
@@ -37,15 +35,13 @@ target_include_directories(robot_vision_core PUBLIC
 ament_target_dependencies(robot_vision_core
   OpenCV
   Eigen3
-  yaml-cpp
 )
 
-target_link_libraries(robot_vision_core robot_logger::robot_logger_lib yaml-cpp)
+target_link_libraries(robot_vision_core Eigen3::Eigen robot_logger::robot_logger_lib yaml-cpp)
 
-# ===== robot_vision_nodes: ROS2 视觉节点 + 任务管理器（依赖 vision_core + motion）=====
+# ===== robot_vision_nodes: ROS2 视觉节点（依赖 vision_core）=====
 add_library(robot_vision_nodes SHARED
   src/nodes/vision_processor_node.cpp
-  src/nodes/grasp_task_manager.cpp
 )
 
 target_include_directories(robot_vision_nodes PUBLIC
@@ -53,7 +49,7 @@ target_include_directories(robot_vision_nodes PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(robot_vision_nodes robot_vision_core robot_controller::robot_motion robot_logger::robot_logger_lib)
+target_link_libraries(robot_vision_nodes robot_vision_core robot_logger::robot_logger_lib)
 target_compile_definitions(robot_vision_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
 
 ament_target_dependencies(robot_vision_nodes
@@ -63,9 +59,7 @@ ament_target_dependencies(robot_vision_nodes
   cv_bridge
   message_filters
   image_transport
-  robot_msgs
   tf2_ros
-  robot_description
 )
 
 # ===== 安装 =====
@@ -80,18 +74,6 @@ install(TARGETS robot_vision_core robot_vision_nodes
   RUNTIME DESTINATION bin
 )
 
-# ===== 集成测试（需要 Isaac Sim 运行中）=====
-add_executable(test_camera_tf
-  test/test_camera_tf.cpp
-)
-target_link_libraries(test_camera_tf robot_controller::robot_nodes robot_logger::robot_logger_lib)
-target_link_libraries(test_camera_tf robot_vision_nodes)
-target_compile_definitions(test_camera_tf PRIVATE ROBOT_LOGGER_MODULE_NAME="vision")
-
-install(TARGETS test_camera_tf
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-
 # ===== 导出（供下游包 find_package 使用）=====
 ament_export_targets(robot_vision_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
@@ -101,11 +83,9 @@ ament_export_dependencies(
   cv_bridge
   message_filters
   image_transport
-  robot_msgs
   Eigen3
   OpenCV
   yaml-cpp
-  robot_controller
   robot_logger
 )
 

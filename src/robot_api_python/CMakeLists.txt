@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(robot_api_cpp REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_vision REQUIRED)
+find_package(robot_tasks REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -37,6 +38,7 @@ target_link_libraries(_core PRIVATE
   robot_controller::robot_nodes
   robot_vision::robot_vision_core
   robot_vision::robot_vision_nodes
+  robot_tasks::robot_tasks_lib
 )
 
 # ===== 安装 =====
@@ -59,6 +61,7 @@ ament_export_dependencies(
   robot_msgs
   tf2_ros
   robot_logger
+  robot_tasks
 )
 
 ament_package()

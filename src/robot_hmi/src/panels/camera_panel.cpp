@@ -1,7 +1,6 @@
 #include "robot_hmi/panels/camera_panel.hpp"
 
 #include <robot_logger/logger.hpp>
-#include "robot_description/camera_config.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -148,19 +147,14 @@ bool CameraPanel::mapToImageCoords(const QPoint& label_pos, int& img_x,
 void CameraPanel::printClickDiag(int img_x, int img_y) const {
   if (depth_raw_.empty()) return;
 
-  constexpr double fx = robot_description::CameraIntrinsics::kFx;
-  constexpr double fy = robot_description::CameraIntrinsics::kFy;
-  constexpr double cx = robot_description::CameraIntrinsics::kCx;
-  constexpr double cy = robot_description::CameraIntrinsics::kCy;
-
   float depth = getMedianDepth(img_x, img_y);
   if (depth <= 0) {
     LOG_WARN("[CLICK] 深度无效");
     return;
   }
 
-  double x3d = (img_x - cx) * depth / fx;
-  double y3d = (img_y - cy) * depth / fy;
+  double x3d = (img_x - cx_) * depth / fx_;
+  double y3d = (img_y - cy_) * depth / fy_;
   double z3d = depth;
 
   LOG_INFO("======== [CLICK DIAG] ========");
@@ -168,7 +162,7 @@ void CameraPanel::printClickDiag(int img_x, int img_y) const {
   LOG_INFO("  像素: ({}, {})", img_x, img_y);
   LOG_INFO("  深度: {:.4f} m", depth);
   LOG_INFO("  3D(Cam): ({:.5f}, {:.5f}, {:.5f})", x3d, y3d, z3d);
-  LOG_INFO("  内参: fx={:.2f} fy={:.2f} cx={:.1f} cy={:.1f}", fx, fy, cx, cy);
+  LOG_INFO("  内参: fx={:.2f} fy={:.2f} cx={:.1f} cy={:.1f}", fx_, fy_, cx_, cy_);
 
   auto base = transformToBase(x3d, y3d, z3d);
   if (base.has_value()) {
@@ -201,12 +195,6 @@ float CameraPanel::getMedianDepth(int img_x, int img_y) const {
 }
 
 QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
-  // 相机内参（统一配置，来自 robot_description::CameraIntrinsics）
-  constexpr double fx = robot_description::CameraIntrinsics::kFx;
-  constexpr double fy = robot_description::CameraIntrinsics::kFy;
-  constexpr double cx = robot_description::CameraIntrinsics::kCx;
-  constexpr double cy = robot_description::CameraIntrinsics::kCy;
-
   // ---- 深度值（5x5 中值滤波减少噪声） ----
   float depth = getMedianDepth(img_x, img_y);
   QString depth_str =
@@ -226,8 +214,8 @@ QString CameraPanel::buildTooltipText(int img_x, int img_y) const {
   QString xyz_str;
   QString base_str;
   if (depth > 0) {
-    double x3d = (img_x - cx) * depth / fx;
-    double y3d = (img_y - cy) * depth / fy;
+    double x3d = (img_x - cx_) * depth / fx_;
+    double y3d = (img_y - cy_) * depth / fy_;
     double z3d = depth;
     xyz_str = QString("(%1, %2, %3) m")
                   .arg(x3d, 0, 'f', 3)
@@ -283,6 +271,13 @@ std::optional<std::array<double, 3>> CameraPanel::transformToBase(
       r00*x3d + r01*y3d + r02*z3d + tx,
       r10*x3d + r11*y3d + r12*z3d + ty,
       r20*x3d + r21*y3d + r22*z3d + tz};
+}
+
+void CameraPanel::set_camera_intrinsics(double fx, double fy, double cx, double cy) {
+  fx_ = fx;
+  fy_ = fy;
+  cx_ = cx;
+  cy_ = cy;
 }
 
 }  // namespace robot_hmi

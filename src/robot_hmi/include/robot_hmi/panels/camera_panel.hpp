@@ -20,6 +20,8 @@ class CameraPanel : public QWidget {
 public:
   explicit CameraPanel(QWidget *parent = nullptr);
 
+  void set_camera_intrinsics(double fx, double fy, double cx, double cy);
+
 public slots:
   void onImageReceived(const QImage &rgb, const QImage &depth,
                        const cv::Mat &depth_raw);
@@ -62,6 +64,11 @@ private:
   /// 缓存的相机→基坐标系变换（由 MainWindow 5Hz 更新）
   mutable std::mutex tf_mutex_;
   std::optional<geometry_msgs::msg::TransformStamped> camera_to_base_;
+
+  double fx_ = 490.6666666666667;
+  double fy_ = 490.6666666666667;
+  double cx_ = 640.0;
+  double cy_ = 360.0;
 };
 
 } // namespace robot_hmi

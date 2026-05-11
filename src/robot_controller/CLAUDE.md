@@ -121,7 +121,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | test/test_trajectory_planner.cpp | 零位移、完整 7 相位、负位移、无巡航、短距离、Jerk 连续性、多轴同步 |
 | test/test_motion_controller.cpp | 速度设置、moveJ/moveL 轨迹、抓取状态（使用 MockMotionBridge） |
 
-注：集成测试（test_robot_node.cpp）已迁移至 `robot_demos/test/`。test_camera_tf.cpp 仍位于 `robot_vision/test/`。
+注：集成测试（test_robot_node.cpp）已迁移至 `robot_demos/test/`。test_camera_tf.cpp 已迁移至 `robot_tasks/test/`。
 
 ### 演示
 所有演示已迁移至 `robot_demos` 包（demo_grasp_tcp 等）。

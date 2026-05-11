@@ -17,7 +17,6 @@ find_package(message_filters REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(robot_logger REQUIRED)
-find_package(robot_description REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -80,7 +79,6 @@ ament_target_dependencies(robot_hmi
   tf2_ros
   tf2_geometry_msgs
   geometry_msgs
-  robot_description
 )
 
 # ===== 安装 =====

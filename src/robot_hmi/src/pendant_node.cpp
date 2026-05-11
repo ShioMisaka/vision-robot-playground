@@ -1,7 +1,6 @@
 #include "robot_hmi/pendant_node.hpp"
 
 #include <robot_logger/logger.hpp>
-#include "robot_description/camera_config.hpp"
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -716,53 +715,9 @@ void PendantNode::resume_joint_stream() {
 std::optional<geometry_msgs::msg::TransformStamped>
 PendantNode::lookup_camera_to_base_transform() {
   try {
-    // 手动计算 base ← optical 变换，不依赖 TF 树中的相机帧。
-    // 原因：Isaac Sim 可能也发布相机 TF，与 RosMotionBridge 的静态 TF 冲突，
-    // 导致 TF2 返回错误的 camera_color_optical_frame 变换。
-    //
-    // 变换链: base ← hand (TF2 FK) * hand ← camera_link (硬编码外参)
-    //        * camera_link ← optical (Ry(π))
-
-    // 1. base ← hand（FK，来自 TF2，不涉及相机帧）
-    auto tf_base_hand = tf_buffer_->lookupTransform(
-        "panda_link0", "panda_hand", tf2::TimePointZero);
-    tf2::Transform T_base_hand;
-    tf2::fromMsg(tf_base_hand.transform, T_base_hand);
-
-    // 2. hand ← camera_link（外参来自 robot_description::CameraExtrinsics）
-    tf2::Quaternion q_hc;
-    q_hc.setRPY(robot_description::CameraExtrinsics::kRoll,
-                 robot_description::CameraExtrinsics::kPitch,
-                 robot_description::CameraExtrinsics::kYaw);
-    tf2::Transform T_hand_cam(q_hc, tf2::Vector3(
-        robot_description::CameraExtrinsics::kOffsetX,
-        robot_description::CameraExtrinsics::kOffsetY,
-        robot_description::CameraExtrinsics::kOffsetZ));
-
-    // 3. camera_link ← optical（USD 相机 → ROS 光学: Ry(π)）
-    tf2::Quaternion q_co;
-    q_co.setRPY(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
-    tf2::Transform T_cam_opt(q_co, tf2::Vector3(0.0, 0.0, 0.0));
-
-    // 4. 合成: base ← optical
-    tf2::Transform T_base_opt = T_base_hand * T_hand_cam * T_cam_opt;
-
-    // 5. 转回 TransformStamped
-    geometry_msgs::msg::TransformStamped result;
-    result.header = tf_base_hand.header;
-    result.header.frame_id = "panda_link0";
-    result.child_frame_id = "camera_color_optical_frame";
-    auto& t = result.transform.translation;
-    t.x = T_base_opt.getOrigin().x();
-    t.y = T_base_opt.getOrigin().y();
-    t.z = T_base_opt.getOrigin().z();
-    auto& r = result.transform.rotation;
-    r.x = T_base_opt.getRotation().x();
-    r.y = T_base_opt.getRotation().y();
-    r.z = T_base_opt.getRotation().z();
-    r.w = T_base_opt.getRotation().w();
-
-    return result;
+    // 相机 TF 由 robot_vision 发布，直接查询 TF2
+    return tf_buffer_->lookupTransform(
+        "panda_link0", "camera_color_optical_frame", tf2::TimePointZero);
   } catch (const tf2::TransformException&) {
     return std::nullopt;
   }

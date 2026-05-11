@@ -15,11 +15,8 @@
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
   <depend>image_transport</depend>
-  <depend>robot_msgs</depend>
   <depend>OpenCV</depend>
   <depend>eigen</depend>
-  <depend>robot_controller</depend>
-  <depend>robot_description</depend>
   <depend>robot_logger</depend>
   <depend>tf2_ros</depend>
 

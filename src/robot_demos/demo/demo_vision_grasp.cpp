@@ -32,15 +32,14 @@
 
 #include "robot_api/robot_client.hpp"
 
-#include "robot_description/camera_config.hpp"
-
+#include "robot_tasks/grasp_task_manager.hpp"
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
-#include "robot_vision/nodes/grasp_task_manager.hpp"
 
 using namespace robot_api;
 using namespace robot_vision;
+using namespace robot_tasks;
 
 // ---- 全局中止标志 ----
 static std::atomic<bool> g_abort{false};
@@ -49,8 +48,11 @@ static std::atomic<bool> g_abort{false};
 const std::array<int, 3> kLowerHsv = {0, 100, 100};
 const std::array<int, 3> kUpperHsv = {10, 255, 255};
 
-// ---- 相机内参（统一配置，来自 robot_description::CameraIntrinsics）----
-// 在下方构造 ColorDetector 时直接使用 CameraIntrinsics 常量
+// ---- 相机内参 ----
+constexpr double kFx = 490.6666666666667;
+constexpr double kFy = 490.6666666666667;
+constexpr double kCx = 640.0;
+constexpr double kCy = 360.0;
 
 // ---- 运动参数 ----
 constexpr double kMoveJSpeed = 40.0;
@@ -88,10 +90,7 @@ int main(int argc, char* argv[]) {
   auto robot_client = RobotClient::create("robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
       kLowerHsv, kUpperHsv,
-      robot_description::CameraIntrinsics::kFx,
-      robot_description::CameraIntrinsics::kFy,
-      robot_description::CameraIntrinsics::kCx,
-      robot_description::CameraIntrinsics::kCy);
+      kFx, kFy, kCx, kCy);
   robot_vision::VisionTopicConfig config;
   auto vision_node = VisionProcessorNode::create(detector, config);
 
@@ -147,10 +146,10 @@ int main(int argc, char* argv[]) {
              first_result->xyz.x(), first_result->xyz.y(),
              first_result->xyz.z());
     // 诊断：验证 uv 到 camera_xyz 的投影是否一致
-    double verify_x = (first_result->uv.x() - robot_description::CameraIntrinsics::kCx) *
-                      first_result->xyz.z() / robot_description::CameraIntrinsics::kFx;
-    double verify_y = (first_result->uv.y() - robot_description::CameraIntrinsics::kCy) *
-                      first_result->xyz.z() / robot_description::CameraIntrinsics::kFy;
+    double verify_x = (first_result->uv.x() - kCx) *
+                      first_result->xyz.z() / kFx;
+    double verify_y = (first_result->uv.y() - kCy) *
+                      first_result->xyz.z() / kFy;
     LOG_INFO("[DIAG] 投影验证: 由uv反算 x={:.4f} (实际{:.4f}) y={:.4f} (实际{:.4f}) "
              "depth={:.4f}",
              verify_x, first_result->xyz.x(),
@@ -178,12 +177,9 @@ int main(int argc, char* argv[]) {
         50,       // max_approach_steps
         3,        // max_consecutive_failures
         "panda_hand",
-        {robot_description::CameraExtrinsics::kOffsetX,
-         robot_description::CameraExtrinsics::kOffsetY,
-         robot_description::CameraExtrinsics::kOffsetZ},
-        {robot_description::CameraExtrinsics::kRoll,
-         robot_description::CameraExtrinsics::kPitch,
-         robot_description::CameraExtrinsics::kYaw});
+        {0.025, -0.015, 0.015},    // camera_offset
+        {3.14159265359, 0.0, -1.57079632679},  // camera_rpy
+        3.14159265359);            // optical_frame_pitch
 
     // 在后台线程执行抓取，主线程监控 Ctrl+C
     bool success = false;

@@ -126,7 +126,7 @@ ros2 run robot_hmi robot_hmi
 
 ## 包内依赖
 - **内部依赖**: robot_msgs, robot_logger
-- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV
+- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV, tf2_ros
 
 ## 修改指南
 - **修改 UI 布局** → 编辑 `src/main_window.cpp` 的 `setupUi()`

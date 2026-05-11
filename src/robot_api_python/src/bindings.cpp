@@ -3,7 +3,6 @@
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include "robot_description/camera_config.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <robot_logger/logger.hpp>
@@ -17,7 +16,7 @@
 #include "robot_controller/motion/i_robot_controller.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
 #include "robot_controller/motion/robot_motion_controller.hpp"
-#include "robot_vision/nodes/grasp_task_manager.hpp"
+#include "robot_tasks/grasp_task_manager.hpp"
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
@@ -35,6 +34,7 @@
 namespace py = pybind11;
 using namespace robot_control;
 using namespace robot_vision;
+using namespace robot_tasks;
 
 // ============================================================
 // Eigen → Python 类型转换辅助
@@ -395,7 +395,8 @@ PYBIND11_MODULE(_core, m) {
                     double, double, double, int, int,
                     const std::string&,
                     const std::array<double, 3>&,
-                    const std::array<double, 3>&>(),
+                    const std::array<double, 3>&,
+                    double>(),
            py::arg("robot"), py::arg("vision"),
            py::arg("base_frame") = "panda_link0",
            py::arg("camera_frame") = "camera_color_optical_frame",
@@ -406,18 +407,16 @@ PYBIND11_MODULE(_core, m) {
            py::arg("redetect_samples") = 5,
            py::arg("redetect_interval") = 0.1,
            py::arg("max_reach") = 0.85,
-           py::arg("approach_step_size") = 0.05,
+           py::arg("approach_step_size") = 0.025,
            py::arg("approach_tolerance") = 0.01,
-           py::arg("max_approach_steps") = 100,
+           py::arg("max_approach_steps") = 50,
            py::arg("max_consecutive_failures") = 3,
            py::arg("hand_frame") = "panda_hand",
            py::arg("camera_offset") =
-               std::array<double, 3>{0.0, 0.0, 0.0},
+               std::array<double, 3>{0.025, -0.015, 0.015},
            py::arg("camera_rpy") =
-               std::array<double, 3>{
-                   robot_description::CameraExtrinsics::kRoll,
-                   robot_description::CameraExtrinsics::kPitch,
-                   robot_description::CameraExtrinsics::kYaw})
+               std::array<double, 3>{3.14159265359, 0.0, -1.57079632679},
+           py::arg("optical_frame_pitch") = 3.14159265359)
       .def("run", &GraspTaskManager::run,
            py::arg("timeout") = 30.0,
            py::call_guard<py::gil_scoped_release>())
@@ -539,7 +538,8 @@ PYBIND11_MODULE(_core, m) {
              std::shared_ptr<VisionProcessorNode>>(
       m, "VisionProcessorNode")
       .def_static("create", &VisionProcessorNode::create,
-                  py::arg("processor"), py::arg("config"))
+                  py::arg("processor"), py::arg("config"),
+                  py::arg("camera_config") = robot_vision::CameraConfig{})
       .def("get_latest_result", &VisionProcessorNode::get_latest_result)
       .def("wait_for_detection", &VisionProcessorNode::wait_for_detection,
            py::arg("timeout") = 10.0,
