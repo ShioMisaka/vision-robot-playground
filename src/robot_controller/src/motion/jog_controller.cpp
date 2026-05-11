@@ -85,21 +85,13 @@ void JogController::reset() {
   cartesian_offset_ = {};
 }
 
-bool JogController::tick(
-    const std::array<double, 7> &feedback_joints) {
-  if (!jog_active_ || !ik_)
-    return false;
+// ===== S-curve 速度 ramp =====
 
+bool JogController::update_velocity_ramp() {
   const double dt = config_.dt;
   const double a_max = config_.a_max;
   const double j_max = config_.j_max;
 
-  // 首次 tick 或位置未初始化时从反馈初始化
-  if (jog_v_ == 0.0 && jog_a_ == 0.0 && !jog_stopping_) {
-    init_position(feedback_joints);
-  }
-
-  // === 1. S-curve 速度 ramp（jerk-limited acceleration control）===
   if (jog_stopping_) {
     // --- 减速至 v=0 ---
     if (jog_a_ < 0 && jog_v_ <= jog_a_ * jog_a_ / (2.0 * j_max) + 1e-8) {
@@ -140,6 +132,61 @@ bool JogController::tick(
       jog_a_ = 0.0;
     }
   }
+
+  return true;
+}
+
+// ===== 关节速度限制与同步缩放 =====
+
+void JogController::enforce_joint_limits(
+    std::vector<double> &ik_result,
+    const std::array<double, 6> &delta) {
+  const double dt = config_.dt;
+
+  double max_ratio = 0.0;
+  for (int i = 0; i < config_.dof; ++i) {
+    double dq = std::abs(ik_result[i] - jog_q_current_[i]);
+    double limit = (i < 7) ? config_.joint_vel_limits[i] : 2.175;
+    double ratio = dq / (limit * dt);
+    if (ratio > max_ratio)
+      max_ratio = ratio;
+  }
+
+  if (max_ratio > 1.0) {
+    // 缩放关节增量以满足速度限制，同时回退笛卡尔偏移
+    double scale = 1.0 / max_ratio;
+    for (int i = 0; i < config_.dof; ++i) {
+      ik_result[i] =
+          jog_q_current_[i] + (ik_result[i] - jog_q_current_[i]) * scale;
+    }
+    // 回退笛卡尔偏移到与实际关节运动一致
+    for (int i = 0; i < 6; ++i) {
+      cartesian_offset_[i] -= delta[i] * (1.0 - scale);
+    }
+  }
+
+  for (int i = 0; i < config_.dof; ++i) {
+    jog_q_current_[i] = ik_result[i];
+  }
+}
+
+// ===== Tick =====
+
+bool JogController::tick(
+    const std::array<double, 7> &feedback_joints) {
+  if (!jog_active_ || !ik_)
+    return false;
+
+  const double dt = config_.dt;
+
+  // 首次 tick 或位置未初始化时从反馈初始化
+  if (jog_v_ == 0.0 && jog_a_ == 0.0 && !jog_stopping_) {
+    init_position(feedback_joints);
+  }
+
+  // === 1. S-curve 速度 ramp ===
+  if (!update_velocity_ramp())
+    return false; // 减速完成
 
   // === 2. 按速度比例缩放笛卡尔速度 ===
   std::array<double, 6> vel{};
@@ -198,37 +245,11 @@ bool JogController::tick(
   }
 
   // === 8. 解析 IK（每步独立，无积分误差）===
-  // 直接传递旋转矩阵给 IK，避免 Euler angle 往返转换导致的
-  // 约定不匹配和值域间断问题
   auto ik_result = ik_->solve_from_frame(target_pos, target_R, q_vec);
 
   if (ik_result) {
     // === 9. 关节速度限制与同步缩放 ===
-    double max_ratio = 0.0;
-    for (int i = 0; i < config_.dof; ++i) {
-      double dq = std::abs((*ik_result)[i] - jog_q_current_[i]);
-      double limit = (i < 7) ? config_.joint_vel_limits[i] : 2.175;
-      double ratio = dq / (limit * dt);
-      if (ratio > max_ratio)
-        max_ratio = ratio;
-    }
-
-    if (max_ratio > 1.0) {
-      // 缩放关节增量以满足速度限制，同时回退笛卡尔偏移
-      double scale = 1.0 / max_ratio;
-      for (int i = 0; i < config_.dof; ++i) {
-        (*ik_result)[i] =
-            jog_q_current_[i] + ((*ik_result)[i] - jog_q_current_[i]) * scale;
-      }
-      // 回退笛卡尔偏移到与实际关节运动一致
-      for (int i = 0; i < 6; ++i) {
-        cartesian_offset_[i] -= delta[i] * (1.0 - scale);
-      }
-    }
-
-    for (int i = 0; i < config_.dof; ++i) {
-      jog_q_current_[i] = (*ik_result)[i];
-    }
+    enforce_joint_limits(*ik_result, delta);
   }
 
   return true;

@@ -474,8 +474,6 @@ void RobotControllerNode::control_loop_tick() {
         double jog_finger = controller_->is_grasping()
                                 ? gripper_.min_width
                                 : bridge_->get_current_finger();
-        jog_controller_->set_finger_width(jog_finger);
-
         // === JOG DIAG: tick 前 FK ===
         auto pre_cmd = jog_controller_->get_commanded_joints();
         auto pre_fk = ik_->forward(
@@ -483,7 +481,7 @@ void RobotControllerNode::control_loop_tick() {
         auto target_vel = jog_controller_->get_target_velocity();
         double jog_scale = jog_controller_->get_velocity_scale();
 
-        jog_controller_->tick(fb, [](const std::vector<double>&, double) {});
+        jog_controller_->tick(fb);
         auto jog_target = jog_controller_->get_commanded_joints();
         target = std::vector<double>(jog_target.begin(), jog_target.end());
         target_finger = jog_finger;

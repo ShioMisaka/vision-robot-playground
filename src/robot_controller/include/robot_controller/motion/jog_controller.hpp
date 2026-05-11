@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <vector>
 
@@ -77,10 +76,8 @@ public:
 
   /// @brief 执行一个 tick 的 Jog 计算
   /// @param feedback_joints 当前实际关节角度（用于初始化位置）
-  /// @param publish_fn 发布回调 (arm_positions, finger_width)
   /// @return true 仍在运行（加速/匀速/减速中），false 减速完成
-  bool tick(const std::array<double, 7>& feedback_joints,
-            std::function<void(const std::vector<double>&, double)> publish_fn);
+  bool tick(const std::array<double, 7>& feedback_joints);
 
   /// @brief Jog 是否处于活动状态
   bool is_active() const { return jog_active_; }
@@ -91,9 +88,6 @@ public:
   /// @brief 获取内部指令关节位置
   std::array<double, 7> get_commanded_joints() const { return jog_q_current_; }
 
-  /// @brief 设置夹爪宽度（用于发布）
-  void set_finger_width(double width) { finger_width_ = width; }
-
   /// @brief 获取当前速度比例（0..1）
   double get_velocity_scale() const { return jog_v_; }
 
@@ -102,6 +96,16 @@ public:
 
 private:
   void init_position(const std::array<double, 7>& feedback_joints);
+
+  /// @brief S-curve 速度 ramp（jerk-limited 加减速控制）
+  /// @return true 继续（加速/匀速/减速中），false 减速完成
+  bool update_velocity_ramp();
+
+  /// @brief 关节速度限制与同步缩放，超限时回退笛卡尔偏移
+  /// @param ik_result IK 解算结果（会被就地修改）
+  /// @param delta 本 tick 的笛卡尔增量（用于回退偏移）
+  void enforce_joint_limits(std::vector<double>& ik_result,
+                            const std::array<double, 6>& delta);
 
   std::shared_ptr<IKSolver> ik_;
   JogConfig config_;
@@ -127,9 +131,6 @@ private:
   Eigen::Matrix3d initial_rotation_{Eigen::Matrix3d::Identity()};
   bool jog_pose_initialized_ = false;
 
-  // 夹爪宽度（初始值 0.04 仅在首次 set_finger_width 前使用，
-  // 正常流程中 control_loop_tick 会在每个 tick 设置实际值）
-  double finger_width_ = 0.04;
 };
 
 }  // namespace robot_control
