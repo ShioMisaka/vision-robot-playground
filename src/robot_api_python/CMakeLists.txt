@@ -14,6 +14,7 @@ find_package(robot_vision REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # Python3 必须在 pybind11 之前查找（包含 Development 用于编译）
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)

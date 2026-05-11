@@ -21,7 +21,8 @@
 #include "robot_controller/nodes/robot_controller_node.hpp"
 #include "robot_vision/nodes/vision_processor_node.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
+#include "robot_controller/kinematics/profile_loader.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include "robot_api/service_robot_controller.hpp"
 #include "robot_api/robot_client.hpp"
 
@@ -553,8 +554,19 @@ PYBIND11_MODULE(_core, m) {
              return self.get_logger();
            });
 
-  // ===== Profile 函数 =====
-  auto profiles = m.def_submodule("profiles");
-  profiles.def("panda", &profiles::panda);
-  profiles.def("panda_gripper", &profiles::panda_gripper);
+  // ===== Profile 加载 =====
+
+  // RobotConfig
+  py::class_<RobotConfig>(m, "RobotConfig")
+      .def_readonly("robot", &RobotConfig::robot)
+      .def_readonly("gripper", &RobotConfig::gripper);
+
+  // 便捷函数：从 robot_description 包加载指定 profile
+  m.def("load_profile", [](const std::string& profile_name) {
+    const auto desc_dir =
+        ament_index_cpp::get_package_share_directory("robot_description");
+    return ProfileLoader::load(
+        desc_dir + "/config/" + profile_name + "_profile.yaml", desc_dir);
+  }, py::arg("profile_name") = "panda",
+     "Load robot config from YAML. Defaults to 'panda'.");
 }
