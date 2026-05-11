@@ -2,13 +2,11 @@
 #include "robot_controller/kinematics/robot_profile.hpp"
 
 #include <Eigen/Geometry>
-#include <rclcpp/logging.hpp>
 #include <robot_logger/logger.hpp>
 
 #include <chrono>
 #include <cmath>
 #include <thread>
-// #include <vector>
 
 namespace robot_tasks {
 

@@ -14,11 +14,11 @@
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
-  <depend>image_transport</depend>
   <depend>OpenCV</depend>
   <depend>eigen</depend>
   <depend>robot_logger</depend>
   <depend>tf2_ros</depend>
+  <depend>yaml-cpp</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

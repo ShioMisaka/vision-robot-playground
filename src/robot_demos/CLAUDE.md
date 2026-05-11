@@ -14,6 +14,7 @@
 | `demo_grasp_tcp` | 原 robot_controller | TCP 抓取：切换 grasptarget TCP → 接近 → 下降 → 抓取 → 抬起 |
 | `demo_camera` | 原 robot_vision | 显示同步 RGB + 深度图（JET colormap） |
 | `demo_vision_grasp` | 原 robot_api_python | C++ 两阶段视觉引导抓取（客户端模式，连接外部 robot_controller_node） |
+| `demo_vision_diagnostic` | 原 robot_api_python | 视觉坐标变换诊断工具（不运动机器人，打印变换链+误差分析） |
 | `test_robot_node` | 原 robot_vision | 11 项集成测试：关节控制、夹爪、Home、IK、TCP、TF |
 
 ## 话题 / 服务 / Action 接口

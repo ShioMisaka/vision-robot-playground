@@ -20,6 +20,8 @@ from robot_api_python._core import (
     MotionMode,
     MotionLimits,
     VisionTopicConfig,
+    CameraConfig,
+    RobotConfig,
     # Layer 1: Core
     IKSolver,
     CameraInterface,
@@ -35,8 +37,8 @@ from robot_api_python._core import (
     # New service-client based API
     RobotClient,
     ServiceRobotController,
-    # Profiles
-    profiles,
+    # Profile loading
+    load_profile,
     # Constants
     JOINT_TOLERANCE,
     FINGER_TOLERANCE,
@@ -45,8 +47,6 @@ from robot_api_python._core import (
     SETTLE_TIME,
     DEFAULT_STEPS,
     DEFAULT_STEP_TIME,
-    IMAGE_SYNC_QUEUE_SIZE,
-    IMAGE_SYNC_SLOP,
     FINGER_STABLE_COUNT,
     FINGER_STABLE_TOL,
     READY_TIMEOUT,
@@ -68,6 +68,8 @@ __all__ = [
     "MotionMode",
     "MotionLimits",
     "VisionTopicConfig",
+    "CameraConfig",
+    "RobotConfig",
     "IKSolver",
     "CameraInterface",
     "ColorDetector",
@@ -80,7 +82,7 @@ __all__ = [
     "VisionProcessorNode",
     "RobotClient",
     "ServiceRobotController",
-    "profiles",
+    "load_profile",
     "JOINT_TOLERANCE",
     "FINGER_TOLERANCE",
     "MOTION_TIMEOUT",
@@ -88,8 +90,6 @@ __all__ = [
     "SETTLE_TIME",
     "DEFAULT_STEPS",
     "DEFAULT_STEP_TIME",
-    "IMAGE_SYNC_QUEUE_SIZE",
-    "IMAGE_SYNC_SLOP",
     "FINGER_STABLE_COUNT",
     "FINGER_STABLE_TOL",
     "READY_TIMEOUT",

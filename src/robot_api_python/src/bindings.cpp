@@ -501,7 +501,10 @@ PYBIND11_MODULE(_core, m) {
       .def("set_speed", &robot_api::ServiceRobotController::set_speed,
            py::arg("mode"), py::arg("percent"))
       .def("get_speed", &robot_api::ServiceRobotController::get_speed,
-           py::arg("mode"));
+           py::arg("mode"))
+      .def("rotate_joint", &robot_api::ServiceRobotController::rotate_joint,
+           py::arg("index"), py::arg("delta_angle"), py::arg("block") = true,
+           py::call_guard<py::gil_scoped_release>());
 
   // RobotClient (lightweight service client node)
   py::class_<robot_api::RobotClient, rclcpp::Node,

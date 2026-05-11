@@ -95,7 +95,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `src/motion/robot_motion_controller.cpp` | moveJ(), moveL(), set_arm() 等 | 运动原语实现 |
 | `include/.../motion/jog_controller.hpp` | JogController | Jog 点动（S-curve 速度规划 + 解析 IK） |
 | `src/motion/jog_controller.cpp` | tick(), update_velocity_ramp(), enforce_joint_limits(), start(), stop() | 50Hz Jog 控制（tick 仅计算，发布由 node 层负责） |
-| `include/.../nodes/topic_config.hpp` | TopicConfig, CameraExtrinsics | ROS2 话题配置（nodes 层） |
+| `include/.../nodes/topic_config.hpp` | TopicConfig | ROS2 话题配置（nodes 层） |
 
 ### nodes 层（robot_nodes target）
 

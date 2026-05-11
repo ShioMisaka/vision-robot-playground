@@ -1,4 +1,4 @@
-"""测试：相机 TF 链验证 — C++ 核心库后端
+"""测试：相机 TF 链验证 — RobotClient 模式
 
 验证内容：
     1. TF 查询：panda_link0 → panda_hand → camera_link → camera_color_optical_frame
@@ -7,7 +7,7 @@
 
 前置条件：
     - Isaac Sim 已启动并发布 /joint_states
-    - Isaac Sim 中 ZED_X_Mini 已取消 RigidBody 属性
+    - robot_controller_node 已运行
 
 用法：
     source install/setup.zsh
@@ -20,14 +20,12 @@ import threading
 from robot_api_python import (
     rclcpp_init,
     rclcpp_shutdown,
-    RobotControllerNode,
+    RobotClient,
     MultiThreadedExecutor,
-    TopicConfig,
-    CameraExtrinsics,
-    GraspTaskManager,
+    VisionTopicConfig,
     ColorDetector,
     VisionProcessorNode,
-    profiles,
+    GraspTaskManager,
 )
 
 
@@ -87,8 +85,7 @@ def test_tf_consistency(ctrl, logger) -> bool:
         logger.error("  [FAIL] 初始 TF 查询失败")
         return False
 
-    # 获取当前关节角，小幅度旋转 joint1（避免奇异位）
-    joints = ctrl.get_joint_angles()
+    # 小幅度旋转 joint1
     delta = math.radians(10)
     ctrl.rotate_joint(1, delta)
 
@@ -127,14 +124,10 @@ def test_transform_to_base(ctrl, logger) -> bool:
         return False
 
     # 构造一个在相机坐标系下已知方向的点
-    # 光学坐标系 Z 轴朝前（朝下），[0, 0, 0.1] = 相机正下方 0.1m
     camera_point = [0.0, 0.0, 0.1]
 
     # 直接用旋转矩阵计算期望结果
-    roll_a = tf[3]
-    pitch_a = tf[4]
-    yaw_a = tf[5]
-    # R = Rz(yaw) * Ry(pitch) * Rx(roll)
+    roll_a, pitch_a, yaw_a = tf[3], tf[4], tf[5]
     cr, sr = math.cos(roll_a), math.sin(roll_a)
     cp, sp = math.cos(pitch_a), math.sin(pitch_a)
     cy, sy = math.cos(yaw_a), math.sin(yaw_a)
@@ -143,7 +136,6 @@ def test_transform_to_base(ctrl, logger) -> bool:
         [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
         [-sp, cp * sr, cp * cr],
     ]
-    # base_point = R * camera_point + t
     expected = [
         R[0][2] * 0.1 + tf[0],
         R[1][2] * 0.1 + tf[1],
@@ -152,7 +144,7 @@ def test_transform_to_base(ctrl, logger) -> bool:
 
     # 通过 GraspTaskManager 验证
     detector = ColorDetector([0, 0, 0], [0, 0, 0])
-    vision = VisionProcessorNode.create(detector, TopicConfig())
+    vision = VisionProcessorNode.create(detector, VisionTopicConfig())
     manager = GraspTaskManager(
         ctrl, vision,
         approach_height=0.15,
@@ -181,16 +173,7 @@ def test_transform_to_base(ctrl, logger) -> bool:
 def main() -> None:
     rclcpp_init()
 
-    profile = profiles.panda()
-    gripper = profiles.panda_gripper()
-    topics = TopicConfig()
-
-    # 配置相机外参（与 URDF 一致）
-    topics.camera_extrinsics = CameraExtrinsics()
-    topics.camera_extrinsics.xyz = [0.015, 0.0, 0.03]
-    topics.camera_extrinsics.rpy = [0.0, math.pi / 2, math.pi]
-
-    robot = RobotControllerNode.create(profile, gripper, topics)
+    robot = RobotClient.create()
 
     executor = MultiThreadedExecutor()
     executor.add_node(robot)
@@ -199,13 +182,12 @@ def main() -> None:
     spin_thread.start()
 
     logger = robot.get_logger()
-    logger.info("等待与 Isaac Sim 建立连接...")
-    robot.wait_for_ready()
-    logger.info("连接成功!")
+    logger.info("等待控制器就绪...")
+    robot.wait_for_services()
 
     ctrl = robot.get_controller()
 
-    # 运行测试（不调用 go_home，避免超时和奇异点）
+    # 运行测试
     results = {}
     results["TF 查询"] = test_tf_lookup(ctrl, logger)
     results["TF 一致性"] = test_tf_consistency(ctrl, logger)

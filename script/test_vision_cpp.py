@@ -23,7 +23,7 @@ from robot_api_python import (
     RobotClient,
     VisionProcessorNode,
     MultiThreadedExecutor,
-    TopicConfig,
+    VisionTopicConfig,
     ColorDetector,
 )
 
@@ -46,10 +46,10 @@ def main() -> None:
     rclcpp_init()
 
     detector = ColorDetector([0, 100, 100], [10, 255, 255])
-    topics = TopicConfig()
+    config = VisionTopicConfig()
 
     robot = RobotClient.create()
-    vision = VisionProcessorNode.create(detector, topics)
+    vision = VisionProcessorNode.create(detector, config)
 
     executor = MultiThreadedExecutor()
     executor.add_node(robot)

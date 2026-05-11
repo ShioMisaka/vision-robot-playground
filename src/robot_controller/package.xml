@@ -24,6 +24,7 @@
   <depend>urdf</depend>
   <depend>eigen</depend>
   <depend>robot_logger</depend>
+  <depend>yaml-cpp</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

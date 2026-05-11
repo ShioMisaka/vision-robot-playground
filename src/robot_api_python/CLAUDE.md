@@ -42,7 +42,6 @@ _core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp 
 | `TcpConfig` | TCP 偏移（offset_xyz, offset_rpy） |
 | `TopicConfig` | ROS2 话题名称 + 相机外参（来自 robot_controller） |
 | `VisionTopicConfig` | 视觉节点相机话题配置（camera_left, camera_depth, sync_queue_size, sync_max_slop） |
-| `CameraExtrinsics` | 相机安装位姿（xyz, rpy）— 注意: 此类已移除，请使用 CameraConfig |
 | `CameraConfig` | 相机完整配置（intrinsics + extrinsics + optical frame + frame names） |
 | `MotionLimits` | 运动限值（max_vel, max_acc, max_jerk） |
 | `DetectionResult` | 视觉检测结果（detected, xyz, uv, confidence, label） |

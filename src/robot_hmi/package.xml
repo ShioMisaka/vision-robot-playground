@@ -16,7 +16,6 @@
   <depend>robot_msgs</depend>
   <depend>OpenCV</depend>
   <depend>robot_logger</depend>
-  <depend>robot_description</depend>
   <depend>tf2_ros</depend>
   <depend>geometry_msgs</depend>
 

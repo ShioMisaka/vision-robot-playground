@@ -14,7 +14,7 @@ from robot_api_python import (
     rclcpp_shutdown,
     RobotClient,
     MultiThreadedExecutor,
-    profiles,
+    load_profile,
 )
 
 # ---- 目标参数 ----
@@ -27,7 +27,7 @@ GRIPPER_DOWN_RPY = [0.0, math.radians(-180), math.radians(-180)]
 def main() -> None:
     rclcpp_init()
 
-    gripper = profiles.panda_gripper()
+    gripper = load_profile().gripper
     robot = RobotClient.create()
 
     executor = MultiThreadedExecutor()

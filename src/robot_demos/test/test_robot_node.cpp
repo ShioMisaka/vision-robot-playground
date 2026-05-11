@@ -26,8 +26,6 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "robot_controller/nodes/robot_controller_node.hpp"
-#include "robot_vision/nodes/vision_processor_node.hpp"
-#include "robot_vision/vision/color_detector.hpp"
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include "robot_controller/kinematics/profile_loader.hpp"
 #include "robot_controller/motion/control_constants.hpp"

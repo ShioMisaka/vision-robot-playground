@@ -10,8 +10,6 @@
 
 #include <mutex>
 #include <optional>
-// #include <vector>
-// #include <algorithm>
 
 namespace robot_hmi {
 
