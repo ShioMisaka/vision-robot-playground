@@ -16,7 +16,6 @@
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <robot_logger/logger.hpp>
-#include <robot_description/camera_config.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -45,8 +44,6 @@ RosMotionBridge::RosMotionBridge(rclcpp::Node::SharedPtr node,
 
   tf_broadcaster_ =
       std::make_unique<tf2_ros::TransformBroadcaster>(*node_);
-  static_tf_broadcaster_ =
-      std::make_unique<tf2_ros::StaticTransformBroadcaster>(*node_);
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ =
       std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -54,8 +51,6 @@ RosMotionBridge::RosMotionBridge(rclcpp::Node::SharedPtr node,
   // 初始化当前关节状态
   current_arm_.resize(profile_.dof, 0.0);
 
-  // 发布相机静态 TF（hand → camera_link → camera_color_optical_frame）
-  publish_camera_tf();
 }
 
 void RosMotionBridge::publish_command(const std::vector<double>& arm,
@@ -365,43 +360,6 @@ void RosMotionBridge::publish_ee_tf(
     LOG_WARN_THROTTLE(5000,
                          "FK computation failed: {}", e.what());
   }
-}
-
-void RosMotionBridge::publish_camera_tf() {
-  // hand → camera_link
-  geometry_msgs::msg::TransformStamped t_cam;
-  t_cam.header.stamp = rclcpp::Time(0);
-  t_cam.header.frame_id = profile_.hand_frame;
-  t_cam.child_frame_id = "camera_link";
-  t_cam.transform.translation.x = robot_description::CameraExtrinsics::kOffsetX;
-  t_cam.transform.translation.y = robot_description::CameraExtrinsics::kOffsetY;
-  t_cam.transform.translation.z = robot_description::CameraExtrinsics::kOffsetZ;
-
-  tf2::Quaternion q_cam;
-  q_cam.setRPY(robot_description::CameraExtrinsics::kRoll,
-               robot_description::CameraExtrinsics::kPitch,
-               robot_description::CameraExtrinsics::kYaw);
-  t_cam.transform.rotation.x = q_cam.x();
-  t_cam.transform.rotation.y = q_cam.y();
-  t_cam.transform.rotation.z = q_cam.z();
-  t_cam.transform.rotation.w = q_cam.w();
-
-  // camera_link → camera_color_optical_frame（USD 相机 → ROS 光学坐标系）
-  // USD: X右, Y上, Z后; 光学: X右, Y下, Z前 → Ry(π)
-  geometry_msgs::msg::TransformStamped t_opt;
-  t_opt.header.stamp = rclcpp::Time(0);
-  t_opt.header.frame_id = "camera_link";
-  t_opt.child_frame_id = "camera_color_optical_frame";
-
-  tf2::Quaternion q_opt;
-  q_opt.setRPY(0.0, robot_description::CameraOpticalFrame::kPitch, 0.0);
-  t_opt.transform.rotation.x = q_opt.x();
-  t_opt.transform.rotation.y = q_opt.y();
-  t_opt.transform.rotation.z = q_opt.z();
-  t_opt.transform.rotation.w = q_opt.w();
-
-  static_tf_broadcaster_->sendTransform(t_cam);
-  static_tf_broadcaster_->sendTransform(t_opt);
 }
 
 }  // namespace robot_control
