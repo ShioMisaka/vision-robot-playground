@@ -25,11 +25,13 @@ find_package(urdfdom REQUIRED)
 find_package(urdf REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(robot_logger REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # ===== robot_kinematics: IK + 轨迹规划（零 ROS 依赖）=====
 add_library(robot_kinematics SHARED
   src/kinematics/ik_solver.cpp
   src/kinematics/trajectory_planner.cpp
+  src/kinematics/profile_loader.cpp
 )
 
 target_include_directories(robot_kinematics PUBLIC
@@ -46,7 +48,7 @@ ament_target_dependencies(robot_kinematics
   ament_index_cpp
 )
 
-target_link_libraries(robot_kinematics robot_logger::robot_logger_lib)
+target_link_libraries(robot_kinematics robot_logger::robot_logger_lib yaml-cpp)
 target_compile_definitions(robot_kinematics PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== robot_motion: 运动控制器（依赖 kinematics）=====
@@ -111,6 +113,12 @@ add_executable(test_ik_solver
 target_link_libraries(test_ik_solver robot_kinematics robot_logger::robot_logger_lib)
 target_compile_definitions(test_ik_solver PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
+add_executable(test_profile_loader
+  test/test_profile_loader.cpp
+)
+target_link_libraries(test_profile_loader robot_kinematics robot_logger::robot_logger_lib)
+target_compile_definitions(test_profile_loader PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
+
 # ===== 独立控制器节点 =====
 add_executable(robot_controller_node
   src/nodes/standalone_main.cpp
@@ -132,7 +140,7 @@ install(TARGETS robot_kinematics robot_motion robot_nodes
 )
 
 install(TARGETS test_trajectory_planner test_motion_controller test_ik_solver
-  robot_controller_node
+  test_profile_loader robot_controller_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -153,6 +161,7 @@ ament_export_dependencies(
   urdf
   kdl_parser
   Eigen3
+  yaml-cpp
 )
 
 ament_package()
