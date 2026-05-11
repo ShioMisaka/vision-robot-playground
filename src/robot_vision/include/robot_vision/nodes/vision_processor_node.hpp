@@ -7,12 +7,15 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <cv_bridge/cv_bridge.hpp>
+#include <tf2_ros/static_transform_broadcaster.h>
 
 #include "robot_vision/vision/camera_interface.hpp"
+#include "robot_vision/vision/camera_config.hpp"
 #include "robot_vision/vision/i_vision_processor.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
 
@@ -25,7 +28,8 @@ class VisionProcessorNode : public rclcpp::Node, public IVisionProcessor {
   /// @brief 工厂方法：创建视觉处理节点
   static std::shared_ptr<VisionProcessorNode> create(
       std::shared_ptr<CameraInterface> processor,
-      const VisionTopicConfig& config);
+      const VisionTopicConfig& config,
+      const CameraConfig& camera_config = {});
 
   // IVisionProcessor 接口
   std::optional<DetectionResult> get_latest_result() const override;
@@ -38,14 +42,18 @@ class VisionProcessorNode : public rclcpp::Node, public IVisionProcessor {
 
  private:
   VisionProcessorNode(std::shared_ptr<CameraInterface> processor,
-                      const VisionTopicConfig& config);
-  void init(const VisionTopicConfig& config);
+                      const VisionTopicConfig& config,
+                      const CameraConfig& camera_config);
+  void init(const VisionTopicConfig& config, const CameraConfig& camera_config);
+
+  void publish_camera_tf(const CameraConfig& config);
 
   void on_synced_image(
       const sensor_msgs::msg::Image::ConstSharedPtr& left,
       const sensor_msgs::msg::Image::ConstSharedPtr& depth);
 
   std::shared_ptr<CameraInterface> processor_;
+  std::unique_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
 
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
       sensor_msgs::msg::Image, sensor_msgs::msg::Image>;

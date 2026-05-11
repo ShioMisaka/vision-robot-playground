@@ -5,23 +5,30 @@
 #include <chrono>
 #include <thread>
 
+#include <tf2/LinearMath/Quaternion.h>
+#include "robot_vision/vision/camera_config.hpp"
+
 namespace robot_vision {
 
 std::shared_ptr<VisionProcessorNode> VisionProcessorNode::create(
-    std::shared_ptr<CameraInterface> processor, const VisionTopicConfig& config) {
+    std::shared_ptr<CameraInterface> processor, const VisionTopicConfig& config,
+    const CameraConfig& camera_config) {
   auto node = std::shared_ptr<VisionProcessorNode>(
-      new VisionProcessorNode(std::move(processor), config));
-  node->init(config);
+      new VisionProcessorNode(std::move(processor), config, camera_config));
+  node->init(config, camera_config);
   return node;
 }
 
 VisionProcessorNode::VisionProcessorNode(
-    std::shared_ptr<CameraInterface> processor, const VisionTopicConfig& /*config*/)
+    std::shared_ptr<CameraInterface> processor,
+    const VisionTopicConfig& /*config*/,
+    const CameraConfig& /*camera_config*/)
     : Node("vision_processor_node"), processor_(std::move(processor)) {
   // init() will be called by create() after shared_from_this() is safe
 }
 
-void VisionProcessorNode::init(const VisionTopicConfig& config) {
+void VisionProcessorNode::init(const VisionTopicConfig& config,
+                               const CameraConfig& camera_config) {
   auto qos_profile = rclcpp::SensorDataQoS();
 
   left_sub_ =
@@ -42,6 +49,51 @@ void VisionProcessorNode::init(const VisionTopicConfig& config) {
   sync_->registerCallback(&VisionProcessorNode::on_synced_image, this);
 
   LOG_INFO("VisionProcessorNode started");
+
+  if (!camera_config.mount_frame.empty()) {
+    static_tf_broadcaster_ =
+        std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
+    publish_camera_tf(camera_config);
+  }
+}
+
+void VisionProcessorNode::publish_camera_tf(const CameraConfig& config) {
+  // mount_frame → camera_frame (extrinsics)
+  geometry_msgs::msg::TransformStamped t_cam;
+  t_cam.header.stamp = rclcpp::Time(0);
+  t_cam.header.frame_id = config.mount_frame;
+  t_cam.child_frame_id = config.camera_frame;
+  t_cam.transform.translation.x = config.extrinsics.offset_xyz[0];
+  t_cam.transform.translation.y = config.extrinsics.offset_xyz[1];
+  t_cam.transform.translation.z = config.extrinsics.offset_xyz[2];
+
+  tf2::Quaternion q_cam;
+  q_cam.setRPY(config.extrinsics.rpy[0],
+                config.extrinsics.rpy[1],
+                config.extrinsics.rpy[2]);
+  t_cam.transform.rotation.x = q_cam.x();
+  t_cam.transform.rotation.y = q_cam.y();
+  t_cam.transform.rotation.z = q_cam.z();
+  t_cam.transform.rotation.w = q_cam.w();
+
+  // camera_frame → optical_frame (Ry(pitch))
+  geometry_msgs::msg::TransformStamped t_opt;
+  t_opt.header.stamp = rclcpp::Time(0);
+  t_opt.header.frame_id = config.camera_frame;
+  t_opt.child_frame_id = config.optical_frame;
+
+  tf2::Quaternion q_opt;
+  q_opt.setRPY(0.0, config.optical_frame_rotation.pitch, 0.0);
+  t_opt.transform.rotation.x = q_opt.x();
+  t_opt.transform.rotation.y = q_opt.y();
+  t_opt.transform.rotation.z = q_opt.z();
+  t_opt.transform.rotation.w = q_opt.w();
+
+  static_tf_broadcaster_->sendTransform(t_cam);
+  static_tf_broadcaster_->sendTransform(t_opt);
+
+  LOG_INFO("Camera TF published: {} → {} → {}",
+           config.mount_frame, config.camera_frame, config.optical_frame);
 }
 
 void VisionProcessorNode::on_synced_image(
