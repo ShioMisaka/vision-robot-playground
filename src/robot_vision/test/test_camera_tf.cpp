@@ -30,7 +30,8 @@
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/nodes/grasp_task_manager.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_controller/kinematics/profile_loader.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/nodes/topic_config.hpp"
 
@@ -70,8 +71,12 @@ int main(int argc, char* argv[]) {
   std::cout << "前提：Isaac Sim 已启动并发布 /joint_states\n" << std::endl;
 
   // ---- 配置 ----
-  auto profile = robot_control::profiles::panda();
-  auto gripper = robot_control::profiles::panda_gripper();
+  const auto desc_dir =
+      ament_index_cpp::get_package_share_directory("robot_description");
+  const auto config = robot_control::ProfileLoader::load(
+      desc_dir + "/config/panda_profile.yaml", desc_dir);
+  const auto& profile = config.robot;
+  const auto& gripper = config.gripper;
   robot_control::TopicConfig topics;
   // 相机外参已由 TopicConfig 默认值提供（来自 robot_description::CameraExtrinsics）
 

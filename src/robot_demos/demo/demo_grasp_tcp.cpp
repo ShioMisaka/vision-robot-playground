@@ -28,7 +28,8 @@
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/nodes/topic_config.hpp"
 #include "robot_controller/nodes/robot_controller_node.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_controller/kinematics/profile_loader.hpp"
 
 #include <robot_logger/logger.hpp>
 
@@ -50,8 +51,12 @@ int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
 
   // 构造机器人控制节点
-  auto profile = robot_control::profiles::panda();
-  auto gripper = robot_control::profiles::panda_gripper();
+  const auto desc_dir =
+      ament_index_cpp::get_package_share_directory("robot_description");
+  const auto config = robot_control::ProfileLoader::load(
+      desc_dir + "/config/panda_profile.yaml", desc_dir);
+  const auto& profile = config.robot;
+  const auto& gripper = config.gripper;
   robot_control::TopicConfig topics;
 
   auto robot_node =
