@@ -15,7 +15,8 @@
 #include <vector>
 
 #include "robot_controller/kinematics/ik_solver.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_controller/kinematics/profile_loader.hpp"
 
 namespace {
 
@@ -54,7 +55,11 @@ int main() {
 
   // ---- 1. 构造求解器 ----
   std::cout << "\n--- 1. 构造求解器 ---" << std::endl;
-  auto profile = robot_control::profiles::panda();
+  const auto desc_dir =
+      ament_index_cpp::get_package_share_directory("robot_description");
+  const auto config = robot_control::ProfileLoader::load(
+      desc_dir + "/config/panda_profile.yaml", desc_dir);
+  const auto& profile = config.robot;
   std::unique_ptr<robot_control::IKSolver> solver;
 
   try {

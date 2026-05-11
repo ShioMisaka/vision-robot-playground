@@ -25,7 +25,8 @@
 
 #include "robot_controller/motion/robot_motion_controller.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
-#include "robot_controller/profiles/panda_profile.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_controller/kinematics/profile_loader.hpp"
 
 namespace {
 
@@ -160,9 +161,10 @@ struct TestFixture {
   std::shared_ptr<MockMotionBridge> bridge;
   std::shared_ptr<robot_control::RobotMotionController> controller;
 
-  explicit TestFixture(const std::vector<double>& initial_arm)
-      : profile(robot_control::profiles::panda()),
-        gripper(robot_control::profiles::panda_gripper()),
+  TestFixture(const std::vector<double>& initial_arm,
+              const robot_control::RobotConfig& cfg)
+      : profile(cfg.robot),
+        gripper(cfg.gripper),
         bridge(std::make_shared<MockMotionBridge>(initial_arm)) {
     ik = std::make_shared<robot_control::IKSolver>(profile);
     controller = std::make_shared<robot_control::RobotMotionController>(
@@ -173,13 +175,18 @@ struct TestFixture {
 }  // namespace
 
 int main() {
+  const auto desc_dir =
+      ament_index_cpp::get_package_share_directory("robot_description");
+  const auto g_config = robot_control::ProfileLoader::load(
+      desc_dir + "/config/panda_profile.yaml", desc_dir);
+
   std::cout << "=== RobotMotionController 单元测试 ===" << std::endl;
 
   // ---- 1. set_speed / get_speed ----
   std::cout << "\n--- 1. set_speed / get_speed ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
-    auto gripper = robot_control::profiles::panda_gripper();
+    const auto& profile = g_config.robot;
+    const auto& gripper = g_config.gripper;
     auto bridge = std::make_shared<MockMotionBridge>(
         profile.home_joints);
     auto ik = std::make_shared<robot_control::IKSolver>(profile);
@@ -232,11 +239,11 @@ int main() {
   // ---- 2. moveJ 轨迹基本验证 ----
   std::cout << "\n--- 2. moveJ 轨迹基本验证 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
-    TestFixture tf(home);
+    TestFixture tf(home, g_config);
 
     // 目标：关节1 旋转 0.2 rad
     auto target = home;
@@ -274,7 +281,7 @@ int main() {
   // ---- 3. moveJ 速度影响轨迹时长 ----
   std::cout << "\n--- 3. moveJ 速度影响轨迹时长 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
@@ -282,14 +289,14 @@ int main() {
     target[0] += 0.3;
 
     // 100% 速度
-    TestFixture tf_fast(home);
+    TestFixture tf_fast(home, g_config);
     tf_fast.controller->set_speed(robot_control::MotionMode::kMoveJ, 100.0);
     tf_fast.bridge->clear_commands();
     tf_fast.controller->moveJ(target, true);
     size_t fast_count = tf_fast.bridge->command_count();
 
     // 25% 速度
-    TestFixture tf_slow(home);
+    TestFixture tf_slow(home, g_config);
     tf_slow.controller->set_speed(robot_control::MotionMode::kMoveJ, 25.0);
     tf_slow.bridge->clear_commands();
     tf_slow.controller->moveJ(target, true);
@@ -308,11 +315,11 @@ int main() {
   // ---- 4. moveJ 抓取状态下夹爪维持 min_width ----
   std::cout << "\n--- 4. moveJ 抓取状态下夹爪维持 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
-    TestFixture tf(home);
+    TestFixture tf(home, g_config);
 
     // 先闭合夹爪（设置 grasping_ = true）
     tf.controller->close_gripper(true);
@@ -339,11 +346,11 @@ int main() {
   // ---- 5. moveJ 参数校验 ----
   std::cout << "\n--- 5. moveJ 参数校验 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
-    TestFixture tf(home);
+    TestFixture tf(home, g_config);
 
     // DOF 不匹配
     bool threw = false;
@@ -358,11 +365,11 @@ int main() {
   // ---- 6. moveL 笛卡尔直线运动 ----
   std::cout << "\n--- 6. moveL 笛卡尔直线运动 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
-    TestFixture tf(home);
+    TestFixture tf(home, g_config);
 
     // 获取当前末端位姿
     auto pose = tf.controller->get_end_effector_pose();
@@ -403,16 +410,16 @@ int main() {
   // ---- 7. moveL 速度影响轨迹时长 ----
   std::cout << "\n--- 7. moveL 速度影响轨迹时长 ---" << std::endl;
   {
-    auto profile = robot_control::profiles::panda();
+    const auto& profile = g_config.robot;
     auto home = std::vector<double>(
         profile.home_joints.begin(),
         profile.home_joints.begin() + profile.dof);
 
     // 预先获取位姿用于两个 fixture
-    TestFixture tf_tmp(home);
+    TestFixture tf_tmp(home, g_config);
     auto pose = tf_tmp.controller->get_end_effector_pose();
 
-    TestFixture tf1(home);
+    TestFixture tf1(home, g_config);
     pose = tf1.controller->get_end_effector_pose();
     std::array<double, 3> target_xyz = {pose[0], pose[1], pose[2] + 0.08};
     std::array<double, 3> target_rpy = {pose[3], pose[4], pose[5]};
@@ -424,7 +431,7 @@ int main() {
     size_t fast_count = tf1.bridge->command_count();
 
     // 25% 速度
-    TestFixture tf2(home);
+    TestFixture tf2(home, g_config);
     tf2.controller->set_speed(robot_control::MotionMode::kMoveL, 25.0);
     tf2.bridge->clear_commands();
     tf2.controller->moveL(target_xyz, target_rpy, 0.04, true);
