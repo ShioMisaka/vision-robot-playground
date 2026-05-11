@@ -80,7 +80,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 |------|---------|------|
 | `include/.../kinematics/robot_profile.hpp` | RobotProfile, GripperProfile, TcpConfig, MotionLimits, MotionMode, rpy_to_rotation() | 数据结构 + 工具函数 |
 | `include/.../kinematics/ik_solver.hpp` | IKSolver | IK/FK 求解（KDL + DLS 阻尼） |
-| `src/kinematics/ik_solver.cpp` | IKSolver::solve(), forward(), velocity_ik() | KDL 运动链 + 伪逆雅可比 |
+| `src/kinematics/ik_solver.cpp` | solve(), solve_from_frame(), forward(), velocity_ik() | KDL 运动链 + 伪逆雅可比；solve_from_frame 直传旋转矩阵避免欧拉角转换 |
 | `include/.../kinematics/trajectory_planner.hpp` | SCurvePlanner, TrajectoryPlanner | 七段式 S 曲线轨迹规划 |
 | `src/kinematics/trajectory_planner.cpp` | SCurvePlanner::plan() | 7 相位解析计算 + 多轴同步 |
 | `include/.../profiles/panda_profile.hpp` | profiles::panda(), profiles::panda_gripper() | Panda 机器人参数 |
@@ -93,9 +93,9 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `include/.../motion/motion_io_bridge.hpp` | MotionIOBridge | IO 桥接抽象接口 |
 | `include/.../motion/robot_motion_controller.hpp` | RobotMotionController | 运动控制器实现 |
 | `src/motion/robot_motion_controller.cpp` | moveJ(), moveL(), set_arm() 等 | 运动原语实现 |
-| `include/.../motion/jog_controller.hpp` | JogController | Jog 点动（S-curve 速度规划 + 雅可比速度 IK） |
-| `src/motion/jog_controller.cpp` | JogController::tick(), start(), stop() | 50Hz Jog 控制 |
-| `include/.../motion/topic_config.hpp` | TopicConfig, CameraExtrinsics | ROS2 话题配置（motion 层，无 ROS 依赖） |
+| `include/.../motion/jog_controller.hpp` | JogController | Jog 点动（S-curve 速度规划 + 解析 IK） |
+| `src/motion/jog_controller.cpp` | tick(), update_velocity_ramp(), enforce_joint_limits(), start(), stop() | 50Hz Jog 控制（tick 仅计算，发布由 node 层负责） |
+| `include/.../nodes/topic_config.hpp` | TopicConfig, CameraExtrinsics | ROS2 话题配置（nodes 层） |
 
 ### nodes 层（robot_nodes target）
 
@@ -143,7 +143,7 @@ ros2 launch robot_bringup controller.launch.py
 - **修改 IK 算法** → 编辑 `src/kinematics/ik_solver.cpp` 的 `IKSolver::solve()` 和 `velocity_ik()`
 - **修改轨迹规划** → 编辑 `src/kinematics/trajectory_planner.cpp` 的 `SCurvePlanner::plan()`
 - **修改运动原语（moveJ/moveL）** → 编辑 `src/motion/robot_motion_controller.cpp`
-- **修改 Jog 行为** → 编辑 `src/motion/jog_controller.cpp`（速度 ramp、坐标变换、关节限速）
+- **修改 Jog 行为** → 编辑 `src/motion/jog_controller.cpp`（速度 ramp → update_velocity_ramp()、关节限速 → enforce_joint_limits()、坐标变换）
 - **修改控制循环** → 编辑 `src/nodes/robot_controller_node.cpp` 的 `control_loop_tick()`
 - **修改状态机** → 编辑 `src/nodes/robot_state.cpp` 的 `is_valid_transition()`
 - **修改控制常量** → 编辑 `include/.../motion/control_constants.hpp`
