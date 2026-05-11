@@ -10,13 +10,13 @@
 namespace robot_control {
 
 JogController::JogController(std::shared_ptr<IKSolver> ik,
-                             const JogConfig& config)
+                             const JogConfig &config)
     : ik_(std::move(ik)), config_(config) {}
 
 JogController::~JogController() = default;
 
 void JogController::init_position(
-    const std::array<double, 7>& feedback_joints) {
+    const std::array<double, 7> &feedback_joints) {
   jog_q_current_ = feedback_joints;
 }
 
@@ -44,8 +44,8 @@ void JogController::start(int axis, uint8_t frame) {
   }
 }
 
-void JogController::start_raw(const std::array<double, 6>& velocity,
-                               uint8_t frame) {
+void JogController::start_raw(const std::array<double, 6> &velocity,
+                              uint8_t frame) {
   jog_active_ = true;
   jog_stopping_ = false;
   jog_v_ = 0.0;
@@ -57,13 +57,14 @@ void JogController::start_raw(const std::array<double, 6>& velocity,
 }
 
 void JogController::stop() {
-  if (!jog_active_) return;
+  if (!jog_active_)
+    return;
   // 进入减速阶段 — tick() 继续运行直到 v=0
   jog_stopping_ = true;
 }
 
 void JogController::emergency_stop(
-    const std::array<double, 7>& feedback_joints) {
+    const std::array<double, 7> &feedback_joints) {
   jog_active_ = false;
   jog_stopping_ = false;
   jog_v_ = 0.0;
@@ -85,9 +86,9 @@ void JogController::reset() {
 }
 
 bool JogController::tick(
-    const std::array<double, 7>& feedback_joints,
-    std::function<void(const std::vector<double>&, double)> publish_fn) {
-  if (!jog_active_ || !ik_) return false;
+    const std::array<double, 7> &feedback_joints) {
+  if (!jog_active_ || !ik_)
+    return false;
 
   const double dt = config_.dt;
   const double a_max = config_.a_max;
@@ -117,7 +118,7 @@ bool JogController::tick(
       jog_v_ = 0.0;
       jog_a_ = 0.0;
       jog_active_ = false;
-      return false;  // 减速完成
+      return false; // 减速完成
     }
   } else {
     // --- 加速至 v=1.0 ---
@@ -162,11 +163,15 @@ bool JogController::tick(
   if (frame_ == kTcpFrame) {
     Eigen::Vector3d v_tcp(vel[0], vel[1], vel[2]);
     Eigen::Vector3d v_base = current_R * v_tcp;
-    vel[0] = v_base.x(); vel[1] = v_base.y(); vel[2] = v_base.z();
+    vel[0] = v_base.x();
+    vel[1] = v_base.y();
+    vel[2] = v_base.z();
 
     Eigen::Vector3d w_tcp(vel[3], vel[4], vel[5]);
     Eigen::Vector3d w_base = current_R * w_tcp;
-    vel[3] = w_base.x(); vel[4] = w_base.y(); vel[5] = w_base.z();
+    vel[3] = w_base.x();
+    vel[4] = w_base.y();
+    vel[5] = w_base.z();
   }
 
   // === 6. 笛卡尔增量累积（精确，无 Jacobian 近似）===
@@ -177,15 +182,19 @@ bool JogController::tick(
   }
 
   // === 7. 构造目标笛卡尔位姿 ===
-  Eigen::Vector3d target_pos = initial_position_ +
-      Eigen::Vector3d(cartesian_offset_[0], cartesian_offset_[1], cartesian_offset_[2]);
+  Eigen::Vector3d target_pos =
+      initial_position_ + Eigen::Vector3d(cartesian_offset_[0],
+                                          cartesian_offset_[1],
+                                          cartesian_offset_[2]);
 
   // 旋转：initial_rotation * exp(w_offset)
-  Eigen::Vector3d w_offset(cartesian_offset_[3], cartesian_offset_[4], cartesian_offset_[5]);
+  Eigen::Vector3d w_offset(cartesian_offset_[3], cartesian_offset_[4],
+                           cartesian_offset_[5]);
   Eigen::Matrix3d target_R = initial_rotation_;
   if (w_offset.norm() > 1e-10) {
     target_R = initial_rotation_ *
-        Eigen::AngleAxisd(w_offset.norm(), w_offset.normalized()).toRotationMatrix();
+               Eigen::AngleAxisd(w_offset.norm(), w_offset.normalized())
+                   .toRotationMatrix();
   }
 
   // === 8. 解析 IK（每步独立，无积分误差）===
@@ -200,15 +209,16 @@ bool JogController::tick(
       double dq = std::abs((*ik_result)[i] - jog_q_current_[i]);
       double limit = (i < 7) ? config_.joint_vel_limits[i] : 2.175;
       double ratio = dq / (limit * dt);
-      if (ratio > max_ratio) max_ratio = ratio;
+      if (ratio > max_ratio)
+        max_ratio = ratio;
     }
 
     if (max_ratio > 1.0) {
       // 缩放关节增量以满足速度限制，同时回退笛卡尔偏移
       double scale = 1.0 / max_ratio;
       for (int i = 0; i < config_.dof; ++i) {
-        (*ik_result)[i] = jog_q_current_[i] +
-            ((*ik_result)[i] - jog_q_current_[i]) * scale;
+        (*ik_result)[i] =
+            jog_q_current_[i] + ((*ik_result)[i] - jog_q_current_[i]) * scale;
       }
       // 回退笛卡尔偏移到与实际关节运动一致
       for (int i = 0; i < 6; ++i) {
@@ -219,15 +229,9 @@ bool JogController::tick(
     for (int i = 0; i < config_.dof; ++i) {
       jog_q_current_[i] = (*ik_result)[i];
     }
-
-    // 发布关节指令
-    if (publish_fn) {
-      std::vector<double> arm(jog_q_current_.begin(), jog_q_current_.end());
-      publish_fn(arm, finger_width_);
-    }
   }
 
   return true;
 }
 
-}  // namespace robot_control
+} // namespace robot_control
