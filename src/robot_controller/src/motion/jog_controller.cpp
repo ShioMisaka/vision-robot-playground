@@ -188,14 +188,10 @@ bool JogController::tick(
         Eigen::AngleAxisd(w_offset.norm(), w_offset.normalized()).toRotationMatrix();
   }
 
-  // 提取 RPY
-  Eigen::Vector3d target_rpy = target_R.eulerAngles(0, 1, 2);
-
   // === 8. 解析 IK（每步独立，无积分误差）===
-  std::array<double, 3> tgt_xyz = {target_pos.x(), target_pos.y(), target_pos.z()};
-  std::array<double, 3> tgt_rpy = {target_rpy.x(), target_rpy.y(), target_rpy.z()};
-
-  auto ik_result = ik_->solve_from(tgt_xyz, tgt_rpy, q_vec);
+  // 直接传递旋转矩阵给 IK，避免 Euler angle 往返转换导致的
+  // 约定不匹配和值域间断问题
+  auto ik_result = ik_->solve_from_frame(target_pos, target_R, q_vec);
 
   if (ik_result) {
     // === 9. 关节速度限制与同步缩放 ===

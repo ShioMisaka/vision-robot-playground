@@ -313,4 +313,36 @@ std::optional<std::vector<double>> IKSolver::solve_from(
   return angles;
 }
 
+std::optional<std::vector<double>> IKSolver::solve_from_frame(
+    const Eigen::Vector3d& position,
+    const Eigen::Matrix3d& rotation,
+    const std::vector<double>& initial_guess) const {
+  int dof = impl_->profile.dof;
+  KDL::JntArray q_init(dof);
+  for (int i = 0; i < dof; ++i) {
+    q_init(i) = initial_guess[i];
+  }
+
+  KDL::Frame target_frame;
+  // 直接从 Eigen 矩阵构造 KDL 旋转，避免 Euler angle 往返转换
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      target_frame.M(i, j) = rotation(i, j);
+    }
+  }
+  target_frame.p = KDL::Vector(position.x(), position.y(), position.z());
+
+  KDL::JntArray q_out(dof);
+  int ret = impl_->ik_solver->CartToJnt(q_init, target_frame, q_out);
+
+  if (ret < 0) return std::nullopt;
+
+  std::vector<double> angles(dof);
+  for (int i = 0; i < dof; ++i) {
+    angles[i] = q_out(i);
+  }
+
+  return angles;
+}
+
 }  // namespace robot_control

@@ -71,6 +71,17 @@ public:
       const std::optional<std::array<double, 3>>& rpy,
       const std::vector<double>& initial_guess) const;
 
+  /// @brief 从旋转矩阵直接求解 IK（避免 Euler angle 往返转换）
+  /// 适用于 Jog 等需要精确传递旋转目标的场景
+  /// @param position 目标位置（米）
+  /// @param rotation 目标旋转矩阵
+  /// @param initial_guess 初始关节角度猜测
+  /// @return 关节角度，求解失败返回 nullopt
+  std::optional<std::vector<double>> solve_from_frame(
+      const Eigen::Vector3d& position,
+      const Eigen::Matrix3d& rotation,
+      const std::vector<double>& initial_guess) const;
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
