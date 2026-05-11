@@ -4,7 +4,6 @@
 #include <Eigen/Core>
 #include <opencv2/core.hpp>
 
-#include "robot_description/camera_config.hpp"
 #include "robot_vision/vision/camera_interface.hpp"
 
 namespace robot_vision {
@@ -21,10 +20,10 @@ public:
   /// @param cy 光心 y（像素）
   ColorDetector(const std::array<int, 3>& lower_hsv,
                 const std::array<int, 3>& upper_hsv,
-                double fx = robot_description::CameraIntrinsics::kFx,
-                double fy = robot_description::CameraIntrinsics::kFy,
-                double cx = robot_description::CameraIntrinsics::kCx,
-                double cy = robot_description::CameraIntrinsics::kCy);
+                double fx = 490.6666666666667,
+                double fy = 490.6666666666667,
+                double cx = 640.0,
+                double cy = 360.0);
 
   /// @brief 检测颜色区域质心
   /// @param bgr_image BGR 图像
@@ -44,10 +43,10 @@ public:
 private:
   cv::Scalar lower_hsv_;
   cv::Scalar upper_hsv_;
-  double fx_ = robot_description::CameraIntrinsics::kFx;
-  double fy_ = robot_description::CameraIntrinsics::kFy;
-  double cx_ = robot_description::CameraIntrinsics::kCx;
-  double cy_ = robot_description::CameraIntrinsics::kCy;
+  double fx_ = 490.6666666666667;
+  double fy_ = 490.6666666666667;
+  double cx_ = 640.0;
+  double cy_ = 360.0;
 };
 
 }  // namespace robot_vision

@@ -19,12 +19,14 @@ find_package(image_transport REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(yaml-cpp REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_description REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(tf2_ros REQUIRED)
 add_library(robot_vision_core SHARED
   src/vision/color_detector.cpp
+  src/vision/camera_config_loader.cpp
 )
 
 target_include_directories(robot_vision_core PUBLIC
@@ -35,10 +37,10 @@ target_include_directories(robot_vision_core PUBLIC
 ament_target_dependencies(robot_vision_core
   OpenCV
   Eigen3
-  robot_description
+  yaml-cpp
 )
 
-target_link_libraries(robot_vision_core robot_logger::robot_logger_lib)
+target_link_libraries(robot_vision_core robot_logger::robot_logger_lib yaml-cpp)
 
 # ===== robot_vision_nodes: ROS2 视觉节点 + 任务管理器（依赖 vision_core + motion）=====
 add_library(robot_vision_nodes SHARED
@@ -63,6 +65,7 @@ ament_target_dependencies(robot_vision_nodes
   image_transport
   robot_msgs
   tf2_ros
+  robot_description
 )
 
 # ===== 安装 =====
@@ -101,6 +104,7 @@ ament_export_dependencies(
   robot_msgs
   Eigen3
   OpenCV
+  yaml-cpp
   robot_controller
   robot_logger
 )
