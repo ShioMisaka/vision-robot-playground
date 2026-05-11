@@ -1,0 +1,67 @@
+# Franka Panda 机器人参数配置
+# urdf_path 相对于 robot_description share 目录
+
+robot:
+  name: panda
+  urdf_path: urdf/panda.urdf
+  dof: 7
+
+  joint_names:
+    - panda_joint1
+    - panda_joint2
+    - panda_joint3
+    - panda_joint4
+    - panda_joint5
+    - panda_joint6
+    - panda_joint7
+
+  all_joint_names:
+    - panda_joint1
+    - panda_joint2
+    - panda_joint3
+    - panda_joint4
+    - panda_joint5
+    - panda_joint6
+    - panda_joint7
+    - panda_finger_joint1
+    - panda_finger_joint2
+
+  joint_limits_lower: [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973]
+  joint_limits_upper: [2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973]
+
+  # 9 个值：7 关节 + 2 夹爪
+  home_joints: [0.0, 0.0, 0.0, -1.57, 0.0, 1.57, 0.0, 0.4, 0.4]
+
+  # IK 默认初始猜测
+  ik_default_guess: [0.0, 0.0, 0.0, -1.57, 0.0, 1.57, 0.0]
+
+  base_frame: panda_link0
+  hand_frame: panda_hand
+
+  default_tcp: hand
+
+  tcp_frames:
+    hand:
+      offset_xyz: [0.0, 0.0, 0.0]
+      offset_rpy: [0.0, 0.0, 0.0]
+    grasptarget:
+      offset_xyz: [0.0, 0.0, 0.105]
+      offset_rpy: [0.0, 0.0, 0.0]
+
+  # 关节空间运动极限
+  joint_limits:
+    max_vel: 1.0    # rad/s
+    max_acc: 2.0    # rad/s²
+    max_jerk: 10.0  # rad/s³
+
+  # 笛卡尔空间运动极限
+  cartesian_limits:
+    max_vel: 0.5   # m/s
+    max_acc: 1.0   # m/s²
+    max_jerk: 5.0  # m/s³
+
+gripper:
+  type: parallel
+  min_width: 0.0
+  max_width: 0.04
+  dof: 1
