@@ -83,7 +83,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `src/kinematics/ik_solver.cpp` | solve(), solve_from_frame(), forward(), velocity_ik() | KDL 运动链 + 伪逆雅可比；solve_from_frame 直传旋转矩阵避免欧拉角转换 |
 | `include/.../kinematics/trajectory_planner.hpp` | SCurvePlanner, TrajectoryPlanner | 七段式 S 曲线轨迹规划 |
 | `src/kinematics/trajectory_planner.cpp` | SCurvePlanner::plan() | 7 相位解析计算 + 多轴同步 |
-| `include/.../profiles/panda_profile.hpp` | profiles::panda(), profiles::panda_gripper() | Panda 机器人参数 |
+| `include/.../kinematics/profile_loader.hpp` | ProfileLoader, RobotConfig | 从 YAML 加载 RobotProfile/GripperProfile |
 
 ### motion 层（robot_motion target）
 
@@ -147,7 +147,7 @@ ros2 launch robot_bringup controller.launch.py
 - **修改控制循环** → 编辑 `src/nodes/robot_controller_node.cpp` 的 `control_loop_tick()`
 - **修改状态机** → 编辑 `src/nodes/robot_state.cpp` 的 `is_valid_transition()`
 - **修改控制常量** → 编辑 `include/.../motion/control_constants.hpp`
-- **新增机器人** → 在 `include/.../profiles/` 下添加 `xxx_profile.hpp`，定义 `RobotProfile`
+- **新增机器人** → 在 `robot_description/config/` 下添加 `xxx_profile.yaml`，定义 `RobotProfile`，通过 `ProfileLoader::load()` 加载
 - **新增 Service** → 在 `robot_controller_node_services.cpp` 中添加 handler，在 `robot_controller_node.cpp` 的 `init()` 中注册
 
 ## 注意事项

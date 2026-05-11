@@ -74,10 +74,10 @@ _core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp 
 
 ### 预定义 Profile
 
-| 函数 | 说明 |
-|------|------|
-| `profiles.panda()` | 返回 Franka Panda RobotProfile |
-| `profiles.panda_gripper()` | 返回 Panda 夹爪 GripperProfile |
+| 函数/类 | 说明 |
+|---------|------|
+| `load_profile(name="panda")` | 从 YAML 加载机器人配置，返回 `RobotConfig`（含 `.robot` 和 `.gripper`） |
+| `RobotConfig` | 配置数据结构：`.robot` (RobotProfile) + `.gripper` (GripperProfile) |
 
 ### 模块常量
 
@@ -146,8 +146,9 @@ import robot_api_python as rc
 rc.rclcpp_init()
 
 # 创建内嵌节点（直接链接 C++ 库）
+config = rc.load_profile("panda")
 robot = rc.RobotControllerNode.create(
-    rc.profiles.panda(), rc.profiles.panda_gripper(), rc.TopicConfig())
+    config.robot, config.gripper, rc.TopicConfig())
 
 # 后台 spin
 executor = rc.MultiThreadedExecutor()

@@ -13,6 +13,21 @@
 ## 关键参数
 无 YAML 配置。
 
+## Profile 配置
+
+YAML profile 文件定义机器人的运动学参数（关节限位、运动极限、TCP 配置等），
+供 `robot_controller` 的 `ProfileLoader` 在运行时加载。
+
+| 文件 | 说明 |
+|------|------|
+| `config/panda_profile.yaml` | Franka Panda 7-DOF 参数 |
+
+### Profile 字段说明
+- `robot`: 机器人参数（name, urdf_path, dof, joint_names, limits, tcp_frames 等）
+- `gripper`: 夹爪参数（type, min_width, max_width, dof）
+
+详细字段参考 `config/panda_profile.yaml` 文件内容。
+
 ## URDF 模型详情（panda.urdf）
 
 ### 链接结构
@@ -65,6 +80,7 @@ std::string urdf_path = ament_index_cpp::get_package_share_directory("robot_desc
 - **修改关节限位** → 编辑对应 joint 的 `<limit>` 和 `<safety_controller>` 标签
 - **更换相机型号** → 修改 `camera_link` 的安装位姿和光学帧变换
 - **新增机器人模型** → 在 `urdf/` 目录下新增 `.urdf` 文件，并在 `CMakeLists.txt` 的 `install(DIRECTORY)` 中确认包含
+- **新增机器人 Profile** → 在 `config/` 目录下新增 `xxx_profile.yaml`，参考 `panda_profile.yaml` 格式
 
 ## 注意事项
 - URDF 为 xacro 自动生成产物，如需参数化建议改用 xacro + 配置文件
