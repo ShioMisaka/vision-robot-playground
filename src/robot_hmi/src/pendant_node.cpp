@@ -325,6 +325,12 @@ void PendantNode::async_get_state(std::function<void(
 void PendantNode::async_move_joint(const std::vector<double>& angles,
                                    VoidCallback callback) {
   post_task([this, angles, callback]() {
+    if (!has_lease_.load()) {
+      if (!acquire_lease()) {
+        if (callback) callback(false, "Failed to acquire lease");
+        return;
+      }
+    }
     if (!action_movej_->action_server_is_ready()) {
       if (callback) callback(false, "Action server not available");
       return;
@@ -367,6 +373,12 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
   // grasping_ flag (which defaults to false on startup).
   double actual_finger = (finger < 0) ? current_finger_.load() : finger;
   post_task([this, xyz, rpy, mode, actual_finger, callback]() {
+    if (!has_lease_.load()) {
+      if (!acquire_lease()) {
+        if (callback) callback(false, "Failed to acquire lease");
+        return;
+      }
+    }
     // mode 0 = moveJ (joint space via IK), mode 1 = moveL (Cartesian linear)
     if (mode == 0) {
       // MoveJ in CARTESIAN mode
@@ -491,6 +503,12 @@ void PendantNode::async_close_gripper(VoidCallback callback) {
 
 void PendantNode::async_go_home(VoidCallback callback) {
   post_task([this, callback]() {
+    if (!has_lease_.load()) {
+      if (!acquire_lease()) {
+        if (callback) callback(false, "Failed to acquire lease");
+        return;
+      }
+    }
     if (!action_gohome_->action_server_is_ready()) {
       if (callback) callback(false, "Action server not available");
       return;
@@ -566,7 +584,10 @@ bool PendantNode::acquire_lease(double duration) {
   LOG_INFO("Lease acquired: session_id={}, timeout={:.1f}s",
            session_id_, res->lease_timeout);
 
-  // Start lease renewal timer (renew every 3 seconds)
+  // Request teaching mode for jog support (stays active for lease duration)
+  request_teaching_mode();
+
+  // Start lease renewal timer (non-blocking async to avoid executor deadlock)
   if (lease_renewal_timer_) lease_renewal_timer_->cancel();
   lease_renewal_timer_ = create_wall_timer(
       std::chrono::seconds(3),
@@ -575,16 +596,14 @@ bool PendantNode::acquire_lease(double duration) {
         auto req = std::make_shared<robot_msgs::srv::RenewLease::Request>();
         req->session_id = session_id_;
         req->lease_extension = 10.0;
-        auto future = cli_renew_->async_send_request(req);
-        if (future.wait_for(std::chrono::seconds(1)) != std::future_status::ready) {
-          LOG_WARN("Lease renewal timed out");
-          return;
-        }
-        auto res = future.get();
-        if (!res->success) {
-          LOG_WARN("Lease renewal failed: {}", res->message);
-          has_lease_ = false;
-        }
+        cli_renew_->async_send_request(req,
+            [this](rclcpp::Client<robot_msgs::srv::RenewLease>::SharedFuture future) {
+              auto res = future.get();
+              if (!res->success) {
+                LOG_WARN("Lease renewal failed: {}", res->message);
+                has_lease_ = false;
+              }
+            });
       });
 
   return true;
@@ -657,11 +676,10 @@ robot_msgs::msg::JogCommand PendantNode::build_jog_command(
 }
 
 void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
-  // Ensure we have a lease and teaching mode before jog
+  // Ensure we have a lease (teaching mode is already activated during acquire)
   if (!has_lease_.load()) {
     if (!acquire_lease()) return;
   }
-  if (!request_teaching_mode()) return;
 
   jog_active_ = true;
   last_jog_frame_ = frame;

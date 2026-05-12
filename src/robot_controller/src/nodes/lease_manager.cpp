@@ -93,9 +93,7 @@ bool LeaseManager::request_teaching_mode(const std::string& session_id) {
   if (!active_lease_.has_value() || active_lease_->session_id != session_id) {
     return false;
   }
-  if (teaching_mode_) {
-    return false;
-  }
+  // Idempotent: same session re-requesting is a no-op success
   teaching_mode_ = true;
   return true;
 }
