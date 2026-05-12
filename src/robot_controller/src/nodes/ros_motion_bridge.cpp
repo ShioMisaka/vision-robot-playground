@@ -249,11 +249,10 @@ void RosMotionBridge::set_tcp_name(const std::string& name) {
 }
 
 void RosMotionBridge::submit_trajectory(
-    const std::vector<TrajectoryStep>& steps, double finger,
-    MotionSource source) {
+    const std::vector<TrajectoryStep>& steps, double finger) {
   setpoint_gen_.start(steps, finger);
   if (on_trajectory_started_) {
-    on_trajectory_started_(source);
+    on_trajectory_started_();
   }
 }
 

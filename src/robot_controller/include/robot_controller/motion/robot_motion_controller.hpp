@@ -10,7 +10,6 @@
 #include "robot_controller/motion/i_robot_controller.hpp"
 #include "robot_controller/motion/motion_io_bridge.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/nodes/motion_owner.hpp"
 
 namespace robot_control {
 
@@ -64,12 +63,10 @@ public:
              bool block = true) override;
   void moveJ(const std::array<double, 3>& xyz,
              const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-             double finger = -1.0, bool block = true,
-             MotionSource source = MotionSource::kApi) override;
+             double finger = -1.0, bool block = true) override;
   void moveL(const std::array<double, 3>& xyz,
              const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-             double finger = -1.0, bool block = true,
-             MotionSource source = MotionSource::kApi) override;
+             double finger = -1.0, bool block = true) override;
   void set_speed(MotionMode mode, double percent) override;
   double get_speed(MotionMode mode) const override;
 
@@ -89,8 +86,7 @@ private:
 
   /// 关节空间 S 曲线 moveJ 执行（含 finger，由 pose 版 moveJ 内部调用）
   void moveJ_internal(const std::vector<double>& target_angles,
-                      double finger, bool block,
-                      MotionSource source = MotionSource::kApi);
+                      double finger, bool block);
 
   /// 解析夹爪宽度：负值按抓取状态决定，正值直接使用
   double resolve_finger(double requested) const;

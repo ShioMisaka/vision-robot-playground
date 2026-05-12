@@ -42,70 +42,6 @@ void RobotControllerNode::handle_solve_ik(
   }
 }
 
-void RobotControllerNode::handle_move_joint(
-    const std::shared_ptr<robot_msgs::srv::MoveJoint::Request> req,
-    std::shared_ptr<robot_msgs::srv::MoveJoint::Response> res) {
-  try {
-    controller_->moveJ(req->joint_angles, req->block);
-    res->success = true;
-    res->message = "moveJ completed";
-  } catch (const std::exception& e) {
-    res->success = false;
-    res->message = std::string("moveJ failed: ") + e.what();
-  }
-}
-
-void RobotControllerNode::handle_move_pose(
-    const std::shared_ptr<robot_msgs::srv::MovePose::Request> req,
-    std::shared_ptr<robot_msgs::srv::MovePose::Response> res) {
-  if (req->xyz.size() != 3) {
-    res->success = false;
-    res->message = "xyz must have exactly 3 elements";
-    return;
-  }
-
-  std::array<double, 3> xyz{req->xyz[0], req->xyz[1], req->xyz[2]};
-  std::optional<std::array<double, 3>> rpy;
-
-  if (req->rpy.size() == 3) {
-    rpy = std::array<double, 3>{req->rpy[0], req->rpy[1], req->rpy[2]};
-  }
-
-  try {
-    if (req->mode == 1) {
-      controller_->moveL(xyz, rpy, req->finger);
-    } else {
-      controller_->moveJ(xyz, rpy, req->finger);
-    }
-    res->success = true;
-    res->message = (req->mode == 1) ? "moveL completed" : "moveJ completed";
-  } catch (const std::exception& e) {
-    res->success = false;
-    res->message = std::string("move_pose failed: ") + e.what();
-  }
-}
-
-void RobotControllerNode::handle_move_linear(
-    const std::shared_ptr<robot_msgs::srv::MoveLinear::Request> req,
-    std::shared_ptr<robot_msgs::srv::MoveLinear::Response> res) {
-  if (req->delta.size() != 3) {
-    res->success = false;
-    res->message = "delta must have exactly 3 elements";
-    return;
-  }
-
-  std::array<double, 3> delta{req->delta[0], req->delta[1], req->delta[2]};
-
-  try {
-    controller_->move_linear(delta, req->frame, req->finger);
-    res->success = true;
-    res->message = "move_linear completed";
-  } catch (const std::exception& e) {
-    res->success = false;
-    res->message = std::string("move_linear failed: ") + e.what();
-  }
-}
-
 void RobotControllerNode::handle_control_gripper(
     const std::shared_ptr<robot_msgs::srv::ControlGripper::Request> req,
     std::shared_ptr<robot_msgs::srv::ControlGripper::Response> res) {
@@ -135,19 +71,6 @@ void RobotControllerNode::handle_control_gripper(
   }
 }
 
-void RobotControllerNode::handle_go_home(
-    const std::shared_ptr<robot_msgs::srv::GoHome::Request> /*req*/,
-    std::shared_ptr<robot_msgs::srv::GoHome::Response> res) {
-  try {
-    controller_->go_home();
-    res->success = true;
-    res->message = "go_home completed";
-  } catch (const std::exception& e) {
-    res->success = false;
-    res->message = std::string("go_home failed: ") + e.what();
-  }
-}
-
 void RobotControllerNode::handle_set_speed(
     const std::shared_ptr<robot_msgs::srv::SetSpeed::Request> req,
     std::shared_ptr<robot_msgs::srv::SetSpeed::Response> res) {
@@ -172,6 +95,45 @@ void RobotControllerNode::handle_get_state(
     res->success = false;
     res->message = std::string("get_state failed: ") + e.what();
   }
+}
+
+// ===== Lease Service Callbacks =====
+
+void RobotControllerNode::handle_acquire_control(
+    const std::shared_ptr<robot_msgs::srv::AcquireControl::Request> req,
+    std::shared_ptr<robot_msgs::srv::AcquireControl::Response> res) {
+  auto session = lease_manager_.acquire(req->client_name, req->lease_duration);
+  if (session.has_value()) {
+    res->success = true;
+    res->session_id = session.value();
+    res->lease_timeout = 10.0;
+    res->message = "OK";
+  } else {
+    res->success = false;
+    res->message = "Controller is held by: " + lease_manager_.active_client_name();
+  }
+}
+
+void RobotControllerNode::handle_release_control(
+    const std::shared_ptr<robot_msgs::srv::ReleaseControl::Request> req,
+    std::shared_ptr<robot_msgs::srv::ReleaseControl::Response> res) {
+  res->success = lease_manager_.release(req->session_id);
+  res->message = res->success ? "OK" : "Invalid session";
+}
+
+void RobotControllerNode::handle_renew_lease(
+    const std::shared_ptr<robot_msgs::srv::RenewLease::Request> req,
+    std::shared_ptr<robot_msgs::srv::RenewLease::Response> res) {
+  res->success = lease_manager_.renew(req->session_id, req->lease_extension);
+  res->new_timeout = 10.0;
+  res->message = res->success ? "OK" : "Invalid session";
+}
+
+void RobotControllerNode::handle_request_teaching_mode(
+    const std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Request> req,
+    std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Response> res) {
+  res->success = lease_manager_.request_teaching_mode(req->session_id);
+  res->message = res->success ? "OK" : "No valid lease or already in teaching mode";
 }
 
 // ===== Pendant Service Callbacks =====
@@ -217,7 +179,6 @@ void RobotControllerNode::handle_robot_cmd(
         {
           stopping_start_time_ = std::chrono::steady_clock::now();
         }
-        motion_owner_.store(MotionOwner::kNone);
         res->success = true;
         res->message = "STOP executed";
       } else if (state_machine_.state() == RobotState::kStopping) {
@@ -240,7 +201,6 @@ void RobotControllerNode::handle_robot_cmd(
         state_machine_.clear_error();
         state_model_.align_target_to_actual();
         state_machine_.transition_to(RobotState::kIdle);
-        motion_owner_.store(MotionOwner::kNone);
         res->success = true;
         res->message = "FAULT cleared";
       } else {

@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/nodes/motion_owner.hpp"
 
 namespace robot_control {
 
@@ -77,14 +76,12 @@ public:
   /// 关节空间运动到目标位姿（IK + S 曲线，适合大范围移动）
   virtual void moveJ(const std::array<double, 3>& xyz,
                      const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-                     double finger = -1.0, bool block = true,
-                     MotionSource source = MotionSource::kApi) = 0;
+                     double finger = -1.0, bool block = true) = 0;
 
   /// 笛卡尔空间直线运动到目标位姿
   virtual void moveL(const std::array<double, 3>& xyz,
                      const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-                     double finger = -1.0, bool block = true,
-                     MotionSource source = MotionSource::kApi) = 0;
+                     double finger = -1.0, bool block = true) = 0;
 
   /// 设置运动速度百分比（0-100）
   virtual void set_speed(MotionMode mode, double percent) = 0;
