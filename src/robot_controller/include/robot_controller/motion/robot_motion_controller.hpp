@@ -70,6 +70,16 @@ public:
   void set_speed(MotionMode mode, double percent) override;
   double get_speed(MotionMode mode) const override;
 
+  // 租约管理（嵌入式控制器不直接管理租约，由 node 层 LeaseManager 负责）
+  bool acquire_control(const std::string& client_name,
+                       double lease_duration = 0) override;
+  void release_control() override;
+  bool renew_lease() override;
+  std::string session_id() const override;
+
+  // Action 进度回调
+  void set_progress_callback(IRobotController::ProgressCallback cb) override;
+
   /// @brief 查询当前是否处于抓取状态（抓取时夹爪持续施力）
   bool is_grasping() const { return grasping_; }
 
@@ -105,6 +115,7 @@ private:
   double finger_target_ = 0.04;  // 夹爪目标宽度（由 set_gripper/close_gripper 更新）
   double movej_speed_ = 50.0;
   double movel_speed_ = 50.0;
+  IRobotController::ProgressCallback progress_callback_;
 };
 
 }  // namespace robot_control

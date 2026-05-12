@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -88,6 +89,28 @@ public:
 
   /// 获取当前运动速度百分比
   virtual double get_speed(MotionMode mode) const = 0;
+
+  // ===== 租约管理 =====
+
+  /// 请求控制权（嵌入式使用时由 LeaseManager 管理，客户端侧转发至 Action/Service）
+  virtual bool acquire_control(const std::string& client_name,
+                               double lease_duration = 0) = 0;
+
+  /// 释放控制权
+  virtual void release_control() = 0;
+
+  /// 续租
+  virtual bool renew_lease() = 0;
+
+  /// 获取当前 session_id（无租约时返回空串）
+  virtual std::string session_id() const = 0;
+
+  // ===== Action 进度回调 =====
+
+  using ProgressCallback = std::function<void(double progress)>;
+
+  /// 设置进度回调（Action Server 使用，10Hz 调用）
+  virtual void set_progress_callback(ProgressCallback cb) = 0;
 };
 
 }  // namespace robot_control

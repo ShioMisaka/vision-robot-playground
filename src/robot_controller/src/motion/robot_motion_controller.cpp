@@ -480,4 +480,22 @@ void RobotMotionController::moveL(
   }
 }
 
+bool RobotMotionController::acquire_control(const std::string& /*client_name*/,
+                                            double /*lease_duration*/) {
+  // 嵌入式控制器不直接管理租约，由 node 层 LeaseManager 负责
+  // 此 stub 仅供 RobotClient（客户端侧）使用
+  return false;
+}
+
+void RobotMotionController::release_control() {}
+
+bool RobotMotionController::renew_lease() { return false; }
+
+std::string RobotMotionController::session_id() const { return ""; }
+
+void RobotMotionController::set_progress_callback(
+    IRobotController::ProgressCallback cb) {
+  progress_callback_ = std::move(cb);
+}
+
 }  // namespace robot_control
