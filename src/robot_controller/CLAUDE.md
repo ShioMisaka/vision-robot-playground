@@ -11,8 +11,8 @@ Jog 点动控制、100Hz 闭环控制循环，以及完整的 ROS2 Service 接�
 |------|-----------|------|
 | robot_controller_node | `ros2 run robot_controller robot_controller_node` | 独立控制器节点（standalone_main.cpp） |
 
-此包同时编译为共享库（robot_kinematics / robot_motion / robot_nodes），
-可被 `robot_hmi`、`robot_api_cpp`、`robot_api_python` 链接使用，也可作为独立节点运行。
+此包同时编译为共享库（robot_kinematics / robot_motion / robot_nodes / robot_client），
+可被 `robot_hmi`、`robot_tasks`、`robot_api_python`、`robot_demos` 链接使用，也可作为独立节点运行。
 
 ## CMake Target 分层
 
@@ -22,9 +22,11 @@ robot_kinematics (共享库)    ← IK + 轨迹规划（零 ROS 依赖）
 robot_motion (共享库)        ← 运动控制器 + Jog + 接口（依赖 kinematics）
        ▲
 robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
+       ▲
+robot_client (共享库)        ← Action/Lease 客户端（ActionRobotController + RobotClient，依赖 robot_nodes）
 ```
 
-## 话题 / 服务接口
+## 话题 / 服务 / Action 接口
 
 ### 话题
 
@@ -36,26 +38,29 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `~/jog_command` | robot_msgs/JogCommand | Sub | Jog 点动命令（sensor_data QoS） |
 | `~/joint_target` | sensor_msgs/JointState | Sub | 外部关节目标流（来自示教器，200ms 超时） |
 
-### Service（兼容层，Python 脚本用）
+### Service
 
 | Service | 类型 | 说明 |
 |---------|------|------|
 | `~/solve_ik` | SolveIK | IK 求解（xyz, rpy → joint_angles） |
-| `~/move_joint` | MoveJoint | 关节空间运动（moveJ） |
-| `~/move_pose` | MovePose | 笛卡尔运动（mode: 0=moveJ, 1=moveL） |
-| `~/move_linear` | MoveLinear | 线性增量运动 |
 | `~/control_gripper` | ControlGripper | 夹爪控制（0=open, 1=close, 2=set_width） |
-| `~/go_home` | GoHome | 回安全位 |
 | `~/set_speed` | SetSpeed | 设置模式速度 |
 | `~/get_state` | GetRobotState | 查询完整状态 |
-
-### Service（示教器专用）
-
-| Service | 类型 | 说明 |
-|---------|------|------|
 | `~/set_tcp` | SetTCP | 设置 TCP 工具坐标系 |
 | `~/set_speed_ratio` | SetSpeedRatio | 全局速度比（0.0-1.0） |
 | `~/robot_cmd` | RobotCmd | STOP / EMERGENCY_STOP / CLEAR_FAULT |
+| `~/acquire_control` | AcquireControl | 获取控制权 Lease（返回 session_id） |
+| `~/release_control` | ReleaseControl | 释放控制权 |
+| `~/renew_lease` | RenewLease | 续约 Lease |
+| `~/request_teaching_mode` | RequestTeachingMode | 请求示教模式（需持有 Lease） |
+
+### Action
+
+| Action | 类型 | 说明 |
+|--------|------|------|
+| `~/move_j` | MoveJ | 关节空间/笛卡尔运动（需 session_id，带进度反馈） |
+| `~/move_l` | MoveL | 线性运动（需 session_id，带进度反馈） |
+| `~/go_home` | GoHome | 回安全位（需 session_id，带进度反馈） |
 
 ## 关键参数（硬编码在 control_constants.hpp）
 
@@ -103,14 +108,26 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `include/.../nodes/robot_controller_node.hpp` | RobotControllerNode, RosMotionBridge | ROS2 主控制节点 |
 | `include/.../nodes/topic_config.hpp` | TopicConfig | ROS2 话题配置（nodes 层） |
 | `src/nodes/robot_controller_node.cpp` | control_loop_tick(), handle_jog_command() | 100Hz 闭环（READ→PLAN→MONITOR→WRITE）+ Jog |
-| `src/nodes/robot_controller_node_services.cpp` | handle_*() | 11 个 Service 回调实现 |
+| `src/nodes/robot_controller_node_services.cpp` | handle_*() | Service 回调实现 |
 | `src/nodes/ros_motion_bridge.cpp` | RosMotionBridge | ROS2 通信适配（发布/订阅/TF/轨迹） |
 | `include/.../nodes/robot_state.hpp` | RobotStateMachine | 状态机（IDLE/MOVING/TEACHING/STOPPING/FAULT） |
 | `src/nodes/robot_state.cpp` | transition_to(), force_state() | 状态转换验证 |
-| `include/.../nodes/motion_owner.hpp` | MotionOwner | 运动控制权枚举（NONE/PENDANT/SCRIPT） |
 | `include/.../nodes/robot_state_model.hpp` | RobotStateModel | 线程安全的目标/实际状态数据 |
 | `include/.../nodes/setpoint_generator.hpp` | SetpointGenerator | tick 式轨迹回放 |
 | `src/nodes/setpoint_generator.cpp` | tick(), start(), cancel() | 轨迹插值 + 进度计算 |
+| `include/.../nodes/lease_manager.hpp` | LeaseManager | Lease 管理（acquire/release/renew + 超时自动释放） |
+| `src/nodes/lease_manager.cpp` | acquire_control(), release_control(), renew_lease() | Lease 生命周期管理 |
+| `include/.../nodes/action_handlers.hpp` | ActionHandlers | Action Server 处理器（MoveJ/MoveL/GoHome） |
+| `src/nodes/action_handlers.cpp` | handle_move_j(), handle_move_l(), handle_go_home() | Action 回调实现 |
+
+### client 层（robot_client target）
+
+| 文件 | 类/函数 | 职责 |
+|------|---------|------|
+| `include/.../client/robot_client.hpp` | RobotClient | 轻量 Action/Lease 客户端（`robot_control::RobotClient`） |
+| `include/.../client/action_robot_controller.hpp` | ActionRobotController | Action 代理控制器（`robot_control::ActionRobotController`） |
+| `src/client/robot_client.cpp` | create(), acquire_control(), release_control(), wait_for_services() | 客户端实现 |
+| `src/client/action_robot_controller.cpp` | moveJ(), moveL(), go_home(), open/close_gripper() | Action 调用封装 |
 
 ## 测试与演示
 
@@ -148,8 +165,12 @@ ros2 launch robot_bringup controller.launch.py
 - **修改控制循环** → 编辑 `src/nodes/robot_controller_node.cpp` 的 `control_loop_tick()`
 - **修改状态机** → 编辑 `src/nodes/robot_state.cpp` 的 `is_valid_transition()`
 - **修改控制常量** → 编辑 `include/.../motion/control_constants.hpp`
+- **修改 Lease 策略** → 编辑 `src/nodes/lease_manager.cpp`（超时、续约策略）
+- **修改 Action 处理** → 编辑 `src/nodes/action_handlers.cpp`（MoveJ/MoveL/GoHome 的 Action 回调）
+- **修改客户端库** → 编辑 `src/client/` 下的 RobotClient 和 ActionRobotController
 - **新增机器人** → 在 `robot_description/config/` 下添加 `xxx_profile.yaml`，定义 `RobotProfile`，通过 `ProfileLoader::load()` 加载
 - **新增 Service** → 在 `robot_controller_node_services.cpp` 中添加 handler，在 `robot_controller_node.cpp` 的 `init()` 中注册
+- **新增 Action** → 在 `action_handlers.cpp` 中添加 handler，在 `robot_controller_node.cpp` 的 `init()` 中注册 Action Server
 
 ## 注意事项
 - **100Hz 闭环** 是系统核心，所有运动（轨迹、Jog、外部目标）都由此循环驱动，`/joint_command` 仅由控制器发布

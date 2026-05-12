@@ -1,6 +1,0 @@
-float64[] delta
-string frame
-float64 finger
----
-bool success
-string message

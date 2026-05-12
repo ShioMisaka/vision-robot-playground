@@ -3,7 +3,8 @@
 ## 职责
 Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作、相机画面显示和急停功能。
 采用 Panel 架构，将 UI 拆分为 6 个自包含 widget。通过 `PendantNode` 连接外部运行的
-`robot_controller_node`，使用 ROS2 Service 和 Topic 进行通信。
+`robot_controller_node`，使用 ROS2 Action、Lease Service 和 Topic 进行通信。
+Jog 操作需要先获取 Lease 并进入示教模式。
 
 ## 节点清单
 | 节点 | 源文件 | 功能 |
@@ -28,14 +29,21 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 
 | Service | 类型 | 说明 |
 |---------|------|------|
-| ~/move_joint | MoveJoint | 关节空间运动 |
-| ~/move_pose | MovePose | 笛卡尔运动 |
-| ~/move_linear | MoveLinear | 线性增量运动 |
 | ~/control_gripper | ControlGripper | 夹爪控制 |
-| ~/go_home | GoHome | 回安全位 |
 | ~/set_speed | SetSpeed | 设置模式速度 |
 | ~/get_state | GetRobotState | 查询状态 |
 | ~/robot_cmd | RobotCmd | STOP / E-STOP / CLEAR_FAULT |
+| ~/acquire_control | AcquireControl | 获取控制权 Lease |
+| ~/release_control | ReleaseControl | 释放控制权 |
+| ~/request_teaching_mode | RequestTeachingMode | 请求示教模式（Jog 前置条件） |
+
+### Action 客户端
+
+| Action | 类型 | 说明 |
+|--------|------|------|
+| ~/move_j | MoveJ | 关节空间运动（替代原 MoveJoint/MovePose Service） |
+| ~/move_l | MoveL | 线性运动（替代原 MoveLinear Service） |
+| ~/go_home | GoHome | 回安全位（替代原 GoHome Service） |
 
 ## 核心类与修改入口
 
@@ -51,14 +59,18 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 
 | 文件 | 类 | 职责 |
 |------|-----|------|
-| `src/pendant_node.cpp` | PendantNode | 所有 ROS2 通信：Service 客户端、Topic 发布/订阅、关节流控线程 |
+| `src/pendant_node.cpp` | PendantNode | 所有 ROS2 通信：Action + Lease Service 客户端、Topic 发布/订阅、关节流控线程 |
 | `include/robot_hmi/pendant_node.hpp` | PendantNode | 接口定义 |
 
 **PendantNode 关键方法：**
 - `create(service_prefix, joint_names)` → 工厂构造函数（接受关节名称列表）
+- `acquire_lease()` → 获取控制权 Lease（返回 session_id）
+- `release_lease()` → 释放控制权
+- `request_teaching_mode()` → 请求示教模式（Jog 前置条件）
 - `async_get_state()` → 异步查询状态（后台线程，2s 超时）
-- `async_move_joint()`, `async_move_pose()` → 异步运动（15s 超时）
-- `start_jog(axis, mode, frame)` → 开始 Jog（50Hz 定时器发送 JogCommand）
+- `async_move_j()`, `async_move_l()` → 异步运动 Action（通过 MoveJ/MoveL Action）
+- `async_go_home()` → 异步回安全位 Action
+- `start_jog(axis, mode, frame)` → 开始 Jog（需持有 Lease + 示教模式，50Hz 定时器发送 JogCommand）
 - `stop_jog()` → 停止 Jog（发送零速度）
 - `start_joint_stream(initial)` → 启动 50Hz 关节目标流控线程（发布到 `~/joint_target`）
 - `emergency_stop()`, `clear_fault()` → 急停/恢复
@@ -140,6 +152,7 @@ ros2 run robot_hmi robot_hmi
 ## 注意事项
 - **AUTOMOC 要求**: 新增含 Q_OBJECT 宏的头文件必须在 `CMakeLists.txt` 的源文件列表中包含，否则 MOC 不生成元对象代码
 - **线程安全**: ROS2 回调在 Executor 线程中执行，必须通过 `QMetaObject::invokeMethod` 跨线程更新 UI
-- **PendantNode** 同时管理 Service 客户端和 Topic 发布，Service 调用通过后台任务线程排队执行
+- **PendantNode** 同时管理 Action 客户端、Lease Service 客户端和 Topic 发布，Action/Service 调用通过后台任务线程排队执行
 - **E-STOP 机制**: FunctionPanel 发出 `estopChanged` 信号 → JointControlPanel 暂停流控 → CartesianPanel 禁用 Jog → CameraPanel 显示红色遮罩
+- **Jog 需要 Lease**: Jog 操作需要先 acquire_lease() 获取控制权，再 request_teaching_mode() 进入示教模式
 - **Jog 停止同步**: RobotStatus 检测到 kTeaching→kIdle 转换时，通过 `jog_stopped_cb` 通知 JointControlPanel 重新同步滑块到实际位置

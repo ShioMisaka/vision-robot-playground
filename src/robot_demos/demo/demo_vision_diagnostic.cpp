@@ -25,7 +25,7 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <robot_logger/logger.hpp>
 
-#include "robot_api/robot_client.hpp"
+#include "robot_controller/client/robot_client.hpp"
 #include "robot_tasks/grasp_task_manager.hpp"
 #include "robot_vision/vision/color_detector.hpp"
 #include "robot_vision/vision/vision_topic_config.hpp"
@@ -34,7 +34,7 @@
 
 #include <Eigen/Geometry>
 
-using namespace robot_api;
+using namespace robot_control;
 using namespace robot_vision;
 using namespace robot_tasks;
 using robot_control::rpy_to_rotation;
@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
            cube_top.x(), cube_top.y(), cube_top.z());
 
   // ---- 创建节点 ----
-  auto robot_client = RobotClient::create("robot_controller_node");
+  auto robot_client = RobotClient::create("demo_vision_diagnostic", "robot_controller_node");
   auto detector = std::make_shared<ColorDetector>(
       kLowerHsv, kUpperHsv,
       kFx, kFy, kCx, kCy);

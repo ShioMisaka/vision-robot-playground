@@ -8,7 +8,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(robot_api_cpp REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_vision REQUIRED)
 find_package(robot_tasks REQUIRED)
@@ -33,7 +32,7 @@ target_include_directories(_core PRIVATE
 )
 
 target_link_libraries(_core PRIVATE
-  robot_api_cpp::robot_api_client_lib
+  robot_controller::robot_client
   robot_controller::robot_kinematics
   robot_controller::robot_nodes
   robot_vision::robot_vision_core
@@ -56,7 +55,6 @@ install(TARGETS _core
 # ===== 导出（供下游包 find_package 使用）=====
 ament_export_dependencies(
   rclcpp
-  robot_api_cpp
   robot_controller
   robot_msgs
   tf2_ros

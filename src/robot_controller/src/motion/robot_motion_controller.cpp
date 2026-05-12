@@ -286,8 +286,7 @@ double RobotMotionController::get_speed(MotionMode mode) const {
 }
 
 void RobotMotionController::moveJ_internal(
-    const std::vector<double>& target_angles, double finger, bool block,
-    MotionSource source) {
+    const std::vector<double>& target_angles, double finger, bool block) {
   auto current = bridge_->get_current_arm();
 
   // 检查是否有实际运动量
@@ -322,7 +321,7 @@ void RobotMotionController::moveJ_internal(
     steps.push_back({trajectory[i], static_cast<double>(i) * dt});
   }
 
-  bridge_->submit_trajectory(steps, finger, source);
+  bridge_->submit_trajectory(steps, finger);
 
   if (block) {
     double timeout = steps.back().time_from_start +
@@ -347,8 +346,7 @@ void RobotMotionController::moveJ(
 void RobotMotionController::moveJ(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,
-    double finger, bool block,
-    MotionSource source) {
+    double finger, bool block) {
   ik_->set_seed(bridge_->get_current_arm());
   auto tcp_offset = tcp_transform_matrix();
   std::vector<double> target_angles;
@@ -392,14 +390,13 @@ void RobotMotionController::moveJ(
   double actual_finger = resolve_finger(finger);
 
   // 用关节空间 S 曲线 moveJ 执行
-  moveJ_internal(target_angles, actual_finger, block, source);
+  moveJ_internal(target_angles, actual_finger, block);
 }
 
 void RobotMotionController::moveL(
     const std::array<double, 3>& xyz,
     const std::optional<std::array<double, 3>>& rpy,
-    double finger, bool block,
-    MotionSource source) {
+    double finger, bool block) {
   ik_->set_seed(bridge_->get_current_arm());
   auto current_pose = get_end_effector_pose();
   Eigen::Vector3d start_pos(current_pose[0], current_pose[1], current_pose[2]);
@@ -472,7 +469,7 @@ void RobotMotionController::moveL(
     steps.push_back({joint_traj[i], t});
   }
 
-  bridge_->submit_trajectory(steps, actual_finger, source);
+  bridge_->submit_trajectory(steps, actual_finger);
 
   if (block && !steps.empty()) {
     double timeout = steps.back().time_from_start +
@@ -481,6 +478,24 @@ void RobotMotionController::moveL(
     const auto& final_angles = steps.back().joint_positions;
     wait_until_reached(final_angles, actual_finger, !grasping_);
   }
+}
+
+bool RobotMotionController::acquire_control(const std::string& /*client_name*/,
+                                            double /*lease_duration*/) {
+  // 嵌入式控制器不直接管理租约，由 node 层 LeaseManager 负责
+  // 此 stub 仅供 RobotClient（客户端侧）使用
+  return false;
+}
+
+void RobotMotionController::release_control() {}
+
+bool RobotMotionController::renew_lease() { return false; }
+
+std::string RobotMotionController::session_id() const { return ""; }
+
+void RobotMotionController::set_progress_callback(
+    IRobotController::ProgressCallback cb) {
+  progress_callback_ = std::move(cb);
 }
 
 }  // namespace robot_control

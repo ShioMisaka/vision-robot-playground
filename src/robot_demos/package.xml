@@ -12,7 +12,6 @@
   <depend>rclcpp</depend>
   <depend>robot_controller</depend>
   <depend>robot_vision</depend>
-  <depend>robot_api_cpp</depend>
   <depend>robot_tasks</depend>
   <depend>robot_logger</depend>
   <depend>robot_description</depend>

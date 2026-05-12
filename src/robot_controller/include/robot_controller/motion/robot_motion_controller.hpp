@@ -10,7 +10,6 @@
 #include "robot_controller/motion/i_robot_controller.hpp"
 #include "robot_controller/motion/motion_io_bridge.hpp"
 #include "robot_controller/kinematics/robot_profile.hpp"
-#include "robot_controller/nodes/motion_owner.hpp"
 
 namespace robot_control {
 
@@ -64,14 +63,22 @@ public:
              bool block = true) override;
   void moveJ(const std::array<double, 3>& xyz,
              const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-             double finger = -1.0, bool block = true,
-             MotionSource source = MotionSource::kApi) override;
+             double finger = -1.0, bool block = true) override;
   void moveL(const std::array<double, 3>& xyz,
              const std::optional<std::array<double, 3>>& rpy = std::nullopt,
-             double finger = -1.0, bool block = true,
-             MotionSource source = MotionSource::kApi) override;
+             double finger = -1.0, bool block = true) override;
   void set_speed(MotionMode mode, double percent) override;
   double get_speed(MotionMode mode) const override;
+
+  // 租约管理（嵌入式控制器不直接管理租约，由 node 层 LeaseManager 负责）
+  bool acquire_control(const std::string& client_name,
+                       double lease_duration = 0) override;
+  void release_control() override;
+  bool renew_lease() override;
+  std::string session_id() const override;
+
+  // Action 进度回调
+  void set_progress_callback(IRobotController::ProgressCallback cb) override;
 
   /// @brief 查询当前是否处于抓取状态（抓取时夹爪持续施力）
   bool is_grasping() const { return grasping_; }
@@ -89,8 +96,7 @@ private:
 
   /// 关节空间 S 曲线 moveJ 执行（含 finger，由 pose 版 moveJ 内部调用）
   void moveJ_internal(const std::vector<double>& target_angles,
-                      double finger, bool block,
-                      MotionSource source = MotionSource::kApi);
+                      double finger, bool block);
 
   /// 解析夹爪宽度：负值按抓取状态决定，正值直接使用
   double resolve_finger(double requested) const;
@@ -109,6 +115,7 @@ private:
   double finger_target_ = 0.04;  // 夹爪目标宽度（由 set_gripper/close_gripper 更新）
   double movej_speed_ = 50.0;
   double movel_speed_ = 50.0;
+  IRobotController::ProgressCallback progress_callback_;
 };
 
 }  // namespace robot_control

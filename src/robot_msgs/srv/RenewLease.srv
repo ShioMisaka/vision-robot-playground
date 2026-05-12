@@ -1,0 +1,6 @@
+string session_id
+float64 lease_extension
+---
+bool success
+float64 new_timeout
+string message

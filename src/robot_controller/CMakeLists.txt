@@ -10,7 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_gtest REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(robot_description REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -65,6 +67,28 @@ target_include_directories(robot_motion PUBLIC
 target_link_libraries(robot_motion robot_kinematics robot_logger::robot_logger_lib)
 target_compile_definitions(robot_motion PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
+# ===== robot_client: Action/Service 客户端封装（依赖 motion，不依赖 nodes）=====
+add_library(robot_client SHARED
+  src/client/action_robot_controller.cpp
+  src/client/robot_client.cpp
+)
+
+target_include_directories(robot_client PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(robot_client robot_motion robot_logger::robot_logger_lib)
+target_compile_definitions(robot_client PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
+
+ament_target_dependencies(robot_client
+  rclcpp
+  rclcpp_action
+  tf2_ros
+  tf2
+  robot_msgs
+)
+
 # ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
@@ -72,6 +96,8 @@ add_library(robot_nodes SHARED
   src/nodes/ros_motion_bridge.cpp
   src/nodes/robot_state.cpp
   src/nodes/setpoint_generator.cpp
+  src/nodes/lease_manager.cpp
+  src/nodes/action_handlers.cpp
 )
 
 target_include_directories(robot_nodes PUBLIC
@@ -84,6 +110,7 @@ target_compile_definitions(robot_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="control
 
 ament_target_dependencies(robot_nodes
   rclcpp
+  rclcpp_action
   robot_description
   sensor_msgs
   geometry_msgs
@@ -119,6 +146,13 @@ add_executable(test_profile_loader
 target_link_libraries(test_profile_loader robot_kinematics robot_logger::robot_logger_lib)
 target_compile_definitions(test_profile_loader PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
+ament_add_gtest(test_lease_manager test/test_lease_manager.cpp src/nodes/lease_manager.cpp)
+target_include_directories(test_lease_manager PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_link_libraries(test_lease_manager robot_logger::robot_logger_lib)
+target_compile_definitions(test_lease_manager PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
+
 # ===== 独立控制器节点 =====
 add_executable(robot_controller_node
   src/nodes/standalone_main.cpp
@@ -132,7 +166,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(TARGETS robot_kinematics robot_motion robot_nodes
+install(TARGETS robot_kinematics robot_motion robot_nodes robot_client
   EXPORT robot_controller_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -149,6 +183,7 @@ ament_export_targets(robot_controller_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   robot_description
   rclcpp
+  rclcpp_action
   sensor_msgs
   geometry_msgs
   tf2_ros

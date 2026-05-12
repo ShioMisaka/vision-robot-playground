@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
@@ -71,6 +72,7 @@ target_compile_definitions(robot_hmi PRIVATE ROBOT_LOGGER_MODULE_NAME="hmi")
 
 ament_target_dependencies(robot_hmi
   rclcpp
+  rclcpp_action
   sensor_msgs
   cv_bridge
   message_filters

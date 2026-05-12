@@ -5,6 +5,7 @@
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
+#include "robot_controller/nodes/action_handlers.hpp"
 
 #include <robot_msgs/srv/set_tcp.hpp>
 #include <robot_msgs/srv/set_speed_ratio.hpp>
@@ -58,12 +59,8 @@ void RobotControllerNode::init() {
   controller_ = std::make_shared<RobotMotionController>(
       ik_, profile_, gripper_, bridge_);
 
-  bridge_->set_on_trajectory_started([this](MotionSource source) {
+  bridge_->set_on_trajectory_started([this]() {
     auto s = state_machine_.state();
-    // Set ownership based on source
-    motion_owner_.store(source == MotionSource::kApi
-                            ? MotionOwner::kScript
-                            : MotionOwner::kPendant);
     if (s == RobotState::kTeaching) {
       // 从 jog 模式强制切回轨迹模式（可能由残留 jog 消息触发）
       LOG_WARN("Trajectory started while in TEACHING state, forcing to IDLE");
@@ -112,39 +109,11 @@ void RobotControllerNode::init() {
         handle_solve_ik(req, res);
       });
 
-  srv_move_joint_ = create_service<robot_msgs::srv::MoveJoint>(
-      "~/move_joint",
-      [this](const std::shared_ptr<robot_msgs::srv::MoveJoint::Request> req,
-             std::shared_ptr<robot_msgs::srv::MoveJoint::Response> res) {
-        handle_move_joint(req, res);
-      });
-
-  srv_move_pose_ = create_service<robot_msgs::srv::MovePose>(
-      "~/move_pose",
-      [this](const std::shared_ptr<robot_msgs::srv::MovePose::Request> req,
-             std::shared_ptr<robot_msgs::srv::MovePose::Response> res) {
-        handle_move_pose(req, res);
-      });
-
-  srv_move_linear_ = create_service<robot_msgs::srv::MoveLinear>(
-      "~/move_linear",
-      [this](const std::shared_ptr<robot_msgs::srv::MoveLinear::Request> req,
-             std::shared_ptr<robot_msgs::srv::MoveLinear::Response> res) {
-        handle_move_linear(req, res);
-      });
-
   srv_gripper_ = create_service<robot_msgs::srv::ControlGripper>(
       "~/control_gripper",
       [this](const std::shared_ptr<robot_msgs::srv::ControlGripper::Request> req,
              std::shared_ptr<robot_msgs::srv::ControlGripper::Response> res) {
         handle_control_gripper(req, res);
-      });
-
-  srv_home_ = create_service<robot_msgs::srv::GoHome>(
-      "~/go_home",
-      [this](const std::shared_ptr<robot_msgs::srv::GoHome::Request> req,
-             std::shared_ptr<robot_msgs::srv::GoHome::Response> res) {
-        handle_go_home(req, res);
       });
 
   srv_speed_ = create_service<robot_msgs::srv::SetSpeed>(
@@ -159,6 +128,35 @@ void RobotControllerNode::init() {
       [this](const std::shared_ptr<robot_msgs::srv::GetRobotState::Request> req,
              std::shared_ptr<robot_msgs::srv::GetRobotState::Response> res) {
         handle_get_state(req, res);
+      });
+
+  // === Lease service servers ===
+  srv_acquire_control_ = create_service<robot_msgs::srv::AcquireControl>(
+      "~/acquire_control",
+      [this](const std::shared_ptr<robot_msgs::srv::AcquireControl::Request> req,
+             std::shared_ptr<robot_msgs::srv::AcquireControl::Response> res) {
+        handle_acquire_control(req, res);
+      });
+
+  srv_release_control_ = create_service<robot_msgs::srv::ReleaseControl>(
+      "~/release_control",
+      [this](const std::shared_ptr<robot_msgs::srv::ReleaseControl::Request> req,
+             std::shared_ptr<robot_msgs::srv::ReleaseControl::Response> res) {
+        handle_release_control(req, res);
+      });
+
+  srv_renew_lease_ = create_service<robot_msgs::srv::RenewLease>(
+      "~/renew_lease",
+      [this](const std::shared_ptr<robot_msgs::srv::RenewLease::Request> req,
+             std::shared_ptr<robot_msgs::srv::RenewLease::Response> res) {
+        handle_renew_lease(req, res);
+      });
+
+  srv_request_teaching_mode_ = create_service<robot_msgs::srv::RequestTeachingMode>(
+      "~/request_teaching_mode",
+      [this](const std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Request> req,
+             std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Response> res) {
+        handle_request_teaching_mode(req, res);
       });
 
   LOG_INFO("RobotControllerNode started (with services)");
@@ -191,14 +189,11 @@ void RobotControllerNode::init() {
   external_joint_sub_ = create_subscription<sensor_msgs::msg::JointState>(
       "~/joint_target", 10,
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
-        auto owner = motion_owner_.load();
-        if (owner != MotionOwner::kNone && owner != MotionOwner::kPendant) {
+        if (!lease_manager_.has_active_lease() ||
+            !lease_manager_.teaching_mode_active()) {
           LOG_WARN_THROTTLE(2000,
-              "Joint target rejected: owner={}", static_cast<int>(owner));
+              "Joint target rejected: no active lease or not in teaching mode");
           return;
-        }
-        if (owner == MotionOwner::kNone) {
-          motion_owner_.store(MotionOwner::kPendant);
         }
         std::lock_guard<std::mutex> lock(external_target_mutex_);
         external_joint_target_.assign(
@@ -234,6 +229,56 @@ void RobotControllerNode::init() {
       [this]() { publish_status(); }, pub_cbg_);
 
   LOG_INFO("RobotControllerNode: pendant interface ready (jog, status)");
+
+  // === Action Servers (MoveJ, MoveL, GoHome) ===
+  action_handlers_ = std::make_unique<ActionHandlers>(this);
+
+  movej_action_server_ = rclcpp_action::create_server<robot_msgs::action::MoveJ>(
+      shared_from_this(), "~/move_j",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::MoveJ::Goal> goal) {
+        return action_handlers_->handle_movej_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> gh) {
+        return action_handlers_->handle_movej_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> gh) {
+        action_handlers_->handle_movej_accepted(gh);
+      });
+
+  movel_action_server_ = rclcpp_action::create_server<robot_msgs::action::MoveL>(
+      shared_from_this(), "~/move_l",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::MoveL::Goal> goal) {
+        return action_handlers_->handle_movel_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> gh) {
+        return action_handlers_->handle_movel_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> gh) {
+        action_handlers_->handle_movel_accepted(gh);
+      });
+
+  gohome_action_server_ = rclcpp_action::create_server<robot_msgs::action::GoHome>(
+      shared_from_this(), "~/go_home",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::GoHome::Goal> goal) {
+        return action_handlers_->handle_gohome_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::GoHome>> gh) {
+        return action_handlers_->handle_gohome_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::GoHome>> gh) {
+        action_handlers_->handle_gohome_accepted(gh);
+      });
+
+  LOG_INFO("RobotControllerNode: action servers ready (move_j, move_l, go_home)");
 }
 
 bool RobotControllerNode::wait_for_ready(double timeout) {
@@ -247,7 +292,7 @@ bool RobotControllerNode::wait_for_ready(double timeout) {
 
 void RobotControllerNode::handle_jog_command(
     const robot_msgs::msg::JogCommand::SharedPtr msg) {
-  if (motion_owner_.load() == MotionOwner::kScript) {
+  if (!lease_manager_.teaching_mode_active()) {
     return;
   }
 
@@ -370,7 +415,6 @@ void RobotControllerNode::jog_watchdog_callback() {
 
 void RobotControllerNode::emergency_stop() {
   bridge_->setpoint_generator().cancel();
-  motion_owner_.store(MotionOwner::kNone);
   jog_settling_ = false;
 
   if (jog_controller_ && jog_controller_->is_active()) {
@@ -412,7 +456,9 @@ void RobotControllerNode::publish_status() {
     msg->is_connected = ready_;
   }
 
-  msg->motion_owner = static_cast<uint8_t>(motion_owner_.load());
+  msg->active_session_id = lease_manager_.active_session_id();
+  msg->active_client_name = lease_manager_.active_client_name();
+  msg->teaching_mode_active = lease_manager_.teaching_mode_active();
 
   status_pub_->publish(std::move(msg));
 }
@@ -429,6 +475,9 @@ void RobotControllerNode::control_loop_tick() {
     std::lock_guard<std::mutex> lock(ready_mutex_);
     if (!ready_) return;
   }
+
+  // Check lease expiry
+  lease_manager_.check_expiry();
 
   // === 1. READ ===
   auto actual = bridge_->get_current_arm();
@@ -459,7 +508,6 @@ void RobotControllerNode::control_loop_tick() {
 
         if (sp.done) {
           state_machine_.transition_to(RobotState::kIdle);
-          motion_owner_.store(MotionOwner::kNone);
           // Notify Python/blocking waiters (prevent deadlock)
           bridge_->notify_trajectory_complete();
         }
@@ -530,7 +578,6 @@ void RobotControllerNode::control_loop_tick() {
           target_finger = actual_finger;
           jog_settling_ = false;
           state_machine_.transition_to(RobotState::kIdle);
-          motion_owner_.store(MotionOwner::kNone);
         }
       }
       break;
@@ -549,7 +596,6 @@ void RobotControllerNode::control_loop_tick() {
 
       if (settled || timed_out) {
         state_machine_.transition_to(RobotState::kIdle);
-        motion_owner_.store(MotionOwner::kNone);
         if (timed_out) {
           LOG_WARN("STOP timeout -> IDLE");
         } else {
@@ -562,14 +608,11 @@ void RobotControllerNode::control_loop_tick() {
       {
         std::lock_guard<std::mutex> lock(external_target_mutex_);
         auto elapsed = (this->now() - external_target_time_).seconds();
-        if (motion_owner_.load() == MotionOwner::kPendant &&
+        if (lease_manager_.has_active_lease() &&
+            lease_manager_.teaching_mode_active() &&
             !external_joint_target_.empty() && elapsed < 0.2) {
           target = external_joint_target_;
         } else {
-          // Auto-release pendant on 200ms timeout
-          if (motion_owner_.load() == MotionOwner::kPendant && elapsed >= 0.2) {
-            motion_owner_.store(MotionOwner::kNone);
-          }
           // Hold the last fixed target instead of tracking actual.
           // Setting target = actual every tick locks in any gravity drift,
           // providing no restoring force. Keep target from state_model_ so

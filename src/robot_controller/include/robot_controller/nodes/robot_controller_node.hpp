@@ -15,13 +15,13 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <robot_msgs/srv/solve_ik.hpp>
-#include <robot_msgs/srv/move_joint.hpp>
-#include <robot_msgs/srv/move_pose.hpp>
-#include <robot_msgs/srv/move_linear.hpp>
 #include <robot_msgs/srv/control_gripper.hpp>
-#include <robot_msgs/srv/go_home.hpp>
 #include <robot_msgs/srv/set_speed.hpp>
 #include <robot_msgs/srv/get_robot_state.hpp>
+#include <robot_msgs/srv/acquire_control.hpp>
+#include <robot_msgs/srv/release_control.hpp>
+#include <robot_msgs/srv/renew_lease.hpp>
+#include <robot_msgs/srv/request_teaching_mode.hpp>
 
 #include <robot_msgs/srv/set_tcp.hpp>
 #include <robot_msgs/srv/set_speed_ratio.hpp>
@@ -36,16 +36,22 @@
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
 #include "robot_controller/nodes/setpoint_generator.hpp"
-#include "robot_controller/nodes/motion_owner.hpp"
+#include "robot_controller/nodes/lease_manager.hpp"
+
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <robot_msgs/action/move_j.hpp>
+#include <robot_msgs/action/move_l.hpp>
+#include <robot_msgs/action/go_home.hpp>
 
 namespace robot_control {
 
 class IKSolver;
+class ActionHandlers;
 
 /// MotionIOBridge 的 ROS 2 实现
 class RosMotionBridge : public MotionIOBridge {
 public:
-  using TrajectoryStartedCallback = std::function<void(MotionSource)>;
+  using TrajectoryStartedCallback = std::function<void()>;
 
   RosMotionBridge(rclcpp::Node::SharedPtr node,
                   const TopicConfig& topics,
@@ -79,8 +85,7 @@ public:
   void set_tcp_name(const std::string& name) override;
 
   void submit_trajectory(
-      const std::vector<TrajectoryStep>& steps, double finger,
-      MotionSource source = MotionSource::kApi) override;
+      const std::vector<TrajectoryStep>& steps, double finger) override;
   bool wait_trajectory_completion(double timeout) override;
   void cancel_trajectory() override;
 
@@ -164,12 +169,8 @@ public:
   /// @brief 获取状态机（只读）
   const RobotStateMachine& state_machine() const { return state_machine_; }
 
-  /// @brief 声明运动控制权
-  void claim_ownership(MotionOwner owner) { motion_owner_.store(owner); }
-  /// @brief 释放运动控制权
-  void release_ownership() { motion_owner_.store(MotionOwner::kNone); }
-  /// @brief 获取当前运动控制权持有者
-  MotionOwner get_motion_owner() const { return motion_owner_.load(); }
+  /// @brief 获取租约管理器（只读）
+  const LeaseManager& lease_manager() const { return lease_manager_; }
 
   ~RobotControllerNode();
 
@@ -185,27 +186,29 @@ private:
   void handle_solve_ik(
       const std::shared_ptr<robot_msgs::srv::SolveIK::Request> req,
       std::shared_ptr<robot_msgs::srv::SolveIK::Response> res);
-  void handle_move_joint(
-      const std::shared_ptr<robot_msgs::srv::MoveJoint::Request> req,
-      std::shared_ptr<robot_msgs::srv::MoveJoint::Response> res);
-  void handle_move_pose(
-      const std::shared_ptr<robot_msgs::srv::MovePose::Request> req,
-      std::shared_ptr<robot_msgs::srv::MovePose::Response> res);
-  void handle_move_linear(
-      const std::shared_ptr<robot_msgs::srv::MoveLinear::Request> req,
-      std::shared_ptr<robot_msgs::srv::MoveLinear::Response> res);
   void handle_control_gripper(
       const std::shared_ptr<robot_msgs::srv::ControlGripper::Request> req,
       std::shared_ptr<robot_msgs::srv::ControlGripper::Response> res);
-  void handle_go_home(
-      const std::shared_ptr<robot_msgs::srv::GoHome::Request> req,
-      std::shared_ptr<robot_msgs::srv::GoHome::Response> res);
   void handle_set_speed(
       const std::shared_ptr<robot_msgs::srv::SetSpeed::Request> req,
       std::shared_ptr<robot_msgs::srv::SetSpeed::Response> res);
   void handle_get_state(
       const std::shared_ptr<robot_msgs::srv::GetRobotState::Request> req,
       std::shared_ptr<robot_msgs::srv::GetRobotState::Response> res);
+
+  // === Lease service callbacks ===
+  void handle_acquire_control(
+      const std::shared_ptr<robot_msgs::srv::AcquireControl::Request> req,
+      std::shared_ptr<robot_msgs::srv::AcquireControl::Response> res);
+  void handle_release_control(
+      const std::shared_ptr<robot_msgs::srv::ReleaseControl::Request> req,
+      std::shared_ptr<robot_msgs::srv::ReleaseControl::Response> res);
+  void handle_renew_lease(
+      const std::shared_ptr<robot_msgs::srv::RenewLease::Request> req,
+      std::shared_ptr<robot_msgs::srv::RenewLease::Response> res);
+  void handle_request_teaching_mode(
+      const std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Request> req,
+      std::shared_ptr<robot_msgs::srv::RequestTeachingMode::Response> res);
 
   // === Pendant service callbacks ===
   void handle_pendant_set_tcp(
@@ -239,7 +242,7 @@ private:
   void control_loop_tick();
 
   std::atomic<bool> shutdown_{false};
-  std::atomic<MotionOwner> motion_owner_{MotionOwner::kNone};
+  LeaseManager lease_manager_{std::chrono::seconds{10}};
 
   std::shared_ptr<RosMotionBridge> bridge_;
   std::shared_ptr<RobotMotionController> controller_;
@@ -254,13 +257,15 @@ private:
   rclcpp::CallbackGroup::SharedPtr pub_cbg_;
 
   rclcpp::Service<robot_msgs::srv::SolveIK>::SharedPtr srv_ik_;
-  rclcpp::Service<robot_msgs::srv::MoveJoint>::SharedPtr srv_move_joint_;
-  rclcpp::Service<robot_msgs::srv::MovePose>::SharedPtr srv_move_pose_;
-  rclcpp::Service<robot_msgs::srv::MoveLinear>::SharedPtr srv_move_linear_;
   rclcpp::Service<robot_msgs::srv::ControlGripper>::SharedPtr srv_gripper_;
-  rclcpp::Service<robot_msgs::srv::GoHome>::SharedPtr srv_home_;
   rclcpp::Service<robot_msgs::srv::SetSpeed>::SharedPtr srv_speed_;
   rclcpp::Service<robot_msgs::srv::GetRobotState>::SharedPtr srv_state_;
+
+  // === Lease service servers ===
+  rclcpp::Service<robot_msgs::srv::AcquireControl>::SharedPtr srv_acquire_control_;
+  rclcpp::Service<robot_msgs::srv::ReleaseControl>::SharedPtr srv_release_control_;
+  rclcpp::Service<robot_msgs::srv::RenewLease>::SharedPtr srv_renew_lease_;
+  rclcpp::Service<robot_msgs::srv::RequestTeachingMode>::SharedPtr srv_request_teaching_mode_;
 
   // === State machine ===
   RobotStateMachine state_machine_;
@@ -299,6 +304,12 @@ private:
   std::mutex external_target_mutex_;
   std::vector<double> external_joint_target_;
   rclcpp::Time external_target_time_{0, 0, RCL_ROS_TIME};
+
+  // === Action Servers ===
+  std::unique_ptr<ActionHandlers> action_handlers_;
+  rclcpp_action::Server<robot_msgs::action::MoveJ>::SharedPtr movej_action_server_;
+  rclcpp_action::Server<robot_msgs::action::MoveL>::SharedPtr movel_action_server_;
+  rclcpp_action::Server<robot_msgs::action::GoHome>::SharedPtr gohome_action_server_;
 };
 
 }  // namespace robot_control

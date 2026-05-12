@@ -1,0 +1,26 @@
+# Goal
+uint8 IDLE = 0
+uint8 DETECTING = 1
+uint8 APPROACHING = 2
+uint8 RE_DETECTING = 3
+uint8 DESCENDING = 4
+uint8 GRASPING = 5
+uint8 LIFTING = 6
+uint8 DONE = 7
+uint8 ERROR = 8
+
+float64 approach_height
+float64[3] grasp_rpy
+string session_id
+---
+# Result
+bool success
+string message
+uint8 final_state
+float64[7] final_joint_angles
+float64[6] final_tcp_pose
+---
+# Feedback
+uint8 current_state
+string state_description
+float64 progress
