@@ -67,6 +67,28 @@ target_include_directories(robot_motion PUBLIC
 target_link_libraries(robot_motion robot_kinematics robot_logger::robot_logger_lib)
 target_compile_definitions(robot_motion PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
+# ===== robot_client: Action/Service 客户端封装（依赖 motion，不依赖 nodes）=====
+add_library(robot_client SHARED
+  src/client/action_robot_controller.cpp
+  src/client/robot_client.cpp
+)
+
+target_include_directories(robot_client PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(robot_client robot_motion robot_logger::robot_logger_lib)
+target_compile_definitions(robot_client PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
+
+ament_target_dependencies(robot_client
+  rclcpp
+  rclcpp_action
+  tf2_ros
+  tf2
+  robot_msgs
+)
+
 # ===== robot_nodes: ROS2 节点（依赖 motion）=====
 add_library(robot_nodes SHARED
   src/nodes/robot_controller_node.cpp
@@ -144,7 +166,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(TARGETS robot_kinematics robot_motion robot_nodes
+install(TARGETS robot_kinematics robot_motion robot_nodes robot_client
   EXPORT robot_controller_export
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
