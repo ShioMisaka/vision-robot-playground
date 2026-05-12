@@ -11,8 +11,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(robot_vision REQUIRED)
 find_package(robot_controller REQUIRED)
+find_package(robot_msgs REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(Eigen3 REQUIRED)
 
@@ -39,6 +41,27 @@ ament_target_dependencies(robot_tasks_lib
 
 target_compile_definitions(robot_tasks_lib PRIVATE ROBOT_LOGGER_MODULE_NAME="tasks")
 
+# ===== robot_tasks_node: GraspTask Action Server 可执行节点 =====
+add_executable(robot_tasks_node
+  src/grasp_task_node.cpp
+  src/grasp_task_main.cpp
+)
+
+target_link_libraries(robot_tasks_node
+  robot_tasks_lib
+  robot_controller::robot_client
+  robot_vision::robot_vision_nodes
+  robot_logger::robot_logger_lib
+)
+
+ament_target_dependencies(robot_tasks_node
+  rclcpp
+  rclcpp_action
+  robot_msgs
+)
+
+target_compile_definitions(robot_tasks_node PRIVATE ROBOT_LOGGER_MODULE_NAME="tasks")
+
 # ===== 安装 =====
 install(DIRECTORY include/
   DESTINATION include
@@ -49,6 +72,10 @@ install(TARGETS robot_tasks_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS robot_tasks_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 # ===== 集成测试（需要 Isaac Sim 运行中）=====
