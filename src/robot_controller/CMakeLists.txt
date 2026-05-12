@@ -12,6 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(robot_description REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -74,6 +75,7 @@ add_library(robot_nodes SHARED
   src/nodes/robot_state.cpp
   src/nodes/setpoint_generator.cpp
   src/nodes/lease_manager.cpp
+  src/nodes/action_handlers.cpp
 )
 
 target_include_directories(robot_nodes PUBLIC
@@ -86,6 +88,7 @@ target_compile_definitions(robot_nodes PRIVATE ROBOT_LOGGER_MODULE_NAME="control
 
 ament_target_dependencies(robot_nodes
   rclcpp
+  rclcpp_action
   robot_description
   sensor_msgs
   geometry_msgs
@@ -158,6 +161,7 @@ ament_export_targets(robot_controller_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   robot_description
   rclcpp
+  rclcpp_action
   sensor_msgs
   geometry_msgs
   tf2_ros

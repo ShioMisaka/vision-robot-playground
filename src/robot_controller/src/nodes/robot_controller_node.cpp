@@ -5,6 +5,7 @@
 #include "robot_controller/nodes/robot_state_model.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/motion/jog_controller.hpp"
+#include "robot_controller/nodes/action_handlers.hpp"
 
 #include <robot_msgs/srv/set_tcp.hpp>
 #include <robot_msgs/srv/set_speed_ratio.hpp>
@@ -228,6 +229,56 @@ void RobotControllerNode::init() {
       [this]() { publish_status(); }, pub_cbg_);
 
   LOG_INFO("RobotControllerNode: pendant interface ready (jog, status)");
+
+  // === Action Servers (MoveJ, MoveL, GoHome) ===
+  action_handlers_ = std::make_unique<ActionHandlers>(this);
+
+  movej_action_server_ = rclcpp_action::create_server<robot_msgs::action::MoveJ>(
+      shared_from_this(), "~/move_j",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::MoveJ::Goal> goal) {
+        return action_handlers_->handle_movej_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> gh) {
+        return action_handlers_->handle_movej_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveJ>> gh) {
+        action_handlers_->handle_movej_accepted(gh);
+      });
+
+  movel_action_server_ = rclcpp_action::create_server<robot_msgs::action::MoveL>(
+      shared_from_this(), "~/move_l",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::MoveL::Goal> goal) {
+        return action_handlers_->handle_movel_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> gh) {
+        return action_handlers_->handle_movel_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::MoveL>> gh) {
+        action_handlers_->handle_movel_accepted(gh);
+      });
+
+  gohome_action_server_ = rclcpp_action::create_server<robot_msgs::action::GoHome>(
+      shared_from_this(), "~/go_home",
+      [this](const rclcpp_action::GoalUUID& uuid,
+             std::shared_ptr<const robot_msgs::action::GoHome::Goal> goal) {
+        return action_handlers_->handle_gohome_goal(uuid, goal);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::GoHome>> gh) {
+        return action_handlers_->handle_gohome_cancel(gh);
+      },
+      [this](const std::shared_ptr<
+             rclcpp_action::ServerGoalHandle<robot_msgs::action::GoHome>> gh) {
+        action_handlers_->handle_gohome_accepted(gh);
+      });
+
+  LOG_INFO("RobotControllerNode: action servers ready (move_j, move_l, go_home)");
 }
 
 bool RobotControllerNode::wait_for_ready(double timeout) {

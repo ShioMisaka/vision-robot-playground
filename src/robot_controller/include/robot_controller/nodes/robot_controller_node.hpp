@@ -38,9 +38,15 @@
 #include "robot_controller/nodes/setpoint_generator.hpp"
 #include "robot_controller/nodes/lease_manager.hpp"
 
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <robot_msgs/action/move_j.hpp>
+#include <robot_msgs/action/move_l.hpp>
+#include <robot_msgs/action/go_home.hpp>
+
 namespace robot_control {
 
 class IKSolver;
+class ActionHandlers;
 
 /// MotionIOBridge 的 ROS 2 实现
 class RosMotionBridge : public MotionIOBridge {
@@ -298,6 +304,12 @@ private:
   std::mutex external_target_mutex_;
   std::vector<double> external_joint_target_;
   rclcpp::Time external_target_time_{0, 0, RCL_ROS_TIME};
+
+  // === Action Servers ===
+  std::unique_ptr<ActionHandlers> action_handlers_;
+  rclcpp_action::Server<robot_msgs::action::MoveJ>::SharedPtr movej_action_server_;
+  rclcpp_action::Server<robot_msgs::action::MoveL>::SharedPtr movel_action_server_;
+  rclcpp_action::Server<robot_msgs::action::GoHome>::SharedPtr gohome_action_server_;
 };
 
 }  // namespace robot_control
