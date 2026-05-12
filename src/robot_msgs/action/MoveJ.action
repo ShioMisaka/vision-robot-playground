@@ -7,6 +7,7 @@ geometry_msgs/Point position
 geometry_msgs/Vector3 orientation
 float64 speed_ratio
 float64 finger_width
+string session_id
 ---
 # Result
 bool success
