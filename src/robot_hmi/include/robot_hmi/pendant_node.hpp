@@ -21,11 +21,16 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
-#include <robot_msgs/srv/move_joint.hpp>
-#include <robot_msgs/srv/move_pose.hpp>
-#include <robot_msgs/srv/move_linear.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+
+#include <robot_msgs/action/move_j.hpp>
+#include <robot_msgs/action/move_l.hpp>
+#include <robot_msgs/action/go_home.hpp>
 #include <robot_msgs/srv/control_gripper.hpp>
-#include <robot_msgs/srv/go_home.hpp>
+#include <robot_msgs/srv/acquire_control.hpp>
+#include <robot_msgs/srv/release_control.hpp>
+#include <robot_msgs/srv/renew_lease.hpp>
+#include <robot_msgs/srv/request_teaching_mode.hpp>
 #include <robot_msgs/srv/set_speed.hpp>
 #include <robot_msgs/srv/get_robot_state.hpp>
 
@@ -94,6 +99,23 @@ public:
 
   void async_set_speed(uint8_t mode, double percent);
 
+  // === Lease management ===
+
+  /// @brief Acquire control lease from controller
+  /// @param duration Lease duration in seconds (default 10.0)
+  /// @return true if lease acquired successfully
+  bool acquire_lease(double duration = 10.0);
+
+  /// @brief Release control lease
+  void release_lease();
+
+  /// @brief Check if currently holding a lease
+  bool has_lease() const { return has_lease_.load(); }
+
+  /// @brief Request teaching mode (required before jog)
+  /// @return true if teaching mode activated successfully
+  bool request_teaching_mode();
+
   // === Jog 控制（仅发布 JogCommand 消息，IK 由 RobotControllerNode 处理） ===
 
   /// @brief 启动 Jog（发布 JogCommand 消息）
@@ -158,12 +180,28 @@ private:
 
   std::string service_prefix_;
 
-  // Service clients
-  rclcpp::Client<robot_msgs::srv::MoveJoint>::SharedPtr cli_move_joint_;
-  rclcpp::Client<robot_msgs::srv::MovePose>::SharedPtr cli_move_pose_;
-  rclcpp::Client<robot_msgs::srv::MoveLinear>::SharedPtr cli_move_linear_;
+  // Action clients (replacing deleted Services)
+  using MoveJAction = robot_msgs::action::MoveJ;
+  using MoveLAction = robot_msgs::action::MoveL;
+  using GoHomeAction = robot_msgs::action::GoHome;
+  rclcpp_action::Client<MoveJAction>::SharedPtr action_movej_;
+  rclcpp_action::Client<MoveLAction>::SharedPtr action_movel_;
+  rclcpp_action::Client<GoHomeAction>::SharedPtr action_gohome_;
+
+  // Lease service clients
+  rclcpp::Client<robot_msgs::srv::AcquireControl>::SharedPtr cli_acquire_;
+  rclcpp::Client<robot_msgs::srv::ReleaseControl>::SharedPtr cli_release_;
+  rclcpp::Client<robot_msgs::srv::RenewLease>::SharedPtr cli_renew_;
+  rclcpp::Client<robot_msgs::srv::RequestTeachingMode>::SharedPtr cli_teaching_;
+
+  // Lease state
+  std::string session_id_;
+  std::string client_name_ = "pendant";
+  rclcpp::TimerBase::SharedPtr lease_renewal_timer_;
+  std::atomic<bool> has_lease_{false};
+
+  // Remaining service clients
   rclcpp::Client<robot_msgs::srv::ControlGripper>::SharedPtr cli_gripper_;
-  rclcpp::Client<robot_msgs::srv::GoHome>::SharedPtr cli_home_;
   rclcpp::Client<robot_msgs::srv::SetSpeed>::SharedPtr cli_speed_;
   rclcpp::Client<robot_msgs::srv::GetRobotState>::SharedPtr cli_state_;
 

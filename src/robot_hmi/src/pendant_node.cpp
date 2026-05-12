@@ -30,17 +30,27 @@ void PendantNode::init() {
   // Ensure absolute service/topic names (avoid namespace resolution ambiguity)
   const std::string prefix = "/" + service_prefix_;
 
-  // Service clients
-  cli_move_joint_ = create_client<robot_msgs::srv::MoveJoint>(
-      prefix + "/move_joint");
-  cli_move_pose_ = create_client<robot_msgs::srv::MovePose>(
-      prefix + "/move_pose");
-  cli_move_linear_ = create_client<robot_msgs::srv::MoveLinear>(
-      prefix + "/move_linear");
+  // Action clients (replacing deleted Services)
+  action_movej_ = rclcpp_action::create_client<MoveJAction>(
+      shared_from_this(), prefix + "/move_j");
+  action_movel_ = rclcpp_action::create_client<MoveLAction>(
+      shared_from_this(), prefix + "/move_l");
+  action_gohome_ = rclcpp_action::create_client<GoHomeAction>(
+      shared_from_this(), prefix + "/go_home");
+
+  // Lease service clients
+  cli_acquire_ = create_client<robot_msgs::srv::AcquireControl>(
+      prefix + "/acquire_control");
+  cli_release_ = create_client<robot_msgs::srv::ReleaseControl>(
+      prefix + "/release_control");
+  cli_renew_ = create_client<robot_msgs::srv::RenewLease>(
+      prefix + "/renew_lease");
+  cli_teaching_ = create_client<robot_msgs::srv::RequestTeachingMode>(
+      prefix + "/request_teaching_mode");
+
+  // Remaining service clients
   cli_gripper_ = create_client<robot_msgs::srv::ControlGripper>(
       prefix + "/control_gripper");
-  cli_home_ = create_client<robot_msgs::srv::GoHome>(
-      prefix + "/go_home");
   cli_speed_ = create_client<robot_msgs::srv::SetSpeed>(
       prefix + "/set_speed");
   cli_state_ = create_client<robot_msgs::srv::GetRobotState>(
@@ -120,22 +130,22 @@ void PendantNode::init() {
       std::chrono::milliseconds(500),
       [this]() {
         bool ready = cli_state_->service_is_ready() &&
-                     cli_move_joint_->service_is_ready() &&
-                     cli_move_pose_->service_is_ready() &&
-                     cli_move_linear_->service_is_ready() &&
+                     action_movej_->action_server_is_ready() &&
+                     action_movel_->action_server_is_ready() &&
+                     action_gohome_->action_server_is_ready() &&
                      cli_gripper_->service_is_ready() &&
-                     cli_home_->service_is_ready();
+                     cli_acquire_->service_is_ready();
         bool was_ready = services_ready_.exchange(ready);
         if (ready && !was_ready) {
           LOG_INFO("All robot services discovered and ready");
         } else if (!ready && !was_ready) {
-          LOG_DEBUG("Waiting for services: state={} joint={} pose={} linear={} gripper={} home={}",
+          LOG_DEBUG("Waiting for services: state={} moveJ={} moveL={} goHome={} gripper={} acquire={}",
               cli_state_->service_is_ready(),
-              cli_move_joint_->service_is_ready(),
-              cli_move_pose_->service_is_ready(),
-              cli_move_linear_->service_is_ready(),
+              action_movej_->action_server_is_ready(),
+              action_movel_->action_server_is_ready(),
+              action_gohome_->action_server_is_ready(),
               cli_gripper_->service_is_ready(),
-              cli_home_->service_is_ready());
+              cli_acquire_->service_is_ready());
         }
       });
 
@@ -148,6 +158,7 @@ void PendantNode::init() {
 }
 
 PendantNode::~PendantNode() {
+  release_lease();
   stop_joint_stream();
   task_running_ = false;
   task_cv_.notify_all();
@@ -314,20 +325,36 @@ void PendantNode::async_get_state(std::function<void(
 void PendantNode::async_move_joint(const std::vector<double>& angles,
                                    VoidCallback callback) {
   post_task([this, angles, callback]() {
-    if (!cli_move_joint_->service_is_ready()) {
-      if (callback) callback(false, "Service not available");
+    if (!action_movej_->action_server_is_ready()) {
+      if (callback) callback(false, "Action server not available");
       return;
     }
-    auto req = std::make_shared<robot_msgs::srv::MoveJoint::Request>();
-    req->joint_angles = angles;
-    req->block = true;
-    auto future = cli_move_joint_->async_send_request(req);
-    if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
-      if (callback) callback(false, "Service call timeout");
+    auto goal = MoveJAction::Goal();
+    goal.mode = MoveJAction::Goal::JOINT_SPACE;
+    goal.session_id = session_id_;
+    goal.speed_ratio = 1.0;
+    for (size_t i = 0; i < angles.size() && i < 7; ++i) {
+      goal.joint_angles[i] = angles[i];
+    }
+
+    auto send_goal_options = rclcpp_action::Client<MoveJAction>::SendGoalOptions();
+    auto future_result = action_movej_->async_send_goal(goal, send_goal_options);
+    if (future_result.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+      if (callback) callback(false, "Action send timeout");
       return;
     }
-    auto res = future.get();
-    if (callback) callback(res->success, res->message);
+    auto goal_handle = future_result.get();
+    if (!goal_handle) {
+      if (callback) callback(false, "Goal rejected");
+      return;
+    }
+    auto result_future = action_movej_->async_get_result(goal_handle);
+    if (result_future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+      if (callback) callback(false, "Action timeout");
+      return;
+    }
+    auto result = result_future.get();
+    if (callback) callback(result.result->success, result.result->message);
   });
 }
 
@@ -340,24 +367,83 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
   // grasping_ flag (which defaults to false on startup).
   double actual_finger = (finger < 0) ? current_finger_.load() : finger;
   post_task([this, xyz, rpy, mode, actual_finger, callback]() {
-    if (!cli_move_pose_->service_is_ready()) {
-      if (callback) callback(false, "Service not available");
-      return;
+    // mode 0 = moveJ (joint space via IK), mode 1 = moveL (Cartesian linear)
+    if (mode == 0) {
+      // MoveJ in CARTESIAN mode
+      if (!action_movej_->action_server_is_ready()) {
+        if (callback) callback(false, "MoveJ action not available");
+        return;
+      }
+      auto goal = MoveJAction::Goal();
+      goal.mode = MoveJAction::Goal::CARTESIAN;
+      goal.session_id = session_id_;
+      goal.speed_ratio = 1.0;
+      goal.finger_width = actual_finger;
+      goal.position.x = xyz[0];
+      goal.position.y = xyz[1];
+      goal.position.z = xyz[2];
+      if (rpy) {
+        goal.orientation.x = (*rpy)[0];
+        goal.orientation.y = (*rpy)[1];
+        goal.orientation.z = (*rpy)[2];
+      }
+
+      auto send_goal_options = rclcpp_action::Client<MoveJAction>::SendGoalOptions();
+      auto future_result = action_movej_->async_send_goal(goal, send_goal_options);
+      if (future_result.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+        if (callback) callback(false, "Action send timeout");
+        return;
+      }
+      auto goal_handle = future_result.get();
+      if (!goal_handle) {
+        if (callback) callback(false, "Goal rejected");
+        return;
+      }
+      auto result_future = action_movej_->async_get_result(goal_handle);
+      if (result_future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+        if (callback) callback(false, "Action timeout");
+        return;
+      }
+      auto result = result_future.get();
+      if (callback) callback(result.result->success, result.result->message);
+    } else {
+      // MoveL
+      if (!action_movel_->action_server_is_ready()) {
+        if (callback) callback(false, "MoveL action not available");
+        return;
+      }
+      auto goal = MoveLAction::Goal();
+      goal.session_id = session_id_;
+      goal.speed_ratio = 1.0;
+      goal.finger_width = actual_finger;
+      goal.position.x = xyz[0];
+      goal.position.y = xyz[1];
+      goal.position.z = xyz[2];
+      if (rpy) {
+        goal.orientation.x = (*rpy)[0];
+        goal.orientation.y = (*rpy)[1];
+        goal.orientation.z = (*rpy)[2];
+      }
+
+      auto send_goal_options = rclcpp_action::Client<MoveLAction>::SendGoalOptions();
+      auto future_result = action_movel_->async_send_goal(goal, send_goal_options);
+      if (future_result.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+        if (callback) callback(false, "Action send timeout");
+        return;
+      }
+      auto goal_handle = future_result.get();
+      if (!goal_handle) {
+        if (callback) callback(false, "Goal rejected");
+        return;
+      }
+      auto result_future = action_movel_->async_get_result(goal_handle);
+      if (result_future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+        if (callback) callback(false, "Action timeout");
+        return;
+      }
+      auto result = result_future.get();
+      if (callback) callback(result.result->success, result.result->message);
     }
-    auto req = std::make_shared<robot_msgs::srv::MovePose::Request>();
-    req->xyz = {xyz[0], xyz[1], xyz[2]};
-    if (rpy) {
-      req->rpy = {(*rpy)[0], (*rpy)[1], (*rpy)[2]};
-    }
-    req->mode = mode;
-    req->finger = actual_finger;
-    auto future = cli_move_pose_->async_send_request(req);
-    if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
-      if (callback) callback(false, "Service call timeout");
-      return;
-    }
-    auto res = future.get();
-    if (callback) callback(res->success, res->message);
   });
 }
 
@@ -405,18 +491,32 @@ void PendantNode::async_close_gripper(VoidCallback callback) {
 
 void PendantNode::async_go_home(VoidCallback callback) {
   post_task([this, callback]() {
-    if (!cli_home_->service_is_ready()) {
-      if (callback) callback(false, "Service not available");
+    if (!action_gohome_->action_server_is_ready()) {
+      if (callback) callback(false, "Action server not available");
       return;
     }
-    auto req = std::make_shared<robot_msgs::srv::GoHome::Request>();
-    auto future = cli_home_->async_send_request(req);
-    if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
-      if (callback) callback(false, "Service call timeout");
+    auto goal = GoHomeAction::Goal();
+    goal.session_id = session_id_;
+    goal.speed_ratio = 1.0;
+
+    auto send_goal_options = rclcpp_action::Client<GoHomeAction>::SendGoalOptions();
+    auto future_result = action_gohome_->async_send_goal(goal, send_goal_options);
+    if (future_result.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+      if (callback) callback(false, "Action send timeout");
       return;
     }
-    auto res = future.get();
-    if (callback) callback(res->success, res->message);
+    auto goal_handle = future_result.get();
+    if (!goal_handle) {
+      if (callback) callback(false, "Goal rejected");
+      return;
+    }
+    auto result_future = action_gohome_->async_get_result(goal_handle);
+    if (result_future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+      if (callback) callback(false, "Action timeout");
+      return;
+    }
+    auto result = result_future.get();
+    if (callback) callback(result.result->success, result.result->message);
   });
 }
 
@@ -439,6 +539,97 @@ void PendantNode::async_set_speed(uint8_t mode, double percent) {
       LOG_WARN("SetSpeed failed: {}", res->message);
     }
   });
+}
+
+// ===== Lease Management =====
+
+bool PendantNode::acquire_lease(double duration) {
+  if (!cli_acquire_->service_is_ready()) {
+    LOG_WARN("AcquireControl service not available");
+    return false;
+  }
+  auto req = std::make_shared<robot_msgs::srv::AcquireControl::Request>();
+  req->client_name = client_name_;
+  req->lease_duration = duration;
+  auto future = cli_acquire_->async_send_request(req);
+  if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+    LOG_WARN("AcquireControl service call timed out");
+    return false;
+  }
+  auto res = future.get();
+  if (!res->success) {
+    LOG_WARN("AcquireControl failed: {}", res->message);
+    return false;
+  }
+  session_id_ = res->session_id;
+  has_lease_ = true;
+  LOG_INFO("Lease acquired: session_id={}, timeout={:.1f}s",
+           session_id_, res->lease_timeout);
+
+  // Start lease renewal timer (renew every 3 seconds)
+  if (lease_renewal_timer_) lease_renewal_timer_->cancel();
+  lease_renewal_timer_ = create_wall_timer(
+      std::chrono::seconds(3),
+      [this]() {
+        if (!has_lease_.load() || session_id_.empty()) return;
+        auto req = std::make_shared<robot_msgs::srv::RenewLease::Request>();
+        req->session_id = session_id_;
+        req->lease_extension = 10.0;
+        auto future = cli_renew_->async_send_request(req);
+        if (future.wait_for(std::chrono::seconds(1)) != std::future_status::ready) {
+          LOG_WARN("Lease renewal timed out");
+          return;
+        }
+        auto res = future.get();
+        if (!res->success) {
+          LOG_WARN("Lease renewal failed: {}", res->message);
+          has_lease_ = false;
+        }
+      });
+
+  return true;
+}
+
+void PendantNode::release_lease() {
+  if (!has_lease_.load()) return;
+  if (lease_renewal_timer_) {
+    lease_renewal_timer_->cancel();
+    lease_renewal_timer_.reset();
+  }
+  if (!session_id_.empty() && cli_release_->service_is_ready()) {
+    auto req = std::make_shared<robot_msgs::srv::ReleaseControl::Request>();
+    req->session_id = session_id_;
+    auto future = cli_release_->async_send_request(req);
+    future.wait_for(std::chrono::seconds(2));
+  }
+  session_id_.clear();
+  has_lease_ = false;
+  LOG_INFO("Lease released");
+}
+
+bool PendantNode::request_teaching_mode() {
+  if (!has_lease_.load() || session_id_.empty()) {
+    LOG_WARN("Cannot request teaching mode: no active lease");
+    return false;
+  }
+  if (!cli_teaching_->service_is_ready()) {
+    LOG_WARN("RequestTeachingMode service not available");
+    return false;
+  }
+  auto req = std::make_shared<robot_msgs::srv::RequestTeachingMode::Request>();
+  req->session_id = session_id_;
+  auto future = cli_teaching_->async_send_request(req);
+  if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+    LOG_WARN("RequestTeachingMode timed out");
+    return false;
+  }
+  auto res = future.get();
+  if (!res->success) {
+    LOG_WARN("RequestTeachingMode failed: {}", res->message);
+    return false;
+  }
+  LOG_INFO("Teaching mode activated");
+  return true;
 }
 
 // ===== Jog Control（仅发布 JogCommand 消息） =====
@@ -466,6 +657,12 @@ robot_msgs::msg::JogCommand PendantNode::build_jog_command(
 }
 
 void PendantNode::start_jog(int axis, uint8_t /*mode*/, uint8_t frame) {
+  // Ensure we have a lease and teaching mode before jog
+  if (!has_lease_.load()) {
+    if (!acquire_lease()) return;
+  }
+  if (!request_teaching_mode()) return;
+
   jog_active_ = true;
   last_jog_frame_ = frame;
   pause_joint_stream();
