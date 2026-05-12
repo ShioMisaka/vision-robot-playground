@@ -40,9 +40,9 @@ _core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp 
 | `RobotProfile` | 机器人参数（DOF、关节限位、Home 位、TCP、运动限值） |
 | `GripperProfile` | 夹爪参数（type, min/max_width, DOF） |
 | `TcpConfig` | TCP 偏移（offset_xyz, offset_rpy） |
-| `TopicConfig` | ROS2 话题名称 + 相机外参（来自 robot_controller） |
+| `TopicConfig` | ROS2 话题名称（来自 robot_controller） |
 | `VisionTopicConfig` | 视觉节点相机话题配置（camera_left, camera_depth, sync_queue_size, sync_max_slop） |
-| `CameraConfig` | 相机完整配置（intrinsics + extrinsics + optical frame + frame names） |
+| `RobotConfig` | 配置数据结构：`.robot` (RobotProfile) + `.gripper` (GripperProfile)，通过 `load_profile()` 返回 |
 | `MotionLimits` | 运动限值（max_vel, max_acc, max_jerk） |
 | `DetectionResult` | 视觉检测结果（detected, xyz, uv, confidence, label） |
 | `MotionMode` | 枚举：MOVE_J, MOVE_L |
@@ -70,7 +70,7 @@ _core (pybind11 模块)                ← Python 绑定 + 依赖 robot_api_cpp 
 | 类 | 工厂方法 | 说明 |
 |----|---------|------|
 | `RobotControllerNode` | `create(profile, gripper, topics)` | 内嵌 C++ 控制节点（已弃用，推荐使用 RobotClient） |
-| `VisionProcessorNode` | `create(processor, config)` | 视觉节点：接受 VisionTopicConfig 参数，get_latest_result(), wait_for_detection(), get_logger() |
+| `VisionProcessorNode` | `create(processor, config, camera_config={})` | 视觉节点：接受 VisionTopicConfig + CameraConfig 参数，get_latest_result(), wait_for_detection(), average_detections(), get_logger() |
 
 ### 预定义 Profile
 
@@ -176,7 +176,7 @@ python3 script/test_camera_tf.py        # 相机 TF 验证（RobotControllerNode
 
 ## 包内依赖
 - **内部依赖**: robot_api_cpp, robot_controller, robot_vision, robot_tasks, robot_msgs, robot_logger
-- **外部依赖**: rclcpp, tf2_ros, pybind11-dev
+- **外部依赖**: rclcpp, tf2_ros, pybind11-dev, ament_index_cpp
 
 ## 修改指南
 - **新增 C++ 绑定** → 编辑 `src/bindings.cpp`，参考现有 `py::class_` 写法

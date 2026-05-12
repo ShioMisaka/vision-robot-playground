@@ -26,7 +26,7 @@ Franka Panda 7-DOF + 二指夹爪，ZED_X_Mini 双目深度相机，Qt5 示教�
 | robot_api_cpp | C++ Service 客户端库（RobotClient + ServiceRobotController） |
 | robot_tasks | 视觉+运动联合任务编排（GraspTaskManager 抓取状态机） |
 | robot_api_python | pybind11 Python API 绑定（依赖 robot_api_cpp） |
-| robot_demos | 演示与集成测试（demo_grasp_tcp, demo_camera, demo_vision_grasp, test_robot_node） |
+| robot_demos | 演示与集成测试（demo_grasp_tcp, demo_camera, demo_vision_grasp, demo_vision_diagnostic, test_robot_node） |
 
 ## 常用命令
 ```bash

@@ -61,6 +61,7 @@ kIdle → kDetecting → kApproaching → kDescending → kGrasping → kLifting
 ## 包内依赖
 - **内部依赖**: robot_api_cpp, robot_vision, robot_logger
 - **外部依赖**: rclcpp, Eigen3
+- **测试依赖**: robot_controller（仅 test_camera_tf 需要链接 robot_nodes）
 
 ## 修改指南
 - **修改抓取流程** → 编辑 `src/grasp_task_manager.cpp` 的状态机步骤

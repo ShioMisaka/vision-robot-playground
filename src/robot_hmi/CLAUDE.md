@@ -18,7 +18,7 @@ Qt5 示教器 GUI，提供机器人关节控制、笛卡尔 Jog、夹爪操作�
 | 名称 | 类型 | 方向 | 说明 |
 |------|------|------|------|
 | `~/joint_target` | sensor_msgs/JointState | Pub | 50Hz 关节目标流（发送到 RobotControllerNode，由 100Hz 控制循环统一执行） |
-| `/jog_command` | robot_msgs/JogCommand | Pub | Jog 点动命令（50Hz 心跳） |
+| `~/jog_command` | robot_msgs/JogCommand | Pub | Jog 点动命令（50Hz 心跳） |
 | `/joint_states` | sensor_msgs/JointState | Sub | 关节反馈 |
 | `~/status` | robot_msgs/RobotStatus | Sub | 机器人状态（检测 Jog 完成和 Fault） |
 | `/camera/image_raw/left` | sensor_msgs/Image | Sub | 相机 RGB（message_filters 同步） |
@@ -126,7 +126,7 @@ ros2 run robot_hmi robot_hmi
 
 ## 包内依赖
 - **内部依赖**: robot_msgs, robot_logger
-- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV, tf2_ros
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, qtbase5-dev, OpenCV, tf2_ros, tf2_geometry_msgs
 
 ## 修改指南
 - **修改 UI 布局** → 编辑 `src/main_window.cpp` 的 `setupUi()`

@@ -83,7 +83,7 @@ VisionProcessorNode 初始化时根据 `CameraConfig` 自动发布两条静态 T
 
 ## 包内依赖
 - **内部依赖**: robot_logger
-- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, image_transport, tf2_ros, Eigen3, OpenCV, yaml-cpp
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, cv_bridge, message_filters, tf2_ros, Eigen3, OpenCV, yaml-cpp
 
 注：VisionProcessorNode 已解耦，不再依赖 `robot_controller::TopicConfig` 和 `ControlConstants`，改用自有的 `VisionTopicConfig`。GraspTaskManager 已迁移至 `robot_tasks` 包。
 

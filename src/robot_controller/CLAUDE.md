@@ -95,13 +95,13 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | `src/motion/robot_motion_controller.cpp` | moveJ(), moveL(), set_arm() 等 | 运动原语实现 |
 | `include/.../motion/jog_controller.hpp` | JogController | Jog 点动（S-curve 速度规划 + 解析 IK） |
 | `src/motion/jog_controller.cpp` | tick(), update_velocity_ramp(), enforce_joint_limits(), start(), stop() | 50Hz Jog 控制（tick 仅计算，发布由 node 层负责） |
-| `include/.../nodes/topic_config.hpp` | TopicConfig | ROS2 话题配置（nodes 层） |
 
 ### nodes 层（robot_nodes target）
 
 | 文件 | 类/函数 | 职责 |
 |------|---------|------|
 | `include/.../nodes/robot_controller_node.hpp` | RobotControllerNode, RosMotionBridge | ROS2 主控制节点 |
+| `include/.../nodes/topic_config.hpp` | TopicConfig | ROS2 话题配置（nodes 层） |
 | `src/nodes/robot_controller_node.cpp` | control_loop_tick(), handle_jog_command() | 100Hz 闭环（READ→PLAN→MONITOR→WRITE）+ Jog |
 | `src/nodes/robot_controller_node_services.cpp` | handle_*() | 11 个 Service 回调实现 |
 | `src/nodes/ros_motion_bridge.cpp` | RosMotionBridge | ROS2 通信适配（发布/订阅/TF/轨迹） |
@@ -120,6 +120,7 @@ robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
 | test/test_ik_solver.cpp | URDF 加载、FK、IK 闭环一致性、不可达位姿处理 |
 | test/test_trajectory_planner.cpp | 零位移、完整 7 相位、负位移、无巡航、短距离、Jerk 连续性、多轴同步 |
 | test/test_motion_controller.cpp | 速度设置、moveJ/moveL 轨迹、抓取状态（使用 MockMotionBridge） |
+| test/test_profile_loader.cpp | YAML 加载、RobotProfile/GripperProfile 字段验证 |
 
 注：集成测试（test_robot_node.cpp）已迁移至 `robot_demos/test/`。test_camera_tf.cpp 已迁移至 `robot_tasks/test/`。
 
@@ -137,7 +138,7 @@ ros2 launch robot_bringup controller.launch.py
 
 ## 包内依赖
 - **内部依赖**: robot_msgs, robot_description, robot_logger
-- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, tf2_ros, tf2, tf2_geometry_msgs, ament_index_cpp, orocos_kdl, urdfdom, urdf, kdl_parser, eigen
+- **外部依赖**: rclcpp, sensor_msgs, geometry_msgs, tf2_ros, tf2, tf2_geometry_msgs, ament_index_cpp, orocos_kdl, urdfdom, urdf, kdl_parser, eigen, yaml-cpp
 
 ## 修改指南
 - **修改 IK 算法** → 编辑 `src/kinematics/ik_solver.cpp` 的 `IKSolver::solve()` 和 `velocity_ik()`

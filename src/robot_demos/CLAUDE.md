@@ -41,8 +41,8 @@ ros2 run robot_demos test_robot_node
 ```
 
 ## 包内依赖
-- **内部依赖**: robot_controller, robot_vision, robot_api_cpp, robot_tasks, robot_logger
-- **外部依赖**: rclcpp, robot_msgs, sensor_msgs, cv_bridge, message_filters, OpenCV
+- **内部依赖**: robot_controller, robot_vision, robot_api_cpp, robot_tasks, robot_logger, robot_description
+- **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, OpenCV
 
 ## 各演示链接关系
 
@@ -50,7 +50,8 @@ ros2 run robot_demos test_robot_node
 |-----------|-------------------|
 | `demo_grasp_tcp` | robot_controller::robot_nodes, robot_logger::robot_logger_lib |
 | `demo_camera` | robot_controller::robot_nodes, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
-| `demo_vision_grasp` | robot_api_cpp::robot_api_client_lib, robot_vision::robot_vision_core, robot_vision::robot_vision_nodes, robot_tasks::robot_tasks_lib, robot_logger::robot_logger_lib |
+| `demo_vision_grasp` | robot_api_cpp::robot_api_client_lib, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
+| `demo_vision_diagnostic` | robot_api_cpp::robot_api_client_lib, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
 | `test_robot_node` | robot_controller::robot_nodes, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
 
 ## 修改指南
