@@ -16,16 +16,15 @@ Franka Panda 7-DOF + 二指夹爪，ZED_X_Mini 双目深度相机，Qt5 示教�
 ## 包结构总览
 | 包名 | 职责 |
 |------|------|
-| robot_msgs | ROS2 自定义接口（11 Service + 2 Action + 2 Message） |
+| robot_msgs | ROS2 自定义接口（11 Service + 4 Action + 2 Message） |
 | robot_logger | 统一日志系统（spdlog，宏接口，文件轮转） |
 | robot_description | URDF 机器人模型（Panda + 夹爪 + 相机）+ Profile/Camera YAML 配置 |
 | robot_bringup | 启动文件配置（controller + vision + full_system launch 文件） |
-| robot_controller | 核心运动控制：IK/FK、S 曲线轨迹规划、Jog、100Hz 闭环 |
+| robot_controller | 核心运动控制：IK/FK、S 曲线轨迹规划、Jog、100Hz 闭环 + Action Server + Lease 管理 + robot_client 客户端库 |
 | robot_vision | 视觉处理：HSV 检测 + 深度 3D 定位 + 相机 TF 发布 + CameraConfigLoader |
-| robot_hmi | Qt5 示教器 GUI（6 Panel 架构） |
-| robot_api_cpp | C++ Service 客户端库（RobotClient + ServiceRobotController） |
-| robot_tasks | 视觉+运动联合任务编排（GraspTaskManager 抓取状态机） |
-| robot_api_python | pybind11 Python API 绑定（依赖 robot_api_cpp） |
+| robot_hmi | Qt5 示教器 GUI（6 Panel 架构，Action + Lease 客户端） |
+| robot_tasks | 视觉+运动联合任务编排（GraspTaskManager 抓取状态机 + GraspTaskNode Action Server） |
+| robot_api_python | pybind11 Python API 绑定（依赖 robot_controller::robot_client） |
 | robot_demos | 演示与集成测试（demo_grasp_tcp, demo_camera, demo_vision_grasp, demo_vision_diagnostic, test_robot_node） |
 
 ## 常用命令
@@ -61,15 +60,16 @@ robot_description (URDF + YAML configs: panda_profile.yaml, zed_x_mini_camera.ya
     │           │          │
 robot_controller  robot_vision   robot_logger
     ▲           ▲          ▲
-    │           │          │
-robot_api_cpp    │     (平行后端，互不依赖)
+    │           │     (平行后端，互不依赖)
+    │           │
+    └── robot_tasks ──→ GraspTaskManager + GraspTaskNode
     ▲           ▲
-    └── robot_tasks ──→ GraspTaskManager
+robot_hmi    robot_api_python
     ▲
-robot_demos / robot_hmi / robot_api_python (前端)
+robot_demos (前端)
 ```
 
-**编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller + robot_vision（可并行）→ robot_api_cpp（可并行）→ robot_tasks + robot_hmi（可并行）→ robot_api_python + robot_demos（可并行）→ robot_bringup
+**编译顺序**: robot_msgs → robot_logger + robot_description（可并行）→ robot_controller + robot_vision（可并行）→ robot_tasks + robot_hmi（可并行）→ robot_api_python + robot_demos（可并行）→ robot_bringup
 
 ## 全局约定
 
@@ -107,16 +107,16 @@ robot_demos / robot_hmi / robot_api_python (前端)
 
 ### 分层架构
 ```
-Layer 4: Python Binding (pybind11)           ← script/ 通过 C++ 后端控制
-Layer 3: C++ Service Client (robot_api_cpp)  ← 轻量客户端，连接外部 robot_controller_node
-Layer 2: ROS 2 C++ Wrapper Nodes            ← rclcpp 节点（通信适配层）
-Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_motion / robot_vision_core
+Layer 4: Python Binding (pybind11)                    ← script/ 通过 C++ 后端控制
+Layer 3: C++ Action/Lease Client (robot_controller::robot_client) ← 轻量客户端，连接外部 robot_controller_node
+Layer 2: ROS 2 C++ Wrapper Nodes                      ← rclcpp 节点（通信适配层）
+Layer 1: Pure C++ Core Library (无 ROS 依赖)           ← robot_kinematics / robot_motion / robot_vision_core
 ```
 
 - Layer 1 通过 `MotionIOBridge` 抽象接口与通信解耦
 - **依赖方向约束**: robot_controller 和 robot_vision 为平行后端，互不依赖；robot_tasks 作为联合编排层依赖两者
-- **RobotClient vs RobotControllerNode**: Python 脚本推荐使用 `RobotClient`（`robot_api::RobotClient`，连接外部节点），`RobotControllerNode`（内嵌 C++ 库）已弃用
-- **robot_hmi 架构**: 示教器通过 PendantNode 连接外部 `robot_controller_node` 进程（非嵌入）
+- **Action + Lease 模型**: 客户端通过 AcquireControl 获取 Lease（session_id），所有运动 Action 需携带 session_id；robot_controller_node 同时提供 Action Server（MoveJ/MoveL/GoHome）和 Lease Service
+- **robot_hmi 架构**: 示教器通过 PendantNode 使用 Action + Lease 客户端连接外部 `robot_controller_node` 进程
 - Python 脚本使用 `rclcpp`（通过 pybind11），禁止同时使用 `rclpy`
 - pybind11 绑定中所有阻塞方法必须释放 GIL
 - Eigen 类型在 Python 侧转换为原生 list/tuple，不使用 numpy
@@ -137,7 +137,6 @@ Layer 1: Pure C++ Core Library (无 ROS 依赖) ← robot_kinematics / robot_mot
 - [robot_controller](src/robot_controller/CLAUDE.md)
 - [robot_vision](src/robot_vision/CLAUDE.md)
 - [robot_hmi](src/robot_hmi/CLAUDE.md)
-- [robot_api_cpp](src/robot_api_cpp/CLAUDE.md)
 - [robot_tasks](src/robot_tasks/CLAUDE.md)
 - [robot_api_python](src/robot_api_python/CLAUDE.md)
 - [robot_demos](src/robot_demos/CLAUDE.md)

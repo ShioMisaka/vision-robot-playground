@@ -41,7 +41,7 @@ ros2 run robot_demos test_robot_node
 ```
 
 ## 包内依赖
-- **内部依赖**: robot_controller, robot_vision, robot_api_cpp, robot_tasks, robot_logger, robot_description
+- **内部依赖**: robot_controller, robot_vision, robot_tasks, robot_logger, robot_description
 - **外部依赖**: rclcpp, sensor_msgs, cv_bridge, message_filters, OpenCV
 
 ## 各演示链接关系
@@ -50,8 +50,8 @@ ros2 run robot_demos test_robot_node
 |-----------|-------------------|
 | `demo_grasp_tcp` | robot_controller::robot_nodes, robot_logger::robot_logger_lib |
 | `demo_camera` | robot_controller::robot_nodes, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
-| `demo_vision_grasp` | robot_api_cpp::robot_api_client_lib, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
-| `demo_vision_diagnostic` | robot_api_cpp::robot_api_client_lib, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
+| `demo_vision_grasp` | robot_controller::robot_client, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
+| `demo_vision_diagnostic` | robot_controller::robot_client, robot_tasks::robot_tasks_lib, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
 | `test_robot_node` | robot_controller::robot_nodes, robot_vision::robot_vision_nodes, robot_logger::robot_logger_lib |
 
 ## 修改指南
@@ -64,7 +64,7 @@ ros2 run robot_demos test_robot_node
 ## 注意事项
 - **需 Isaac Sim**: 所有演示和测试需要 Isaac Sim 运行并发布 `/joint_states`
 - **需 robot_controller_node**: 大多数演示需要独立运行的 `robot_controller_node`
-- **demo_vision_grasp 使用客户端模式**: 通过 `robot_api::RobotClient` 连接外部控制器，不内嵌 C++ 库
+- **demo_vision_grasp 使用客户端模式**: 通过 `robot_control::RobotClient` 连接外部控制器，使用 Action + Lease 模式
 - **GraspTaskManager 来自 robot_tasks**: 命名空间为 `robot_tasks`，非 `robot_vision`
 - **test_robot_node 为集成测试**: 覆盖关节控制、夹爪、Home、IK、TCP、TF 等 11 项功能，不是单元测试
 - **日志模块名**: 所有可执行文件使用 `ROBOT_LOGGER_MODULE_NAME="demos"`
