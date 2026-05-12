@@ -1,0 +1,7 @@
+string client_name
+float64 lease_duration
+---
+bool success
+string session_id
+float64 lease_timeout
+string message
