@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_gtest REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(robot_description REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -72,6 +73,7 @@ add_library(robot_nodes SHARED
   src/nodes/ros_motion_bridge.cpp
   src/nodes/robot_state.cpp
   src/nodes/setpoint_generator.cpp
+  src/nodes/lease_manager.cpp
 )
 
 target_include_directories(robot_nodes PUBLIC
@@ -118,6 +120,13 @@ add_executable(test_profile_loader
 )
 target_link_libraries(test_profile_loader robot_kinematics robot_logger::robot_logger_lib)
 target_compile_definitions(test_profile_loader PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
+
+ament_add_gtest(test_lease_manager test/test_lease_manager.cpp src/nodes/lease_manager.cpp)
+target_include_directories(test_lease_manager PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_link_libraries(test_lease_manager robot_logger::robot_logger_lib)
+target_compile_definitions(test_lease_manager PRIVATE ROBOT_LOGGER_MODULE_NAME="controller")
 
 # ===== 独立控制器节点 =====
 add_executable(robot_controller_node
