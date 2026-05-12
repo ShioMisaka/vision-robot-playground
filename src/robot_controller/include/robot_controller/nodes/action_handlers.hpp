@@ -3,7 +3,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -95,7 +94,6 @@ private:
 
   /// @brief 当前活跃的执行线程（同一时刻只有一个 Action 可执行）
   std::thread exec_thread_;
-  std::mutex exec_mutex_;
 };
 
 }  // namespace robot_control

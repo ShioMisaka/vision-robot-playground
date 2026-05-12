@@ -64,7 +64,7 @@ ros2 run robot_demos test_robot_node
 ## 注意事项
 - **需 Isaac Sim**: 所有演示和测试需要 Isaac Sim 运行并发布 `/joint_states`
 - **需 robot_controller_node**: 大多数演示需要独立运行的 `robot_controller_node`
-- **demo_vision_grasp 使用客户端模式**: 通过 `robot_control::RobotClient` 连接外部控制器，使用 Action + Lease 模式
+- **demo_vision_grasp 使用客户端模式**: 通过 `robot_control::RobotClient` 连接外部控制器，使用 Action + Lease 模式。Demo 启动时调用 `acquire_control("demo_vision_grasp")`，退出时调用 `release_control()`
 - **GraspTaskManager 来自 robot_tasks**: 命名空间为 `robot_tasks`，非 `robot_vision`
 - **test_robot_node 为集成测试**: 覆盖关节控制、夹爪、Home、IK、TCP、TF 等 11 项功能，不是单元测试
 - **日志模块名**: 所有可执行文件使用 `ROBOT_LOGGER_MODULE_NAME="demos"`

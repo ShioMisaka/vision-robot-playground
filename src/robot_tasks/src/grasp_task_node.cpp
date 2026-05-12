@@ -57,6 +57,20 @@ GraspTaskNode::GraspTaskNode(const std::string& node_name,
                              const std::string& target_prefix)
     : rclcpp::Node(node_name), target_prefix_(target_prefix) {}
 
+// ===== 析构函数 =====
+GraspTaskNode::~GraspTaskNode() {
+  shutdown_.store(true);
+  {
+    std::lock_guard<std::mutex> lock(task_mutex_);
+    if (current_task_) {
+      current_task_->request_abort();
+    }
+  }
+  if (exec_thread_.joinable()) {
+    exec_thread_.join();
+  }
+}
+
 // ===== 初始化 =====
 void GraspTaskNode::init() {
   // 1. 创建 RobotClient（连接外部 robot_controller_node）
@@ -121,8 +135,14 @@ rclcpp_action::CancelResponse GraspTaskNode::handle_cancel(
 void GraspTaskNode::handle_accepted(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<GraspTaskAction>>
         goal_handle) {
+  // 等待前一个执行线程结束
+  if (exec_thread_.joinable()) {
+    exec_thread_.join();
+  }
   // 在新线程中执行，避免阻塞 Action Server
-  std::thread{[this, goal_handle]() { this->execute(goal_handle); }}.detach();
+  exec_thread_ = std::thread([this, goal_handle]() {
+    this->execute(goal_handle);
+  });
 }
 
 // ===== 执行 =====
@@ -151,8 +171,19 @@ void GraspTaskNode::execute(
     return;
   }
 
-  // 获取控制器并准备机器人
+  // 获取控制权 Lease（所有运动 Action 需要 session_id）
   auto ctrl = robot_client_->get_controller();
+  if (!ctrl->acquire_control("robot_tasks")) {
+    auto result = std::make_shared<GraspTaskAction::Result>();
+    result->success = false;
+    result->message = "获取控制权 Lease 失败";
+    result->final_state = GraspTaskAction::Goal::ERROR;
+    goal_handle->abort(result);
+    LOG_ERROR("{}", result->message);
+    return;
+  }
+
+  // 准备机器人
   ctrl->set_speed(robot_control::MotionMode::kMoveJ, 40.0);
   ctrl->set_speed(robot_control::MotionMode::kMoveL, 10.0);
   ctrl->set_tcp("grasptarget");
@@ -264,6 +295,9 @@ void GraspTaskNode::execute(
     current_task_.reset();
     current_goal_.reset();
   }
+
+  // 释放控制权 Lease
+  ctrl->release_control();
 }
 
 // ===== get_sub_nodes =====

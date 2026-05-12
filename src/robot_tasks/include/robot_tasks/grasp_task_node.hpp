@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -83,6 +85,13 @@ class GraspTaskNode : public rclcpp::Node {
       current_goal_;
   std::unique_ptr<GraspTaskManager> current_task_;
   std::mutex task_mutex_;
+
+  // ===== 执行线程管理 =====
+  std::thread exec_thread_;
+  std::atomic<bool> shutdown_{false};
+
+ public:
+  ~GraspTaskNode();
 };
 
 }  // namespace robot_tasks

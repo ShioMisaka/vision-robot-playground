@@ -113,48 +113,29 @@ int main(int argc, char* argv[]) {
   {
     auto ctrl = robot_client->get_controller();
 
-    // ---- 诊断日志：初始状态 ----
-    {
-      auto pose = ctrl->get_end_effector_pose();
-      LOG_INFO("[DIAG] 初始 TCP: xyz=[{:.4f}, {:.4f}, {:.4f}] rpy=[{:.4f}, {:.4f}, {:.4f}]",
-               pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+    // ---- 获取控制权 Lease（所有运动 Action 需要 session_id）----
+    if (!ctrl->acquire_control("demo_vision_grasp")) {
+      LOG_ERROR("获取控制权 Lease 失败，请确认控制器未被其他客户端占用");
+      goto cleanup;
     }
 
     // ---- 设置速度 ----
     ctrl->set_speed(robot_control::MotionMode::kMoveJ, kMoveJSpeed);
     ctrl->set_speed(robot_control::MotionMode::kMoveL, kMoveLSpeed);
-    LOG_INFO("[DIAG] 速度: moveJ={:.0f}%, moveL={:.0f}%",
-             kMoveJSpeed, kMoveLSpeed);
 
     // ---- 切换到指尖坐标系 ----
     ctrl->set_tcp("grasptarget");
-    LOG_INFO("[DIAG] TCP 切换为 grasptarget");
 
     // ---- 张开夹爪 ----
     LOG_INFO("张开夹爪");
     ctrl->open_gripper(true);
 
-    // ---- 等待首次检测（诊断）----
-    LOG_INFO("[DIAG] 等待视觉检测（10s 超时）...");
+    // ---- 等待首次检测 ----
     auto first_result = vision_node->wait_for_detection(10.0);
     if (!first_result.has_value() || !first_result->detected) {
-      LOG_ERROR("[DIAG] 初始检测失败，请确认红色物块在相机视野内");
+      LOG_ERROR("初始检测失败，请确认红色物块在相机视野内");
       goto cleanup;
     }
-    LOG_INFO("[DIAG] 首次检测: uv=[{}, {}], camera_xyz=[{:.4f}, {:.4f}, {:.4f}]",
-             first_result->uv.x(), first_result->uv.y(),
-             first_result->xyz.x(), first_result->xyz.y(),
-             first_result->xyz.z());
-    // 诊断：验证 uv 到 camera_xyz 的投影是否一致
-    double verify_x = (first_result->uv.x() - kCx) *
-                      first_result->xyz.z() / kFx;
-    double verify_y = (first_result->uv.y() - kCy) *
-                      first_result->xyz.z() / kFy;
-    LOG_INFO("[DIAG] 投影验证: 由uv反算 x={:.4f} (实际{:.4f}) y={:.4f} (实际{:.4f}) "
-             "depth={:.4f}",
-             verify_x, first_result->xyz.x(),
-             verify_y, first_result->xyz.y(),
-             first_result->xyz.z());
 
     if (!rclcpp::ok()) goto cleanup;
 
@@ -204,6 +185,9 @@ int main(int argc, char* argv[]) {
     LOG_INFO("抓取结果: {}, 最终状态: {}",
              success ? "成功" : "失败",
              state_name(task.get_state()));
+
+    // ---- 释放控制权 ----
+    ctrl->release_control();
   }
 
 cleanup:

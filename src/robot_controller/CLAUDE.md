@@ -22,8 +22,8 @@ robot_kinematics (共享库)    ← IK + 轨迹规划（零 ROS 依赖）
 robot_motion (共享库)        ← 运动控制器 + Jog + 接口（依赖 kinematics）
        ▲
 robot_nodes (共享库)         ← ROS2 控制节点（依赖 motion）
-       ▲
-robot_client (共享库)        ← Action/Lease 客户端（ActionRobotController + RobotClient，依赖 robot_nodes）
+
+robot_client (共享库)        ← Action/Lease 客户端（ActionRobotController + RobotClient，依赖 robot_motion + robot_msgs，不依赖 robot_nodes）
 ```
 
 ## 话题 / 服务 / Action 接口

@@ -84,4 +84,6 @@ ros2 run robot_tasks robot_tasks_node
 ## 注意事项
 - **命名空间**: 此包所有类使用 `namespace robot_tasks`
 - **通过 Action 控制**: GraspTaskManager 通过 IRobotController 接口（ActionRobotController）控制机器人，不直接链接 robot_controller 内部库
+- **Lease 管理**: GraspTaskNode 在 execute() 中自动调用 `acquire_control("robot_tasks")`，执行完成后调用 `release_control()`。ActionRobotController 后台每 3 秒自动续租
+- **线程管理**: execute() 在 joinable 线程中运行（非 detach），析构时通过 `request_abort()` + `join()` 安全退出
 - **transform_to_base**: 内部手动计算坐标变换（base ← hand ← camera ← optical），optical_frame_pitch 参数控制光学帧旋转

@@ -157,9 +157,8 @@ void ActionRobotController::send_movej_goal(
       rclcpp_action::Client<robot_msgs::action::MoveJ>::SendGoalOptions();
 
   // 注册 feedback 回调
-  std::mutex feedback_mutex;
   send_goal_options.feedback_callback =
-      [this, &feedback_mutex](
+      [this](
           std::shared_ptr<rclcpp_action::ClientGoalHandle<
               robot_msgs::action::MoveJ>> /*goal_handle*/,
           const std::shared_ptr<
@@ -327,22 +326,48 @@ void ActionRobotController::move_to_pose(
   moveJ(xyz, rpy, finger, block);
 }
 
-void ActionRobotController::move_linear(const std::array<double, 3>& /*delta*/,
-                                        const std::string& /*frame*/,
-                                        double /*finger*/, bool block) {
-  // move_linear 是相对运动，构造 moveL goal 时需要先获取当前位姿
-  // 但 MoveL action 接受绝对目标，所以这里通过 moveJ 间接实现
-  // 注意：旧 ServiceRobotController 有独立的 MoveLinear service，
-  // 新架构下建议使用 moveL 绝对坐标。此处用 moveJ 关节空间近似。
-  LOG_WARN("move_linear: no dedicated linear-delta action available, "
-           "delegating to current approach via joint angles");
+void ActionRobotController::move_linear(const std::array<double, 3>& delta,
+                                        const std::string& frame,
+                                        double finger, bool block) {
+  // move_linear 是相对运动（delta），MoveL Action 接受绝对目标。
+  // 策略：获取当前 TCP 位姿 → 根据 frame 应用 delta → 发送 MoveL 绝对目标。
   refresh_state_cache();
-  std::vector<double> current;
+  std::array<double, 6> current_pose;
   {
     std::lock_guard<std::mutex> lock(cache_mutex_);
-    current = cached_joints_;
+    current_pose = cached_pose_;
   }
-  moveJ(current, block);
+
+  // 当前位姿
+  double cx = current_pose[0], cy = current_pose[1], cz = current_pose[2];
+  double roll = current_pose[3], pitch = current_pose[4], yaw = current_pose[5];
+
+  std::array<double, 3> target_xyz;
+  if (frame == "tcp") {
+    // TCP 坐标系下的 delta：需要旋转到基坐标系
+    // 简化：使用 RPY 构造旋转矩阵，将 delta 从 TCP 系转到 base 系
+    double cr = std::cos(roll), sr = std::sin(roll);
+    double cp = std::cos(pitch), sp = std::sin(pitch);
+    double cy_ = std::cos(yaw), sy = std::sin(yaw);
+
+    // R = Rz(yaw) * Ry(pitch) * Rx(roll) — ZYX Euler
+    double r00 = cy_ * cp, r01 = cy_ * sp * sr - sy * cr, r02 = cy_ * sp * cr + sy * sr;
+    double r10 = sy * cp,  r11 = sy * sp * sr + cy_ * cr, r12 = sy * sp * cr - cy_ * sr;
+    double r20 = -sp,      r21 = cp * sr,                 r22 = cp * cr;
+
+    target_xyz = {
+        cx + r00 * delta[0] + r01 * delta[1] + r02 * delta[2],
+        cy + r10 * delta[0] + r11 * delta[1] + r12 * delta[2],
+        cz + r20 * delta[0] + r21 * delta[1] + r22 * delta[2]
+    };
+  } else {
+    // Base 坐标系：直接加 delta
+    target_xyz = {cx + delta[0], cy + delta[1], cz + delta[2]};
+  }
+
+  // 保持当前姿态不变，只改变位置
+  std::array<double, 3> rpy = {roll, pitch, yaw};
+  moveL(target_xyz, rpy, finger, block);
 }
 
 void ActionRobotController::rotate_joint(int index, double delta_angle,
@@ -367,20 +392,20 @@ void ActionRobotController::go_home(bool block) {
 }
 
 std::vector<double> ActionRobotController::get_joint_angles() const {
-  const_cast<ActionRobotController*>(this)->refresh_state_cache();
+  refresh_state_cache();
   std::lock_guard<std::mutex> lock(cache_mutex_);
   return cached_joints_;
 }
 
 std::array<double, 6>
 ActionRobotController::get_end_effector_pose() const {
-  const_cast<ActionRobotController*>(this)->refresh_state_cache();
+  refresh_state_cache();
   std::lock_guard<std::mutex> lock(cache_mutex_);
   return cached_pose_;
 }
 
 double ActionRobotController::get_finger_width() const {
-  const_cast<ActionRobotController*>(this)->refresh_state_cache();
+  refresh_state_cache();
   std::lock_guard<std::mutex> lock(cache_mutex_);
   return cached_finger_;
 }
@@ -399,7 +424,7 @@ void ActionRobotController::set_tcp(const std::string& name) {
 }
 
 std::string ActionRobotController::get_current_tcp() const {
-  const_cast<ActionRobotController*>(this)->refresh_state_cache();
+  refresh_state_cache();
   std::lock_guard<std::mutex> lock(cache_mutex_);
   return cached_tcp_;
 }

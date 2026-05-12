@@ -106,6 +106,7 @@ class ActionRobotController : public IRobotController {
 
  private:
   /// 刷新状态缓存（关节角、末端位姿、夹爪宽度、TCP 名称）
+  /// 使用 mutable mutex 保护缓存，因此标记为 const
   void refresh_state_cache() const;
 
   /// 调用 ControlGripper 服务

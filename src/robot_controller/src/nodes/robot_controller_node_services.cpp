@@ -1,4 +1,5 @@
 #include "robot_controller/nodes/robot_controller_node.hpp"
+#include "robot_controller/nodes/action_handlers.hpp"
 #include "robot_controller/kinematics/ik_solver.hpp"
 #include "robot_controller/motion/control_constants.hpp"
 #include "robot_controller/nodes/robot_state.hpp"
@@ -174,6 +175,10 @@ void RobotControllerNode::handle_robot_cmd(
         bridge_->setpoint_generator().cancel();
         if (jog_controller_ && jog_controller_->is_active()) {
           jog_controller_->stop();
+        }
+        // 通知活跃 Action 执行线程需要取消
+        if (action_handlers_) {
+          action_handlers_->request_cancel();
         }
         state_machine_.transition_to(RobotState::kStopping);
         {

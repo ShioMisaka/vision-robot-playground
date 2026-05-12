@@ -337,7 +337,10 @@ void PendantNode::async_move_joint(const std::vector<double>& angles,
     }
     auto goal = MoveJAction::Goal();
     goal.mode = MoveJAction::Goal::JOINT_SPACE;
-    goal.session_id = session_id_;
+    {
+      std::lock_guard<std::mutex> lock(session_mutex_);
+      goal.session_id = session_id_;
+    }
     goal.speed_ratio = 1.0;
     for (size_t i = 0; i < angles.size() && i < 7; ++i) {
       goal.joint_angles[i] = angles[i];
@@ -388,7 +391,10 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
       }
       auto goal = MoveJAction::Goal();
       goal.mode = MoveJAction::Goal::CARTESIAN;
-      goal.session_id = session_id_;
+      {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        goal.session_id = session_id_;
+      }
       goal.speed_ratio = 1.0;
       goal.finger_width = actual_finger;
       goal.position.x = xyz[0];
@@ -425,7 +431,10 @@ void PendantNode::async_move_pose(const std::array<double, 3>& xyz,
         return;
       }
       auto goal = MoveLAction::Goal();
-      goal.session_id = session_id_;
+      {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        goal.session_id = session_id_;
+      }
       goal.speed_ratio = 1.0;
       goal.finger_width = actual_finger;
       goal.position.x = xyz[0];
@@ -514,7 +523,10 @@ void PendantNode::async_go_home(VoidCallback callback) {
       return;
     }
     auto goal = GoHomeAction::Goal();
-    goal.session_id = session_id_;
+    {
+      std::lock_guard<std::mutex> lock(session_mutex_);
+      goal.session_id = session_id_;
+    }
     goal.speed_ratio = 1.0;
 
     auto send_goal_options = rclcpp_action::Client<GoHomeAction>::SendGoalOptions();
@@ -579,8 +591,12 @@ bool PendantNode::acquire_lease(double duration) {
     LOG_WARN("AcquireControl failed: {}", res->message);
     return false;
   }
-  session_id_ = res->session_id;
+  {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    session_id_ = res->session_id;
+  }
   has_lease_ = true;
+  lease_fail_count_.store(0);
   LOG_INFO("Lease acquired: session_id={}, timeout={:.1f}s",
            session_id_, res->lease_timeout);
 
@@ -592,16 +608,27 @@ bool PendantNode::acquire_lease(double duration) {
   lease_renewal_timer_ = create_wall_timer(
       std::chrono::seconds(3),
       [this]() {
-        if (!has_lease_.load() || session_id_.empty()) return;
+        std::string sid;
+        {
+          std::lock_guard<std::mutex> lock(session_mutex_);
+          sid = session_id_;
+        }
+        if (!has_lease_.load() || sid.empty()) return;
         auto req = std::make_shared<robot_msgs::srv::RenewLease::Request>();
-        req->session_id = session_id_;
+        req->session_id = sid;
         req->lease_extension = 10.0;
         cli_renew_->async_send_request(req,
             [this](rclcpp::Client<robot_msgs::srv::RenewLease>::SharedFuture future) {
               auto res = future.get();
               if (!res->success) {
-                LOG_WARN("Lease renewal failed: {}", res->message);
-                has_lease_ = false;
+                int fails = lease_fail_count_.fetch_add(1) + 1;
+                LOG_WARN("Lease renewal failed ({}/3): {}", fails, res->message);
+                if (fails >= 3) {
+                  LOG_ERROR("Lease renewal failed 3 consecutive times, dropping lease");
+                  has_lease_ = false;
+                }
+              } else {
+                lease_fail_count_.store(0);
               }
             });
       });
@@ -615,19 +642,32 @@ void PendantNode::release_lease() {
     lease_renewal_timer_->cancel();
     lease_renewal_timer_.reset();
   }
-  if (!session_id_.empty() && cli_release_->service_is_ready()) {
+  std::string sid;
+  {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    sid = session_id_;
+  }
+  if (!sid.empty() && cli_release_->service_is_ready()) {
     auto req = std::make_shared<robot_msgs::srv::ReleaseControl::Request>();
-    req->session_id = session_id_;
+    req->session_id = sid;
     auto future = cli_release_->async_send_request(req);
     future.wait_for(std::chrono::seconds(2));
   }
-  session_id_.clear();
+  {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    session_id_.clear();
+  }
   has_lease_ = false;
   LOG_INFO("Lease released");
 }
 
 bool PendantNode::request_teaching_mode() {
-  if (!has_lease_.load() || session_id_.empty()) {
+  std::string sid;
+  {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    sid = session_id_;
+  }
+  if (!has_lease_.load() || sid.empty()) {
     LOG_WARN("Cannot request teaching mode: no active lease");
     return false;
   }
@@ -636,7 +676,7 @@ bool PendantNode::request_teaching_mode() {
     return false;
   }
   auto req = std::make_shared<robot_msgs::srv::RequestTeachingMode::Request>();
-  req->session_id = session_id_;
+  req->session_id = sid;
   auto future = cli_teaching_->async_send_request(req);
   if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
     LOG_WARN("RequestTeachingMode timed out");

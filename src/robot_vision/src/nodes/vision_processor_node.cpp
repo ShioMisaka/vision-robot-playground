@@ -99,15 +99,6 @@ void VisionProcessorNode::publish_camera_tf(const CameraConfig& config) {
 void VisionProcessorNode::on_synced_image(
     const sensor_msgs::msg::Image::ConstSharedPtr& left,
     const sensor_msgs::msg::Image::ConstSharedPtr& depth) {
-  // 诊断：首帧打印图像尺寸信息
-  static bool first_frame_logged = false;
-  if (!first_frame_logged) {
-    LOG_INFO("[DIAG] Image: rgb={}x{} encoding={}, depth={}x{} encoding={}",
-             left->width, left->height, left->encoding,
-             depth->width, depth->height, depth->encoding);
-    first_frame_logged = true;
-  }
-
   cv_bridge::CvImagePtr cv_left;
   cv_bridge::CvImagePtr cv_depth;
 

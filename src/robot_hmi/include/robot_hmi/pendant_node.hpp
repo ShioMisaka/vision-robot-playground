@@ -195,10 +195,12 @@ private:
   rclcpp::Client<robot_msgs::srv::RequestTeachingMode>::SharedPtr cli_teaching_;
 
   // Lease state
+  std::mutex session_mutex_;
   std::string session_id_;
   std::string client_name_ = "pendant";
   rclcpp::TimerBase::SharedPtr lease_renewal_timer_;
   std::atomic<bool> has_lease_{false};
+  std::atomic<int> lease_fail_count_{0};
 
   // Remaining service clients
   rclcpp::Client<robot_msgs::srv::ControlGripper>::SharedPtr cli_gripper_;
@@ -264,7 +266,7 @@ private:
   std::array<double, 7> latest_joints_{};
 
   // State tracking for joint stream control
-  uint8_t last_robot_state_ = robot_msgs::msg::RobotStatus::IDLE;
+  std::atomic<uint8_t> last_robot_state_{robot_msgs::msg::RobotStatus::IDLE};
 
   // 后台任务队列
   std::mutex task_mutex_;
