@@ -11,7 +11,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ===== 依赖查找 =====
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(robot_api_cpp REQUIRED)
 find_package(robot_vision REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_logger REQUIRED)
@@ -28,7 +27,7 @@ target_include_directories(robot_tasks_lib PUBLIC
 )
 
 target_link_libraries(robot_tasks_lib
-  robot_api_cpp::robot_api_client_lib
+  robot_controller::robot_client
   robot_vision::robot_vision_core
   robot_logger::robot_logger_lib
   Eigen3::Eigen
@@ -73,7 +72,7 @@ install(TARGETS test_camera_tf
 ament_export_targets(robot_tasks_export HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
-  robot_api_cpp
+  robot_controller
   robot_vision
   robot_logger
 )
