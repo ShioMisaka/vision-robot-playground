@@ -14,7 +14,6 @@ find_package(rclcpp REQUIRED)
 find_package(robot_controller REQUIRED)
 find_package(robot_vision REQUIRED)
 find_package(robot_tasks REQUIRED)
-find_package(robot_api_cpp REQUIRED)
 find_package(robot_logger REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -41,7 +40,7 @@ add_executable(demo_vision_grasp
   demo/demo_vision_grasp.cpp
 )
 target_link_libraries(demo_vision_grasp
-  robot_api_cpp::robot_api_client_lib
+  robot_controller::robot_client
   robot_tasks::robot_tasks_lib
   robot_vision::robot_vision_nodes
   robot_logger::robot_logger_lib
@@ -54,7 +53,7 @@ add_executable(demo_vision_diagnostic
   demo/demo_vision_diagnostic.cpp
 )
 target_link_libraries(demo_vision_diagnostic
-  robot_api_cpp::robot_api_client_lib
+  robot_controller::robot_client
   robot_tasks::robot_tasks_lib
   robot_vision::robot_vision_nodes
   robot_logger::robot_logger_lib
